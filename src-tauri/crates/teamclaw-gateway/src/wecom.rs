@@ -180,17 +180,14 @@ fn detect_ooxml_from_zip(bytes: &[u8]) -> Option<String> {
             break;
         }
 
-        let fname_len =
-            u16::from_le_bytes([bytes[offset + 26], bytes[offset + 27]]) as usize;
-        let extra_len =
-            u16::from_le_bytes([bytes[offset + 28], bytes[offset + 29]]) as usize;
-        let compressed_size =
-            u32::from_le_bytes([
-                bytes[offset + 18],
-                bytes[offset + 19],
-                bytes[offset + 20],
-                bytes[offset + 21],
-            ]) as usize;
+        let fname_len = u16::from_le_bytes([bytes[offset + 26], bytes[offset + 27]]) as usize;
+        let extra_len = u16::from_le_bytes([bytes[offset + 28], bytes[offset + 29]]) as usize;
+        let compressed_size = u32::from_le_bytes([
+            bytes[offset + 18],
+            bytes[offset + 19],
+            bytes[offset + 20],
+            bytes[offset + 21],
+        ]) as usize;
 
         if offset + 30 + fname_len > limit {
             break;
@@ -200,13 +197,21 @@ fn detect_ooxml_from_zip(bytes: &[u8]) -> Option<String> {
         if let Ok(fname) = std::str::from_utf8(fname_bytes) {
             let fname_lower = fname.to_ascii_lowercase();
             if fname_lower.starts_with("xl/") || fname_lower == "xl" {
-                return Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".into());
+                return Some(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".into(),
+                );
             }
             if fname_lower.starts_with("word/") || fname_lower == "word" {
-                return Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document".into());
+                return Some(
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        .into(),
+                );
             }
             if fname_lower.starts_with("ppt/") || fname_lower == "ppt" {
-                return Some("application/vnd.openxmlformats-officedocument.presentationml.presentation".into());
+                return Some(
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                        .into(),
+                );
             }
             if fname_lower == "[content_types].xml" {
                 has_content_types = true;
@@ -1413,9 +1418,7 @@ impl WeComGateway {
         };
 
         // Use caller-provided filename_hint first, then Content-Disposition filename
-        let effective_hint = filename_hint
-            .map(|s| s.to_string())
-            .or(cd_filename);
+        let effective_hint = filename_hint.map(|s| s.to_string()).or(cd_filename);
 
         // Resolve MIME: filename hint first (precise for OOXML), magic bytes second,
         // application/octet-stream as last resort. Defaulting to image/png caused
@@ -1541,33 +1544,71 @@ impl WeComGateway {
                         String::new()
                     };
 
-                    // Build text: user text (or default) + attachment reference for UI display
-                    let text_content = if parts.is_empty() {
-                        if attachment_ref.is_empty() {
-                            "请描述这张图片".to_string()
+                    // Determine if this file type can be sent as a file part to
+                    // the AI model. To match desktop ChatPanel behavior, only
+                    // images are sent as file parts; all other types (pdf, xlsx,
+                    // docx, md, etc.) are referenced by path so the agent can
+                    // read them via tools.
+                    let is_image = mime.starts_with("image/");
+
+                    if is_image {
+                        // Image: send as file part (AI model handles directly)
+                        let text_content = if parts.is_empty() {
+                            if attachment_ref.is_empty() {
+                                "请描述这张图片".to_string()
+                            } else {
+                                format!("请描述这张图片\n\n{}", attachment_ref)
+                            }
                         } else {
-                            format!("请描述这张图片\n\n{}", attachment_ref)
-                        }
+                            let existing = parts.pop().unwrap();
+                            let existing_text =
+                                existing.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                            if attachment_ref.is_empty() {
+                                existing_text.to_string()
+                            } else {
+                                format!("{}\n\n{}", existing_text, attachment_ref)
+                            }
+                        };
+                        parts.push(serde_json::json!({
+                            "type": "text",
+                            "text": text_content,
+                        }));
+                        parts.push(serde_json::json!({
+                            "type": "file",
+                            "url": data_url,
+                            "mime": mime,
+                        }));
                     } else {
-                        // Append attachment ref to existing text
-                        let existing = parts.pop().unwrap();
-                        let existing_text =
-                            existing.get("text").and_then(|t| t.as_str()).unwrap_or("");
-                        if attachment_ref.is_empty() {
-                            existing_text.to_string()
+                        // Non-image files (pdf, xlsx, docx, md, etc.): only save
+                        // to .uploads and tell the agent the file path via text.
+                        // The agent will use tools (bash/read) to process it.
+                        let text_content = if parts.is_empty() {
+                            if attachment_ref.is_empty() {
+                                format!(
+                                    "用户上传了文件 {} (类型: {})，请使用工具读取并处理。",
+                                    img_filename, mime
+                                )
+                            } else {
+                                format!(
+                                    "用户上传了文件，请使用工具读取并处理。\n\n{}",
+                                    attachment_ref
+                                )
+                            }
                         } else {
-                            format!("{}\n\n{}", existing_text, attachment_ref)
-                        }
-                    };
-                    parts.push(serde_json::json!({
-                        "type": "text",
-                        "text": text_content,
-                    }));
-                    parts.push(serde_json::json!({
-                        "type": "file",
-                        "url": data_url,
-                        "mime": mime,
-                    }));
+                            let existing = parts.pop().unwrap();
+                            let existing_text =
+                                existing.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                            if attachment_ref.is_empty() {
+                                existing_text.to_string()
+                            } else {
+                                format!("{}\n\n{}", existing_text, attachment_ref)
+                            }
+                        };
+                        parts.push(serde_json::json!({
+                            "type": "text",
+                            "text": text_content,
+                        }));
+                    }
                 }
                 Err(e) => {
                     println!("[WeCom] Failed to download file: {}", e);
@@ -3055,7 +3096,10 @@ mod mime_tests {
         bytes.extend_from_slice(&[0x00, 0x00]);
         bytes.extend_from_slice(entry_name);
         let mime = resolve_mime(&bytes, None);
-        assert_eq!(mime, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        assert_eq!(
+            mime,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        );
     }
 
     #[test]
@@ -3076,7 +3120,10 @@ mod mime_tests {
         bytes.extend_from_slice(&[0x00, 0x00]);
         bytes.extend_from_slice(entry_name);
         let mime = resolve_mime(&bytes, None);
-        assert_eq!(mime, "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+        assert_eq!(
+            mime,
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        );
     }
 
     #[test]

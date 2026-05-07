@@ -21,48 +21,6 @@ impl Default for CronStorage {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::Utc;
-    use serde_json::json;
-
-    #[tokio::test]
-    async fn list_jobs_reflects_external_file_changes() {
-        let workspace = tempfile::tempdir().unwrap();
-        let workspace_path = workspace.path().to_str().unwrap();
-        let storage = CronStorage::new();
-
-        storage.init(workspace_path).await;
-        assert!(storage.list_jobs().await.is_empty());
-
-        let now = Utc::now().to_rfc3339();
-        let jobs_path = CronStorage::jobs_path(workspace_path);
-        std::fs::create_dir_all(jobs_path.parent().unwrap()).unwrap();
-        std::fs::write(
-            &jobs_path,
-            serde_json::to_string_pretty(&json!({
-                "jobs": [{
-                    "id": "external-job",
-                    "name": "External job",
-                    "enabled": true,
-                    "schedule": { "kind": "cron", "expr": "0 9 * * *" },
-                    "payload": { "message": "hello" },
-                    "deleteAfterRun": false,
-                    "createdAt": now,
-                    "updatedAt": now
-                }]
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-
-        let jobs = storage.list_jobs().await;
-        assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].id, "external-job");
-    }
-}
-
 impl Clone for CronStorage {
     fn clone(&self) -> Self {
         Self {
@@ -542,6 +500,7 @@ impl CronStorage {
 mod tests {
     use super::*;
     use chrono::{TimeZone, Utc};
+    use serde_json::json;
 
     fn make_run(run_id: &str, status: RunStatus) -> CronRunRecord {
         let started_at = Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap();
@@ -579,5 +538,40 @@ mod tests {
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].status, RunStatus::Success);
         assert_eq!(runs[0].worktree_path.as_deref(), Some("/tmp/worktree"));
+    }
+
+    #[tokio::test]
+    async fn list_jobs_reflects_external_file_changes() {
+        let workspace = tempfile::tempdir().unwrap();
+        let workspace_path = workspace.path().to_str().unwrap();
+        let storage = CronStorage::new();
+
+        storage.init(workspace_path).await;
+        assert!(storage.list_jobs().await.is_empty());
+
+        let now = Utc::now().to_rfc3339();
+        let jobs_path = CronStorage::jobs_path(workspace_path);
+        std::fs::create_dir_all(jobs_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &jobs_path,
+            serde_json::to_string_pretty(&json!({
+                "jobs": [{
+                    "id": "external-job",
+                    "name": "External job",
+                    "enabled": true,
+                    "schedule": { "kind": "cron", "expr": "0 9 * * *" },
+                    "payload": { "message": "hello" },
+                    "deleteAfterRun": false,
+                    "createdAt": now,
+                    "updatedAt": now
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let jobs = storage.list_jobs().await;
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "external-job");
     }
 }

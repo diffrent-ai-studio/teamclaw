@@ -31,6 +31,8 @@ export interface MessageListProps {
   sessionDirectory?: string;
   /** Optional empty-state content rendered when there are no messages (not loading) */
   emptyState?: React.ReactNode;
+  /** Optional content rendered at the bottom of the scrollable message area. */
+  bottomContent?: React.ReactNode;
 }
 
 export interface MessageListHandle {
@@ -50,6 +52,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       compact = false,
       sessionDirectory,
       emptyState,
+      bottomContent,
     },
     ref,
   ) {
@@ -136,13 +139,21 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       let groupStart = -1;
       for (let i = 0; i <= renderedMessages.length; i++) {
         const msg = renderedMessages[i];
-        const isAssistant = msg && msg.role !== "user" && !msg.isStreaming;
+        const isAssistant = msg && msg.role !== "user";
         if (!isAssistant || i === renderedMessages.length) {
           // End of a group — finalize
           if (groupStart !== -1) {
             const groupEnd = i - 1;
             const groupLen = groupEnd - groupStart + 1;
-            if (groupLen > 1) {
+            const groupHasStreaming = renderedMessages
+              .slice(groupStart, groupEnd + 1)
+              .some((groupMessage) => groupMessage.isStreaming);
+
+            if (groupHasStreaming) {
+              for (let j = groupStart; j <= groupEnd; j++) {
+                info.set(renderedMessages[j].id, { hideTokenUsage: true });
+              }
+            } else if (groupLen > 1) {
               let totalInput = 0,
                 totalOutput = 0,
                 totalCost = 0;
@@ -181,6 +192,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
     const [showScrollButton, setShowScrollButton] = React.useState(false);
     const [inputAreaHeight, setInputAreaHeight] = React.useState(160);
     const [messageAreaWidth, setMessageAreaWidth] = React.useState(0);
+    const hasBottomContent = Boolean(bottomContent);
 
     // ── Refs ─────────────────────────────────────────────────────────────
     const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -353,6 +365,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       messageQueue.length,
       streamingContentLength,
       streamingUpdateTrigger,
+      hasBottomContent,
     ]);
 
     // Auto-scroll when streaming ends (to show token usage and final content)
@@ -680,6 +693,12 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
                     })
                   );
                 })()}
+              </div>
+            )}
+
+            {bottomContent && (
+              <div className="pt-3">
+                {bottomContent}
               </div>
             )}
           </div>

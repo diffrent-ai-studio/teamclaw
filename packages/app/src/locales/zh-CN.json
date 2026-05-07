@@ -1698,8 +1698,7 @@
       "modelOverrideHint": "选择一个模型，或使用工作区默认模型。",
       "modelSelected": "使用：{{model}}",
       "noModels": "未配置模型。请先在 LLM 设置中配置提供商。",
-      "timeout": "超时（秒）",
-      "timeoutHint": "AI 响应的最长时间。超过后自动中止（30-900 秒，默认 180 秒）。",
+      "lastHeartbeat": "最后心跳",
       "useDefaultModel": "使用默认模型"
     },
     "team": {

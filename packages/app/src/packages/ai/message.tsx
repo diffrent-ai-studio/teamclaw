@@ -2,7 +2,7 @@ import * as React from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { readFile } from "@tauri-apps/plugin-fs"
-import { Download, X, Copy, Check } from "lucide-react"
+import { Download, X, Copy, Check, Maximize2 } from "lucide-react"
 
 import { cn, isTauri } from "@/lib/utils"
 import {
@@ -580,6 +580,7 @@ function CodeBlock({ language, children }: { language: string; children: string 
 function MermaidBlock({ children }: { children: string }) {
   const [svg, setSvg] = React.useState<string | null>(null)
   const [hasError, setHasError] = React.useState(false)
+  const [isPreviewOpen, setIsPreviewOpen] = React.useState(false)
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const diagramId = React.useId().replace(/:/g, '')
   const source = React.useMemo(() => String(children).trim(), [children])
@@ -626,23 +627,49 @@ function MermaidBlock({ children }: { children: string }) {
   }
 
   return (
-    <div
-      data-testid="mermaid-block"
-      className="my-2 overflow-x-auto rounded-lg border border-border bg-background px-3 py-3"
-    >
-      {svg ? (
-        <div
-          ref={containerRef}
-          className="[&_svg]:h-auto [&_svg]:max-w-full"
-          dangerouslySetInnerHTML={{ __html: svg }}
-        />
-      ) : (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <span>Rendering Mermaid diagram...</span>
-        </div>
-      )}
-    </div>
+    <>
+      <div
+        data-testid="mermaid-block"
+        className="relative my-2 overflow-x-auto rounded-lg border border-border bg-background px-3 py-3"
+      >
+        {svg ? (
+          <>
+            <button
+              type="button"
+              aria-label="放大流程图"
+              title="放大流程图"
+              onClick={() => setIsPreviewOpen(true)}
+              className="absolute right-1.5 top-1.5 z-10 inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/80 bg-background/90 text-muted-foreground opacity-80 shadow-sm backdrop-blur transition hover:bg-accent hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+            <div
+              ref={containerRef}
+              className="[&_svg]:h-auto [&_svg]:max-w-full"
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+          </>
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <span>Rendering Mermaid diagram...</span>
+          </div>
+        )}
+      </div>
+      {isPreviewOpen && svg ? (
+        <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+          <DialogContent className="max-h-[82vh] w-[92vw] !max-w-[92vw] overflow-hidden p-0">
+            <DialogTitle className="sr-only">放大流程图</DialogTitle>
+            <div className="max-h-[82vh] overflow-auto bg-background p-4">
+              <div
+                className="w-max min-w-full [&_svg]:block [&_svg]:h-auto [&_svg]:min-w-[960px] [&_svg]:max-w-none"
+                dangerouslySetInnerHTML={{ __html: svg }}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+    </>
   )
 }
 

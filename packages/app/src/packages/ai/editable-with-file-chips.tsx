@@ -17,6 +17,37 @@ function containsControlInput(value: string) {
   return false
 }
 
+function hasNativeTrailingLineBreakPlaceholder(element: HTMLElement): boolean {
+  const lastChild = element.lastChild
+  const previousChild = lastChild?.previousSibling
+  return (
+    lastChild?.nodeType === Node.TEXT_NODE &&
+    lastChild.textContent === "\n" &&
+    previousChild !== null
+  )
+}
+
+function insertLineBreakAtSelection(editable: HTMLElement): boolean {
+  if (typeof document.execCommand === "function" && document.execCommand("insertLineBreak")) {
+    return true
+  }
+
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return false
+
+  const range = selection.getRangeAt(0)
+  if (!editable.contains(range.commonAncestorContainer)) return false
+
+  selection.deleteFromDocument()
+  const textNode = document.createTextNode("\n")
+  range.insertNode(textNode)
+  range.setStartAfter(textNode)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  return true
+}
+
 interface EditableWithFileChipsProps {
   value?: string
   onChange?: (value: string) => void
@@ -174,6 +205,9 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
       }
 
       element.childNodes.forEach(traverse)
+      if (result.endsWith("\n") && hasNativeTrailingLineBreakPlaceholder(element)) {
+        result = result.slice(0, -1)
+      }
       return result
     }, [])
 
@@ -241,6 +275,17 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
     }, [htmlToValue, onChange])
 
     const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Enter" && e.shiftKey) {
+        e.preventDefault()
+        e.stopPropagation()
+
+        const editable = editableRef.current
+        if (editable && insertLineBreakAtSelection(editable)) {
+          handleInput()
+        }
+        return
+      }
+
       // Delete chip with Backspace
       if (e.key === "Backspace") {
         const sel = window.getSelection()
@@ -397,6 +442,8 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
 
     const handleBeforeInput = React.useCallback((e: React.FormEvent<HTMLDivElement>) => {
       const inputEvent = e.nativeEvent as InputEvent;
+      if (inputEvent.inputType === "insertLineBreak" || inputEvent.inputType === "insertParagraph") return;
+
       const data = inputEvent.data;
       if (!data) return;
       // Some desktop/webview input methods can surface arrow-key escape bytes as

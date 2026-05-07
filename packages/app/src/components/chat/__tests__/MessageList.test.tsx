@@ -50,6 +50,22 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
   };
 }
 
+function makeAssistantWithTokens(
+  overrides: Partial<Message> & { input: number; output: number },
+): Message {
+  const { input, output, ...messageOverrides } = overrides;
+  return makeMessage({
+    role: 'assistant',
+    tokens: {
+      input,
+      output,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    },
+    ...messageOverrides,
+  });
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe('MessageList', () => {
@@ -145,18 +161,13 @@ describe('MessageList', () => {
     expect(container.textContent).toContain('Message 0');
   });
 
-  it('keeps completed assistant token usage visible while a pending assistant is streaming', () => {
-    const completedAssistant = makeMessage({
+  it('hides completed assistant token usage while the next assistant step is streaming', () => {
+    const completedAssistant = makeAssistantWithTokens({
       id: 'assistant-complete',
-      role: 'assistant',
       content: 'Done',
       timestamp: new Date('2024-01-01T10:00:00Z'),
-      tokens: {
-        input: 2500,
-        output: 33,
-        reasoning: 0,
-        cache: { read: 0, write: 0 },
-      },
+      input: 2500,
+      output: 33,
     });
     const pendingAssistant = makeMessage({
       id: 'pending-assistant',
@@ -175,9 +186,40 @@ describe('MessageList', () => {
       />,
     );
 
-    expect(container.textContent).toContain('↓2.5k');
-    expect(container.textContent).toContain('↑33');
-    expect(container.textContent).toContain('tokens');
+    expect(container.textContent).not.toContain('↓2.5k');
+    expect(container.textContent).not.toContain('↑33');
+    expect(container.textContent).not.toContain('tokens');
+  });
+
+  it('shows one aggregate token total after assistant steps complete', () => {
+    const firstStep = makeAssistantWithTokens({
+      id: 'assistant-step-1',
+      content: 'First step',
+      timestamp: new Date('2024-01-01T10:00:00Z'),
+      input: 2500,
+      output: 33,
+    });
+    const finalStep = makeAssistantWithTokens({
+      id: 'assistant-step-2',
+      content: 'Final step',
+      timestamp: new Date('2024-01-01T10:01:00Z'),
+      input: 500,
+      output: 7,
+    });
+
+    const { container } = render(
+      <MessageList
+        messages={[firstStep, finalStep]}
+        activeSessionId="sess-1"
+        isStreaming={false}
+        streamingMessageId={null}
+      />,
+    );
+
+    expect(container.textContent).toContain('2 steps');
+    expect(container.textContent).toContain('↓3.0k');
+    expect(container.textContent).toContain('↑40');
+    expect((container.textContent?.match(/tokens/g) || []).length).toBe(1);
   });
 
   it('uses an explicit sessionDirectory for relative local image paths', async () => {

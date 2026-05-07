@@ -75,7 +75,10 @@ pub async fn cron_init(
     let delivery_mgr = DeliveryManager::new(workspace_path.clone());
     cron_state.scheduler.set_delivery(delivery_mgr).await;
 
-    // Step 4: Start the scheduler for the new workspace
+    // Step 4: Reconcile runs left active by a previous app/executor process.
+    cron_state.scheduler.reconcile_interrupted_runs().await;
+
+    // Step 5: Start the scheduler for the new workspace
     cron_state.scheduler.start().await;
 
     println!(

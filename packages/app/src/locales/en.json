@@ -1698,8 +1698,7 @@
       "modelOverrideHint": "Select a model or use workspace default.",
       "modelSelected": "Using: {{model}}",
       "noModels": "No models configured. Please configure providers in LLM Settings first.",
-      "timeout": "Timeout (seconds)",
-      "timeoutHint": "Max time for AI to respond. Auto-aborts if exceeded (30-900s, default 180s).",
+      "lastHeartbeat": "Last heartbeat",
       "useDefaultModel": "Use default model"
     },
     "team": {

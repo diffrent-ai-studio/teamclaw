@@ -136,13 +136,21 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       let groupStart = -1;
       for (let i = 0; i <= renderedMessages.length; i++) {
         const msg = renderedMessages[i];
-        const isAssistant = msg && msg.role !== "user" && !msg.isStreaming;
+        const isAssistant = msg && msg.role !== "user";
         if (!isAssistant || i === renderedMessages.length) {
           // End of a group — finalize
           if (groupStart !== -1) {
             const groupEnd = i - 1;
             const groupLen = groupEnd - groupStart + 1;
-            if (groupLen > 1) {
+            const groupHasStreaming = renderedMessages
+              .slice(groupStart, groupEnd + 1)
+              .some((groupMessage) => groupMessage.isStreaming);
+
+            if (groupHasStreaming) {
+              for (let j = groupStart; j <= groupEnd; j++) {
+                info.set(renderedMessages[j].id, { hideTokenUsage: true });
+              }
+            } else if (groupLen > 1) {
               let totalInput = 0,
                 totalOutput = 0,
                 totalCost = 0;

@@ -144,9 +144,13 @@ vi.mock('@/lib/ui-variant', () => ({
 
 vi.mock('@/components/ui/sidebar', () => ({
   Sidebar: ({ children, ...props }: any) => <div data-testid="sidebar" {...props}>{children}</div>,
-  SidebarContent: ({ children }: any) => <div>{children}</div>,
+  SidebarContent: ({ children, className }: any) => (
+    <div data-testid="sidebar-content" className={className}>
+      {children}
+    </div>
+  ),
   SidebarFooter: ({ children }: any) => <div>{children}</div>,
-  SidebarGroup: ({ children }: any) => <div>{children}</div>,
+  SidebarGroup: ({ children, className }: any) => <div className={className}>{children}</div>,
   SidebarHeader: ({ children }: any) => <div>{children}</div>,
   SidebarMenu: ({ children }: any) => <div>{children}</div>,
   SidebarMenuButton: ({ children, onClick, isActive: _isActive, ...props }: any) => (
@@ -555,6 +559,24 @@ describe('AppSidebar', () => {
     render(<AppSidebar />)
     expect(screen.getByText('Settings')).toBeDefined()
     expect(screen.queryByText('设置')).toBeNull()
+  })
+
+  it('workspace mode only scrolls the session list area', () => {
+    uiVariantMocks.workspaceShell = true
+
+    const { container } = render(<AppSidebar />)
+
+    expect(screen.getByTestId('sidebar-content').getAttribute('class')).toContain('overflow-hidden')
+
+    const sessionScrollRegion = container.querySelector('[data-testid="sidebar-session-scroll"]')
+    expect(sessionScrollRegion).not.toBeNull()
+    expect(sessionScrollRegion!.getAttribute('class')).toContain('overflow-y-auto')
+    expect(sessionScrollRegion!.textContent).toContain('Session One')
+    expect(sessionScrollRegion!.textContent).toContain('Session Two')
+    expect(sessionScrollRegion!.textContent).not.toContain('Shortcuts')
+    expect(sessionScrollRegion!.textContent).not.toContain('Automation')
+    expect(sessionScrollRegion!.textContent).not.toContain('Roles & Skills')
+    expect(sessionScrollRegion!.textContent).not.toContain('New Chat')
   })
 
   it('workspace variant preserves the settings footer row', () => {

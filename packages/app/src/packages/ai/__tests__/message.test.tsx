@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 
 let shouldThrowMarkdown = false
@@ -19,7 +19,9 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
-  DialogContent: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
+  DialogContent: ({ children, className }: React.PropsWithChildren<{ className?: string }>) => (
+    React.createElement('div', { className, 'data-testid': 'dialog-content' }, children)
+  ),
   DialogTitle: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
 }))
 
@@ -69,6 +71,7 @@ vi.mock('lucide-react', () => ({
   X: () => React.createElement('span', null, 'X'),
   Copy: () => React.createElement('span', null, 'Copy'),
   Check: () => React.createElement('span', null, 'Check'),
+  Maximize2: () => React.createElement('span', null, 'Maximize2'),
 }))
 
 beforeEach(() => {
@@ -221,6 +224,60 @@ describe('MessageResponse', () => {
       expect(container.querySelector('[data-testid="mermaid-svg"]')).toBeTruthy()
     })
     expect(container.querySelector('pre')).toBeNull()
+  })
+
+  it('opens a larger mermaid preview without rendering the diagram again', async () => {
+    const { Message, MessageContent, MessageResponse } = await import('@/packages/ai/message')
+
+    const mermaidSource = [
+      '```mermaid',
+      'flowchart LR',
+      '  A[Start] --> B[Done]',
+      '```',
+    ].join('\n')
+
+    render(
+      React.createElement(Message, { from: 'assistant' },
+        React.createElement(MessageContent, null,
+          React.createElement(MessageResponse, null, mermaidSource)
+        )
+      )
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mermaid-block')).toBeTruthy()
+      expect(screen.getByTestId('mermaid-svg')).toBeTruthy()
+    })
+
+    expect(mermaidRenderMock).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '放大流程图' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('mermaid-svg')).toHaveLength(2)
+    })
+    expect(mermaidRenderMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses a compact mermaid preview button and content-sized dialog', async () => {
+    const { Message, MessageContent, MessageResponse } = await import('@/packages/ai/message')
+
+    render(
+      React.createElement(Message, { from: 'assistant' },
+        React.createElement(MessageContent, null,
+          React.createElement(MessageResponse, null, '```mermaid\nflowchart LR\nA --> B\n```')
+        )
+      )
+    )
+
+    const expandButton = await screen.findByRole('button', { name: '放大流程图' })
+    expect(expandButton.className).toContain('h-6 w-6')
+
+    fireEvent.click(expandButton)
+
+    const dialogContent = await screen.findByTestId('dialog-content')
+    expect(dialogContent.className).toContain('max-h-[82vh]')
+    expect(dialogContent.className).not.toContain('h-[86vh]')
   })
 
   it('falls back to a normal mermaid code block when diagram rendering fails', async () => {

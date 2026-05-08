@@ -1,6 +1,7 @@
 pub mod app_settings;
 pub mod clawhub;
 pub mod cron;
+pub mod daemon_installer;
 pub mod deps;
 pub mod device_token;
 pub mod env_vars;
@@ -24,6 +25,7 @@ pub mod shared_secrets_crypto;
 pub mod skillssh;
 pub mod spotlight;
 pub mod stt;
+pub mod supabase_auth_bridge;
 pub mod team;
 #[cfg(feature = "p2p")]
 pub mod team_p2p;

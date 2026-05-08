@@ -6,7 +6,7 @@
 
 ## Overview
 
-Replace the tightly coupled OpenCode sidecar with an architecture where TeamClaw is a thin client (peer of the iOS app), agents are independent `amuxd` daemon processes, and all communication flows over a single MQTT topic per session using the actor model. Sessions and identities move to Supabase; the existing FC backend shrinks to managed-git, Pro distribution, and a future AI proxy.
+Replace the tightly coupled OpenCode sidecar with an architecture where TeamClaw is a thin client, agents are independent `amuxd` daemon processes, and all communication flows over a single MQTT topic per session using the actor model. Sessions and identities move to Supabase; the existing FC backend shrinks to managed-git, Pro distribution, and a future AI proxy.
 
 ## Goals
 
@@ -16,6 +16,8 @@ Replace the tightly coupled OpenCode sidecar with an architecture where TeamClaw
 - Move session list, identity, and team membership to Supabase + EMQX; let Aliyun FC serve only the things it does well (managed-git, Pro distribution, future AI proxy)
 - Keep the things users see: ChatPanel layout, Tiptap / CodeMirror editors, workspace picker, OSS / iroh team sync
 - Ship as v2.0.0 via a `git worktree` so v1 stays patchable on `main`
+
+This spec covers the **TeamClaw desktop client only**. Other clients (e.g., web) are out of scope.
 
 ## Non-Goals (v1)
 
@@ -32,7 +34,7 @@ Replace the tightly coupled OpenCode sidecar with an architecture where TeamClaw
 
 | ID | Question | Decision |
 |---|---|---|
-| Q1 | Where does `amuxd` live in the architecture? | Daemon is independent — not bundled in TeamClaw. TeamClaw and iOS are both human clients. |
+| Q1 | Where does `amuxd` live in the architecture? | Daemon is independent — not bundled in TeamClaw. TeamClaw is a human client; the daemon is an agent host. |
 | Q2 | What does "multi-person × multi-agent collab" mean concretely? | Unified actor model (`human` / `agent`); single topic `session/{id}/live` per session. |
 | Q3 | How do we reconcile teamclaw's FC stack with amuxd's Supabase + EMQX stack? | Adopt Supabase + EMQX wholesale. FC shrinks to managed-git, Pro distribution, future AI proxy. |
 | Q4 | Where does the agent process actually run in a multi-actor session? | Agent runs wherever its daemon runs. Daemon offline ⇒ agent offline. No host migration. |
@@ -50,8 +52,8 @@ Replace the tightly coupled OpenCode sidecar with an architecture where TeamClaw
 
 ```
 ┌─────────────────┐         ┌──────────────────┐         ┌──────────────────┐
-│ teamclaw / iOS  │         │  Supabase        │         │  amuxd daemon    │
-│ (human client)  │◄────────┤  (auth + DB)     ├────────►│  (agent host)    │
+│  teamclaw       │         │  Supabase        │         │  amuxd daemon    │
+│  (human client) │◄────────┤  (auth + DB)     ├────────►│  (agent host)    │
 │                 │         │                  │         │                  │
 │ • ChatPanel UI  │         │ • users          │         │ • ACP subprocess │
 │ • Tiptap/CM     │         │ • sessions       │         │   (Claude Code)  │
@@ -73,7 +75,7 @@ Replace the tightly coupled OpenCode sidecar with an architecture where TeamClaw
 
 2. **There is no sidecar.** `src-tauri/binaries/opencode-*` and `src-tauri/src/commands/opencode.rs` are removed. The Tauri backend is a Supabase / MQTT client plus filesystem operations and a daemon installer (Mac / Linux only).
 
-3. **The daemon is an independent process.** On Mac and Linux the TeamClaw installer wires it to launchd or systemd-user. On Windows users install it manually. A daemon is bound to a host machine; if the daemon is offline, the agent is offline — exactly the same failure mode as a human being offline.
+3. **The daemon is an independent process.** On Mac and Linux the TeamClaw installer wires it to launchd or systemd-user. On Windows users install it manually. A daemon is bound to a host machine; if the daemon is offline, the agent is offline — exactly the same failure mode as a human participant going offline.
 
 4. **The session bus is one MQTT topic.** Each session has a single `session/{id}/live` topic. Every actor — human and agent alike — subscribes and publishes. Messages are Protobuf `Envelope` records (extending amuxd's `amux.proto`). Payload variants include `ChatMessage`, `AgentInvoke`, `ActorJoin` / `ActorLeave`, `AcpThinking`, `AcpOutput`, `AcpToolUse`, `AcpToolResult`, `AcpPermissionRequest` / `AcpPermissionGrant` / `AcpPermissionDeny`, `AcpAvailableCommands`, `AcpStatusChange`, `AcpError`.
 
@@ -176,6 +178,8 @@ Rust publishes to session/{id}/live (QoS 1)
   ↓
 Daemon subscribed to topic, receives AgentInvoke
   → verify target_daemon_id == self → yes
+  → verify publisher's actor_id has can_invite_agent=true in session_actors
+    (rejects unauthorized invitations from session participants — see §5.1)
   → verify Path::new(workspace_path).is_dir() → yes
     (remote daemon would fail here and publish AcpError back)
   → ACP NewSessionRequest::new(workspace_path) spawns Claude Code
@@ -369,9 +373,7 @@ No additional coordination protocol is required; the filesystem plus mtime plus 
 - Claude Code reads `.claude/skills/`, `.mcp/config.json` etc. from its cwd as it does today
 - The daemon is unaware of "team sync" — it forwards ACP events; skills and MCP servers are content the agent process reads from the workspace
 
-Two consequences:
-1. Adding a new team skill requires no daemon changes; only TeamClaw clients need to sync.
-2. iOS, having no filesystem in the development sense, can only invite agents on servers (workspace-less path from §5.2). It naturally needs no skill sync.
+Consequence: adding a new team skill requires no daemon changes; only TeamClaw clients need to sync.
 
 ### 5.5 Explicit non-goals for v1
 
@@ -409,7 +411,7 @@ cd ../teamclaw-v2
 - Old permission allowlist — re-formed in the daemon, per-agent
 - `last-workspace.json` — readable, path format is unchanged
 
-**User experience:** Upgrading to v2 means re-authenticating (OAuth into Supabase), an empty session list, and no carry-over chat history. v1 ships an "Export v1 history" feature in Settings (markdown / json) so users can keep what they want before upgrading.
+**User experience:** Upgrading to v2 means re-authenticating (OAuth into Supabase), an empty session list, and no carry-over chat history. v1 ships an "Export v1 history" feature in Settings (markdown / json) so users can keep what they want before upgrading. The export tool is a v1 main-branch task tracked separately from this spec; its scope is limited to read-only export and does not touch protocol code.
 
 **Why:**
 - v1 schema (OpenCode `Message[]`) and v2 schema (`ActorEvent[]`) are structurally incompatible
@@ -624,7 +626,7 @@ These are documented as out of scope for v1 but anticipated:
 
 1. **FC AI proxy with Supabase JWT (Q7-B path).** Required for team / enterprise customers who do not want BYOK. Implementation requires FC adoption of long-running connections (SAE container or WebSocket gateway) to handle Anthropic streaming.
 2. **Lease-based host migration.** When a daemon goes offline, another participant's daemon could pick up the agent runtime (resuming via ACP `ResumeSession`). Useful for "always-on team agents" but depends on amuxd's `unstable_session_resume` becoming stable.
-3. **Cloud-hosted agents.** Running Claude Code in FC / containers, with the workspace mounted from OSS or fetched from a Git repository. High value for iOS users; requires a separate workstream.
+3. **Cloud-hosted agents.** Running Claude Code in FC / containers, with the workspace mounted from OSS or fetched from a Git repository. Required for any client that lacks a local filesystem; requires a separate workstream.
 4. **Windows one-click installer.** Once amuxd has verified Windows support, replace the manual flow with registry Run-key or Task Scheduler API automation in `daemon_installer.rs`.
 5. **Multi-daemon per machine.** "Work persona vs personal persona" agent identities. Data model already supports it via distinct `device_id`s; installer needs branching.
 6. **Sub-task delegation between agents.** Agent A delegates to Agent B (matches the project memory note on task decomposition). Requires an `AgentInvoke` chain and an idempotency mechanism for cycles.
@@ -640,5 +642,4 @@ These are documented as out of scope for v1 but anticipated:
 - `/Volumes/openbeta/workspace/amux/proto/amux.proto` — protocol definitions; v2 envelope schema extends this
 - `/Volumes/openbeta/workspace/amux/docs/specs/2026-04-15-amux-architecture.md` — amuxd architecture design
 - `docs/superpowers/specs/2026-04-04-mqtt-protobuf-migration-design.md` — earlier MQTT effort (parked); informs but does not constrain v2
-- `docs/superpowers/specs/2026-04-02-ios-mobile-client-design.md` — iOS client design; v2 inherits the "thin client" model
 - Recent commits: `b0937c7` (multi-window workspace isolation), `ba7b8f2` (webview recovery after sleep) — load-bearing for §7 reconnection logic

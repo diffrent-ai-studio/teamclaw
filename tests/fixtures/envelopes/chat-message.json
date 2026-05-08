@@ -1,0 +1,12 @@
+{
+  "id": "env_001",
+  "timestamp": 1715000000.0,
+  "payload": {
+    "case": "chatMessage",
+    "value": {
+      "actorId": "u_zhangsan",
+      "text": "hello",
+      "mentionActorIds": ["agent_claude"]
+    }
+  }
+}

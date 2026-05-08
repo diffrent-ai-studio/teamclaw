@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::State;
 
-use super::opencode::OpenCodeState;
 use super::team::{get_workspace_path, TEAM_REPO_DIR};
 use super::TEAMCLAW_DIR;
 
@@ -113,12 +112,11 @@ pub fn spawn_sync_timer(
 pub async fn webdav_connect(
     url: String,
     auth: WebDavAuth,
-    opencode_state: State<'_, OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
     webdav_state: State<'_, tokio::sync::Mutex<WebDavManagedState>>,
 ) -> Result<WebDavSyncStatus, String> {
-    let workspace_path = get_workspace_path(&window, &registry, &opencode_state)?;
+    let workspace_path = get_workspace_path(&window, &registry)?;
     let config = read_webdav_config(&workspace_path);
     let allow_insecure = config.as_ref().map(|c| c.allow_insecure).unwrap_or(false);
 
@@ -186,12 +184,11 @@ pub async fn webdav_connect(
 
 #[tauri::command]
 pub async fn webdav_sync(
-    opencode_state: State<'_, OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
     webdav_state: State<'_, tokio::sync::Mutex<WebDavManagedState>>,
 ) -> Result<SyncResult, String> {
-    let workspace_path = get_workspace_path(&window, &registry, &opencode_state)?;
+    let workspace_path = get_workspace_path(&window, &registry)?;
 
     let (client, url, auth, syncing) = {
         let state = webdav_state.lock().await;
@@ -222,12 +219,11 @@ pub async fn webdav_sync(
 
 #[tauri::command]
 pub async fn webdav_disconnect(
-    opencode_state: State<'_, OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
     webdav_state: State<'_, tokio::sync::Mutex<WebDavManagedState>>,
 ) -> Result<(), String> {
-    let workspace_path = get_workspace_path(&window, &registry, &opencode_state)?;
+    let workspace_path = get_workspace_path(&window, &registry)?;
 
     let mut state = webdav_state.lock().await;
 
@@ -263,11 +259,10 @@ pub async fn webdav_disconnect(
 #[tauri::command]
 pub async fn webdav_export_config(
     password: String,
-    opencode_state: State<'_, OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
 ) -> Result<String, String> {
-    let workspace_path = get_workspace_path(&window, &registry, &opencode_state)?;
+    let workspace_path = get_workspace_path(&window, &registry)?;
     let config = read_webdav_config(&workspace_path).ok_or("WebDAV not configured")?;
     let credential = get_credential(&workspace_path)?;
 
@@ -294,7 +289,6 @@ pub async fn webdav_export_config(
 pub async fn webdav_import_config(
     config_json: String,
     password: String,
-    opencode_state: State<'_, OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
     webdav_state: State<'_, tokio::sync::Mutex<WebDavManagedState>>,
@@ -315,7 +309,6 @@ pub async fn webdav_import_config(
     webdav_connect(
         payload.url,
         auth,
-        opencode_state,
         window,
         registry,
         webdav_state,
@@ -327,12 +320,11 @@ pub async fn webdav_import_config(
 
 #[tauri::command]
 pub async fn webdav_get_status(
-    opencode_state: State<'_, OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
     webdav_state: State<'_, tokio::sync::Mutex<WebDavManagedState>>,
 ) -> Result<WebDavSyncStatus, String> {
-    let workspace_path = get_workspace_path(&window, &registry, &opencode_state)?;
+    let workspace_path = get_workspace_path(&window, &registry)?;
     let state = webdav_state.lock().await;
     let config = read_webdav_config(&workspace_path);
 
@@ -351,11 +343,10 @@ pub async fn webdav_get_status(
 /// Deprecated: use team::get_team_status instead. Kept for backward compatibility.
 #[tauri::command]
 pub async fn get_team_mode(
-    opencode_state: State<'_, OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
 ) -> Result<Option<String>, String> {
-    let workspace_path = get_workspace_path(&window, &registry, &opencode_state)?;
+    let workspace_path = get_workspace_path(&window, &registry)?;
     Ok(crate::commands::team::check_team_status(&workspace_path).mode)
 }
 

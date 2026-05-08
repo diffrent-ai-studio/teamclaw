@@ -120,6 +120,11 @@ export default defineConfig({
       'src/**/__tests__/**/*.test.ts',
       'src/**/__tests__/**/*.test.tsx',
     ],
+    env: {
+      // Stub Supabase env vars so supabase-client.ts doesn't throw during test module evaluation
+      VITE_SUPABASE_URL: 'https://test.supabase.co',
+      VITE_SUPABASE_ANON_KEY: 'test-anon-key',
+    },
   },
   build: {
     // Tauri uses Chromium on Windows and WebKit on macOS and Linux

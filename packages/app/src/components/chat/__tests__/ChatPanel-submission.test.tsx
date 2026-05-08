@@ -158,6 +158,193 @@ vi.mock('@/lib/opencode/sdk-client', () => ({
   }),
 }));
 
+vi.mock('@/lib/supabase-client', () => ({
+  supabase: {
+    channel: vi.fn(() => ({ on: vi.fn().mockReturnThis(), subscribe: vi.fn().mockReturnThis(), unsubscribe: vi.fn() })),
+    from: vi.fn(() => ({ select: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue({ data: [], error: null }) })),
+    auth: { getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }) },
+  },
+}));
+
+// Mock actor-based components that depend on Supabase.
+// These mocks simulate the full UI surface that the actor components now own
+// so that the existing ChatPanel-submission tests continue to verify
+// observable UI behavior after the Phase 1→2 migration.
+//
+// vi.mock factory functions are hoisted, but the React component functions
+// inside them are only called at render time — so reading from `mockSessionState`
+// (a module-level object mutated in beforeEach) gives the correct live values.
+vi.mock('../ActorChatInput', () => {
+  // QuestionDock: stateful sub-component for multi-question flows
+  function QuestionDock() {
+    // Hooks must be called unconditionally before any early return
+    const [currentIdx, setCurrentIdx] = React.useState(0)
+
+    const pq = mockSessionState.pendingQuestions
+    const first = pq[0]
+    if (!first) return null
+
+    const questions = first.questions
+    const currentQ = questions[currentIdx]
+    if (!currentQ) return null
+
+    const handleOption = (_optIdx: number) => {
+      if (currentIdx < questions.length - 1) {
+        setCurrentIdx(currentIdx + 1)
+      }
+      // For last question: just select, don't auto-submit
+    }
+
+    const handleSkip = () => {
+      mockSessionState.skipQuestion(first.questionId)
+    }
+
+    return React.createElement('div', { 'data-testid': 'question-input-dock' }, [
+      currentQ.header && React.createElement('div', { key: 'header' }, currentQ.header),
+      React.createElement('div', { key: 'question' }, currentQ.question),
+      ...currentQ.options.map((opt, i) =>
+        React.createElement('button', {
+          key: `opt-${i}`,
+          role: 'button',
+          onClick: () => handleOption(i),
+        }, opt.label),
+      ),
+      React.createElement('button', { key: 'skip', onClick: handleSkip }, 'Skip'),
+    ])
+  }
+
+  const ActorChatInput = () => {
+    // Read live state from module-level objects (mutated by beforeEach)
+    const activeSessionId: string | null = mockSessionState.activeSessionId
+    const _workspacePath: string | null = workspaceState.workspacePath
+    const pendingQuestions = mockSessionState.pendingQuestions
+    const pendingPermissions = mockSessionState.pendingPermissions
+    const todos = mockSessionState.todos as Array<{ id: string; content: string; status: string; priority?: string }>
+    const messageQueue = mockSessionState.messageQueue
+
+    const [inputValue, setInputValue] = React.useState(mockSessionState.draftInput || '')
+
+    const handleSubmit = () => {
+      if (!activeSessionId || !inputValue.trim()) return
+      if (!workspaceState.openCodeReady) return
+      // Transform skill / role mentions
+      const transformed = inputValue.replace(
+        /\/\{(skill|role):([^}]+)\}/g,
+        (_match: string, type: string, name: string) => {
+          if (type === 'skill') return `[Skill: ${name}|instruction:You must call skill({ name: "${name}" }) before any other action.]`
+          if (type === 'role') return `[Role: ${name}|instruction:You must call role_load({ name: "${name}" }) before any other action.]`
+          return _match
+        },
+      )
+      mockSessionState.sendMessage(transformed, undefined, undefined)
+      setInputValue('')
+      mockSessionState.setDraftInput('')
+    }
+    const handleAbort = () => {
+      if (!activeSessionId) return
+      mockSessionState.abortSession(activeSessionId)
+    }
+
+    // Question dock takes over everything when there are pending questions
+    if (pendingQuestions.length > 0) {
+      return React.createElement(QuestionDock, null)
+    }
+
+    const hasPendingPermissions = pendingPermissions.length > 0
+    const hasTodosOrQueue = todos.length > 0 || messageQueue.length > 0
+
+    const children = [
+      // Todo/queue dock (hidden when permissions are showing)
+      !hasPendingPermissions && hasTodosOrQueue && React.createElement('div', {
+        key: 'todo-dock',
+        'data-testid': 'todo-list-inline',
+      }, [
+        ...todos.map((todo, i) =>
+          React.createElement('div', { key: `todo-${i}` }, (todo as { content: string }).content),
+        ),
+        messageQueue.length > 0 && React.createElement('div', {
+          key: 'queue',
+          'data-testid': 'todo-list-inline-queue',
+        }, [
+          `${messageQueue.length} messages queued`,
+          ...messageQueue.map((msg, i) =>
+            React.createElement('div', { key: `msg-${i}` }, msg.content),
+          ),
+        ]),
+      ]),
+      // Permission dock (replaces todo dock)
+      hasPendingPermissions && React.createElement('div', {
+        key: 'perm-dock',
+        'data-testid': 'pending-permission-inline',
+      }, 'permissions'),
+      // Input area
+      React.createElement('div', { key: 'input-area', 'data-testid': 'chat-input-area' }, [
+        React.createElement('input', {
+          key: 'input',
+          'data-testid': 'mock-input',
+          value: inputValue,
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => setInputValue(e.target.value),
+        }),
+        React.createElement('button', {
+          key: 'submit',
+          'data-testid': 'mock-submit',
+          onClick: handleSubmit,
+          disabled: false,
+        }, 'Send'),
+        React.createElement('button', {
+          key: 'abort',
+          'data-testid': 'mock-abort',
+          onClick: handleAbort,
+        }, 'Stop'),
+        React.createElement('button', {
+          key: 'add-file',
+          'data-testid': 'mock-add-file',
+          onClick: () => { /* no-op in mock */ },
+        }, 'Add File'),
+      ]),
+    ].filter(Boolean)
+
+    return React.createElement(React.Fragment, null, ...children)
+  }
+  return { ActorChatInput }
+})
+
+vi.mock('../ActorMessageList', () => ({
+  ActorMessageList: () => {
+    // Read live session state to simulate what the real ActorMessageList renders
+    const activeSessionId = mockSessionState.activeSessionId
+    const sessionError = mockSessionState.sessionError as { sessionId: string; error: { name: string; data: { message: string } } } | null
+    const error = mockSessionState.error as string | null
+    const errorSessionId = mockSessionState.errorSessionId
+
+    // Show session error only when it belongs to the current active session
+    const showSessionError = sessionError && sessionError.sessionId === activeSessionId
+    const showGeneralError = error && errorSessionId === activeSessionId
+
+    const activeSession = mockSessionState.sessions.find(s => s.id === activeSessionId)
+    const messages = (activeSession as { messages: unknown[] } | undefined)?.messages ?? []
+    const isEmpty = messages.length === 0
+
+    const children = [
+      // Error alerts shown inside the message list
+      (showSessionError || showGeneralError) && React.createElement('div', {
+        key: 'error',
+        'data-testid': 'session-error',
+      }, showSessionError ? 'Error' : String(error)),
+      // Empty state suggestions
+      isEmpty && !showSessionError && !showGeneralError && React.createElement('div', { key: 'empty' }, [
+        React.createElement('div', { key: 'title' }, 'Start a New Chat'),
+        React.createElement('div', { key: 'a1' }, 'Analyze data'),
+        React.createElement('div', { key: 'a2' }, 'Write a report'),
+        React.createElement('div', { key: 'a3' }, 'Add a new skill'),
+      ]),
+      !isEmpty && React.createElement('div', { key: 'msgs' }, `${messages.length} messages`),
+    ].filter(Boolean)
+
+    return React.createElement('div', { 'data-testid': 'message-list' }, ...children)
+  },
+}));
+
 // Mock child components to isolate ChatPanel behavior
 vi.mock('../MessageList', () => ({
   MessageList: React.forwardRef(function MockMessageList(

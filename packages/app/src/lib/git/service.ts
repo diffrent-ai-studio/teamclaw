@@ -1,5 +1,3 @@
-import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
-
 /**
  * 跨平台路径规范化工具
  * 将Windows反斜杠路径统一为正斜杠，移除尾部斜杠
@@ -79,22 +77,15 @@ export class GitService {
     }
 
     try {
-      const client = getOpenCodeClient()
+      // OpenCode sidecar removed — git status via OpenCode API is no longer available.
+      // Return empty array until a Tauri-native git status command is implemented.
+      const gitStatuses: GitFileStatus[] = []
 
-      // 直接获取文件状态（无需先检查项目git信息）
-      const fileStatus = await client.getFileStatus()
-      console.log('[GitService] Raw API /file/status response:', JSON.stringify(fileStatus))
-      
-      // 转换为统一的Git状态格式
-      const gitStatuses = this.convertToGitStatuses(fileStatus, options)
-      console.log('[GitService] Converted statuses:', gitStatuses)
-      
-      // 缓存结果
       this.statusCache.set(cacheKey, {
         data: gitStatuses,
         timestamp: Date.now()
       })
-      
+
       return gitStatuses
     } catch (error) {
       console.error('Failed to get Git status:', error)
@@ -132,45 +123,6 @@ export class GitService {
    */
   clearCache(): void {
     this.statusCache.clear()
-  }
-
-  /**
-   * 将API文件状态映射到GitStatus枚举
-   */
-  private mapApiStatus(status: string): GitStatus {
-    switch (status) {
-      case 'modified': return GitStatus.MODIFIED
-      case 'added': return GitStatus.ADDED
-      case 'deleted': return GitStatus.DELETED
-      case 'untracked': return GitStatus.UNTRACKED
-      case 'renamed': return GitStatus.RENAMED
-      case 'copied': return GitStatus.COPIED
-      default: return GitStatus.MODIFIED
-    }
-  }
-
-  /**
-   * 将API响应转换为统一的Git状态格式
-   * getFileStatus() returns Array<{ path, added, removed, status: 'added' | 'deleted' | 'modified' }>
-   */
-  private convertToGitStatuses(
-    fileStatus: any, 
-    _options: GitStatusOptions
-  ): GitFileStatus[] {
-    const statuses: GitFileStatus[] = []
-
-    // Handle array response from /file/status API
-    if (Array.isArray(fileStatus)) {
-      fileStatus.forEach((file: { path: string; status: string; added?: number; removed?: number }) => {
-        statuses.push({
-          path: normalizePath(file.path),
-          status: this.mapApiStatus(file.status),
-          staged: false
-        })
-      })
-    }
-
-    return statuses
   }
 
   /**

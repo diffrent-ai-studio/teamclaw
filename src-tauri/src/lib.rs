@@ -282,7 +282,6 @@ pub fn run() {
                 tauri::plugin::Builder::<tauri::Wry, ()>::new("tauri-mcp").build()
             }
         })
-        .manage(commands::opencode::OpenCodeState::default())
         .manage(commands::window::WindowRegistry::default())
         .manage(commands::filewatcher::FileWatcherState::default())
         .manage(commands::gateway::GatewayState::default())
@@ -335,15 +334,8 @@ pub fn run() {
             commands::knowledge::rag_save_config,
             commands::knowledge::rag_start_watcher,
             commands::knowledge::rag_stop_watcher,
-            commands::opencode::start_opencode,
-            commands::opencode::stop_opencode,
             commands::window::create_workspace_window,
             commands::window::set_window_title,
-            commands::opencode::clear_last_workspace,
-            commands::opencode::get_opencode_status,
-            commands::opencode::get_opencode_project_id,
-            commands::opencode::read_opencode_allowlist,
-            commands::opencode::write_opencode_allowlist,
             commands::mcp::get_mcp_config,
             commands::mcp::save_mcp_config,
             commands::mcp::add_mcp_server,
@@ -657,13 +649,11 @@ pub fn run() {
             }
 
             // Initialize iroh P2P node only when P2P team is configured.
-            // Check the last workspace's config; if p2p.enabled != true, skip.
+            // The workspace path is not available at setup time; P2P init is
+            // triggered from the frontend after workspace selection.
             #[cfg(feature = "p2p")]
             {
-                let p2p_enabled = commands::opencode::read_last_workspace()
-                    .and_then(|ws| commands::team_p2p::read_p2p_config(&ws, commands::TEAMCLAW_DIR, commands::CONFIG_FILE_NAME).ok().flatten())
-                    .map(|c| c.enabled)
-                    .unwrap_or(false);
+                let p2p_enabled = false;
 
                 if p2p_enabled {
                     let iroh_state = app.handle().state::<commands::p2p_state::IrohState>().inner().clone();
@@ -690,45 +680,7 @@ pub fn run() {
             // since workspace_path is not available at setup time.
             // The frontend calls team_sync_repo on startup when team config is enabled.
 
-            eprintln!("[Startup] Setup hook (before early launch): {:.1}ms", setup_t0.elapsed().as_secs_f64() * 1000.0);
-
-            // --- Early sidecar launch ---
-            // Read last workspace and start OpenCode before frontend renders.
-            // The frontend's start_opencode call will reuse this result if the path matches.
-            if std::env::var("TEAMCLAW_DISABLE_EARLY_LAUNCH").unwrap_or_default() != "1" {
-                if let Some(workspace_path) = commands::opencode::read_last_workspace() {
-                    println!("[EarlyLaunch] Starting sidecar for: {}", workspace_path);
-                    let app_handle = app.handle().clone();
-                    let (tx, rx) = tokio::sync::watch::channel(None);
-
-                    // Store the early launch state so start_opencode can find it
-                    let early_state = app_handle.state::<commands::opencode::OpenCodeState>();
-                    {
-                        let mut early = early_state.early_launch.blocking_lock();
-                        *early = Some(commands::opencode::EarlyLaunchState {
-                            workspace_path: workspace_path.clone(),
-                            result_rx: rx,
-                        });
-                    }
-
-                    tauri::async_runtime::spawn(async move {
-                        let state = app_handle.state::<commands::opencode::OpenCodeState>();
-                        let config = commands::opencode::OpenCodeConfig {
-                            workspace_path,
-                            port: None,
-                        };
-                        let result = commands::opencode::start_opencode_inner(
-                            app_handle.clone(),
-                            &state,
-                            config,
-                            // Early launch is always the main window's resume —
-                            // it should keep the last-workspace marker in sync.
-                            true,
-                        ).await;
-                        let _ = tx.send(Some(result));
-                    });
-                }
-            }
+            eprintln!("[Startup] Setup hook: {:.1}ms", setup_t0.elapsed().as_secs_f64() * 1000.0);
 
             // --- System Tray ---
             use tauri::menu::{MenuBuilder, MenuItemBuilder};
@@ -1075,31 +1027,6 @@ pub fn run() {
                     });
                 }
                 tauri::RunEvent::Exit => {
-                    // Kill the OpenCode sidecar synchronously.
-                    // NOTE: Do NOT use tauri::async_runtime::block_on here — the
-                    // main thread already has a tokio runtime entered (_guard),
-                    // which causes block_on to deadlock or panic, preventing
-                    // std::process::exit from ever being called.
-                    let oc_state = app.state::<commands::opencode::OpenCodeState>();
-                    if let Ok(mut instances) = oc_state.instances.lock() {
-                        for (ws, inner) in instances.iter_mut() {
-                            if let Some(handle) = inner.reader_task.take() {
-                                handle.abort();
-                            }
-                            if let Some(child) = inner.child_process.take() {
-                                if let Err(e) = child.kill() {
-                                    sentry_utils::capture_err(
-                                        &format!("[OpenCode] Failed to stop sidecar on exit ({})", ws),
-                                        &e,
-                                    );
-                                    eprintln!(
-                                        "[OpenCode] Failed to stop sidecar on app exit ({}): {}",
-                                        ws, e
-                                    );
-                                }
-                            }
-                        }
-                    }
                     // Fire-and-forget: enqueue the event but don't block on flush.
                     // The aptabase plugin's own Exit handler will attempt to flush,
                     // but we don't want to block exit for up to 10s on a network

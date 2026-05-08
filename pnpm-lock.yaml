@@ -77,9 +77,6 @@ importers:
       '@json-render/react':
         specifier: ^0.2.0
         version: 0.2.0(react@19.2.5)(zod@3.25.76)
-      '@opencode-ai/sdk':
-        specifier: ^1.14.18
-        version: 1.14.18
       '@radix-ui/react-avatar':
         specifier: ^1.1.11
         version: 1.1.11(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -1270,9 +1267,6 @@ packages:
 
   '@open-draft/until@2.1.0':
     resolution: {integrity: sha512-U69T3ItWHvLwGg5eJ0n3I62nWuE6ilHlmz7zM0npLBRvPRd7e6NYmg54vvRtP5mZG7kZqZCFVdsTWo7BPtBujg==}
-
-  '@opencode-ai/sdk@1.14.18':
-    resolution: {integrity: sha512-E0QiiB+9rv/TPH0a1GunKl6LnuXDRHDiJaIFHOPaBL364rQx+3ClHwHkz78/KBsjhjeLrC2CaLgK+CoxV/XUIQ==}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -6719,10 +6713,6 @@ snapshots:
       outvariant: 1.4.3
 
   '@open-draft/until@2.1.0': {}
-
-  '@opencode-ai/sdk@1.14.18':
-    dependencies:
-      cross-spawn: 7.0.6
 
   '@pkgjs/parseargs@0.11.0':
     optional: true

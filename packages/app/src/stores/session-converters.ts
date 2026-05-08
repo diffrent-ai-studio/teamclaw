@@ -169,28 +169,30 @@ export function convertMessage(msg: OpenCodeMessage): Message {
 
 // Convert OpenCode session to our format
 export function convertSession(session: OpenCodeSession): Session {
+  const now = Date.now()
   return {
     id: session.id,
     title: session.title || "New Chat",
     messages: [],
-    createdAt: new Date(session.time.created),
-    updatedAt: new Date(session.time.updated),
+    createdAt: new Date(session.time?.created ?? now),
+    updatedAt: new Date(session.time?.updated ?? session.time?.created ?? now),
     directory: session.directory,
     parentID: session.parentID,
-    ...archiveMetadata(session.time),
+    ...archiveMetadata(session.time ?? {}),
   };
 }
 
 // Convert session list item
 export function convertSessionListItem(item: SessionListItem): Session {
+  const now = Date.now()
   return {
     id: item.id,
     title: item.title || "New Chat",
     messages: [],
-    createdAt: new Date(item.time.created),
-    updatedAt: new Date(item.time.updated),
+    createdAt: new Date(item.time?.created ?? now),
+    updatedAt: new Date(item.time?.updated ?? item.time?.created ?? now),
     directory: item.directory,
     parentID: item.parentID,
-    ...archiveMetadata(item.time),
+    ...archiveMetadata(item.time ?? {}),
   };
 }

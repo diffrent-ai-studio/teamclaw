@@ -871,12 +871,13 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
                 .map((l) => {
                   const sessionData = activeSessions.find((s) => s.id === l.sessionId);
                   if (!sessionData) return null;
+                  const now = Date.now()
                   return {
                     id: sessionData.id,
                     title: sessionData.title || "New Chat",
                     messages: l.messages,
-                    createdAt: new Date(sessionData.time.created),
-                    updatedAt: new Date(sessionData.time.updated),
+                    createdAt: new Date(sessionData.time?.created ?? now),
+                    updatedAt: new Date(sessionData.time?.updated ?? sessionData.time?.created ?? now),
                     directory: sessionData.directory,
                     parentID: sessionData.parentID,
                   } as Session;

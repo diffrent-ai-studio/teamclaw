@@ -14,7 +14,6 @@ pub mod local_secret_store;
 pub mod local_stats;
 pub mod mcp;
 pub mod mqtt_bus;
-pub mod opencode;
 pub mod oss_commands;
 pub mod oss_sync;
 pub mod oss_types;

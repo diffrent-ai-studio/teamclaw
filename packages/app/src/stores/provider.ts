@@ -130,7 +130,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     if (!client) return
     try {
       const methods = await client.getAuthMethods()
-      set({ authMethods: methods })
+      set({ authMethods: methods as Record<string, ProviderAuthMethod[]> })
     } catch (err) {
       console.error('Failed to load auth methods:', err)
     }
@@ -139,13 +139,18 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   // Initiate OAuth for a provider. Returns pending state with url+instructions for the UI to show.
   connectProviderOAuth: async (providerId, methodIndex) => {
     const client = tryGetClient()
-    if (!client) return { status: 'error', message: 'OpenCode not connected' }
+    if (!client) return { status: 'error' as const, message: 'OpenCode not connected' }
     try {
       const result = await client.oauthAuthorize(providerId, methodIndex)
-      if (!result) return { status: 'error', message: 'Provider does not support OAuth' }
-      return { status: 'pending', url: result.url, instructions: result.instructions, methodType: result.method }
+      if (!result) return { status: 'error' as const, message: 'Provider does not support OAuth' }
+      return {
+        status: 'pending' as const,
+        url: result.url,
+        instructions: result.instructions ?? '',
+        methodType: (result.method ?? 'code') as 'auto' | 'code',
+      }
     } catch (err) {
-      return { status: 'error', message: err instanceof Error ? err.message : 'Unknown error' }
+      return { status: 'error' as const, message: err instanceof Error ? err.message : 'Unknown error' }
     }
   },
 
@@ -263,9 +268,9 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     const client = tryGetClient()
     if (!client) return // Client not ready yet, skip silently
     try {
-      const config = await client.getConfig()
+      const config = await client.getConfig() as Record<string, unknown>
       if (config.model) {
-        set({ currentModelKey: config.model })
+        set({ currentModelKey: config.model as string })
       }
     } catch (err) {
       console.error('Failed to load current model config:', err)

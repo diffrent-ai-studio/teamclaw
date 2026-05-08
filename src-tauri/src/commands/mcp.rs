@@ -11,7 +11,6 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
-use super::opencode::OpenCodeState;
 use crate::process_util::CommandNoWindow;
 
 /// MCP Server configuration
@@ -87,11 +86,10 @@ pub(crate) fn write_config(
 pub async fn get_mcp_config(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
     workspace_path: Option<String>,
 ) -> Result<IndexMap<String, MCPServerConfig>, String> {
     let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
 
     let config = read_config(&workspace_path)?;
     Ok(config.mcp.unwrap_or_default())
@@ -102,12 +100,11 @@ pub async fn get_mcp_config(
 pub async fn save_mcp_config(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
     mcp_config: IndexMap<String, MCPServerConfig>,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
 
     let mut config = read_config(&workspace_path)?;
     config.mcp = if mcp_config.is_empty() {
@@ -123,13 +120,12 @@ pub async fn save_mcp_config(
 pub async fn add_mcp_server(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
     name: String,
     server_config: MCPServerConfig,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -148,13 +144,12 @@ pub async fn add_mcp_server(
 pub async fn update_mcp_server(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
     name: String,
     server_config: MCPServerConfig,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -173,12 +168,11 @@ pub async fn update_mcp_server(
 pub async fn remove_mcp_server(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
     name: String,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -197,13 +191,12 @@ pub async fn remove_mcp_server(
 pub async fn toggle_mcp_server(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
     name: String,
     enabled: bool,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
 
     let mut config = read_config(&workspace_path)?;
     let mut mcp = config.mcp.unwrap_or_default();
@@ -230,12 +223,11 @@ pub struct MCPTestResult {
 pub async fn test_mcp_server(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
     name: String,
     workspace_path: Option<String>,
 ) -> Result<MCPTestResult, String> {
     let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry, &state)?;
+        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
 
     let config = read_config(&workspace_path)?;
     let mcp = config.mcp.unwrap_or_default();
@@ -715,9 +707,8 @@ async fn read_jsonrpc_response(
 pub async fn list_mcp_tools(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
 ) -> Result<HashMap<String, Vec<String>>, String> {
-    let workspace_path = super::window::current_workspace_for_window(&window, &registry, &state)?;
+    let workspace_path = super::window::current_workspace_for_window(&window, &registry)?;
 
     let config = read_config(&workspace_path)?;
     let servers = config.mcp.unwrap_or_default();

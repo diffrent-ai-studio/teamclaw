@@ -1,23 +1,15 @@
 /**
- * session-sse-handlers.ts — thin barrel that composes the three sub-modules.
+ * session-sse-handlers.ts — Phase 1E stub.
  *
- * All handler logic has been extracted to:
- *   - session-sse-message-handlers.ts   (message streaming)
- *   - session-sse-tool-handlers.ts      (tool / todo / diff)
- *   - session-sse-lifecycle-handlers.ts  (lifecycle / session events)
+ * OpenCode sidecar removed. The SSE handler sub-modules have been deleted.
+ * This file is kept as a stub to maintain module resolution for any remaining
+ * imports during the transition to native Tauri-RPC event handling.
  */
 import type { SessionState } from "./session-types";
-import { createMessageHandlers } from "./session-sse-message-handlers";
-import { createToolHandlers } from "./session-sse-tool-handlers";
-import { createLifecycleHandlers } from "./session-sse-lifecycle-handlers";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
 
-export function createSSEHandlers(set: SessionSet, get: SessionGet) {
-  return {
-    ...createMessageHandlers(set, get),
-    ...createToolHandlers(set, get),
-    ...createLifecycleHandlers(set, get),
-  };
+export function createSSEHandlers(_set: SessionSet, _get: SessionGet) {
+  return {};
 }

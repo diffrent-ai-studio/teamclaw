@@ -1,142 +1,36 @@
 /**
- * Centralized SDK type re-exports and TeamClaw-specific type extensions.
+ * App-level types for the agent session system.
  *
- * This file replaces the hand-written types.ts by re-exporting types from
- * @opencode-ai/sdk/v2 and defining TeamClaw-specific types that either
- * don't exist in the SDK or need to be shaped differently for our app.
- *
- * Consumers should import from this file instead of '@/lib/opencode/types'.
+ * Phase 1E: @opencode-ai/sdk removed. All types are now hand-crafted
+ * or stubbed for compilation. These will be replaced with native
+ * Tauri-RPC types in Phase 3.
  */
 
 // ---------------------------------------------------------------------------
-// Re-exports from @opencode-ai/sdk/v2
+// Core session / message types
 // ---------------------------------------------------------------------------
 
-// Core
-export type {
-  Session,
-  SnapshotFileDiff,
-} from '@opencode-ai/sdk/v2'
-
-// Messages
-export type {
-  UserMessage,
-  AssistantMessage,
-  Message as SDKMessage,
-} from '@opencode-ai/sdk/v2'
-
-// Parts
-export type {
-  TextPart,
-  ReasoningPart,
-  ToolPart,
-  SubtaskPart,
-  FilePart,
-  StepStartPart,
-  StepFinishPart,
-  SnapshotPart,
-  PatchPart,
-  RetryPart,
-  AgentPart,
-  CompactionPart,
-  Part,
-  ToolState,
-  ToolStatePending,
-  ToolStateRunning,
-  ToolStateCompleted,
-  ToolStateError,
-} from '@opencode-ai/sdk/v2'
-
-// Inputs
-export type {
-  TextPartInput,
-  FilePartInput,
-  AgentPartInput,
-  SubtaskPartInput,
-} from '@opencode-ai/sdk/v2'
-
-// Events
-export type {
-  EventMessageUpdated,
-  EventMessagePartUpdated,
-  EventMessagePartDelta,
-  EventMessageRemoved,
-  EventSessionCreated,
-  EventSessionUpdated,
-  EventSessionDeleted,
-  EventSessionStatus,
-  EventSessionIdle,
-  EventSessionError,
-  EventSessionDiff,
-  EventPermissionAsked,
-  EventPermissionReplied,
-  EventQuestionAsked,
-  EventQuestionReplied,
-  EventTodoUpdated,
-  EventFileWatcherUpdated,
-  Event,
-} from '@opencode-ai/sdk/v2'
-
-// Permission
-export type {
-  PermissionRuleset,
-  PermissionRequest,
-} from '@opencode-ai/sdk/v2'
-
-// Question
-export type {
-  QuestionInfo,
-  QuestionOption as SDKQuestionOption,
-  QuestionRequest,
-} from '@opencode-ai/sdk/v2'
-
-// Todo (from SDK)
-export type { Todo as SDKTodo } from '@opencode-ai/sdk/v2'
-
-// MCP (from SDK)
-export type {
-  McpStatus,
-  McpStatusConnected,
-  McpStatusDisabled,
-  McpStatusFailed,
-  McpStatusNeedsAuth,
-  McpStatusNeedsClientRegistration,
-} from '@opencode-ai/sdk/v2'
-
-// Command (from SDK)
-export type { Command as SDKCommand } from '@opencode-ai/sdk/v2'
-
-// Project (from SDK)
-export type { Project as SDKProject } from '@opencode-ai/sdk/v2'
-
-// Provider
-export type {
-  ProviderAuthError,
-  UnknownError,
-  MessageOutputLengthError,
-  MessageAbortedError,
-  StructuredOutputError,
-  ContextOverflowError,
-  ApiError,
-} from '@opencode-ai/sdk/v2'
-
-// ---------------------------------------------------------------------------
-// TeamClaw-specific types (not in SDK, or shaped for app compatibility)
-// ---------------------------------------------------------------------------
-
-/**
- * Configuration for connecting to an OpenCode instance.
- */
-export interface OpenCodeConfig {
-  baseUrl: string
-  password?: string
-  workspacePath?: string
+export interface Session {
+  id: string
+  title?: string
+  path?: string
+  directory?: string
+  time?: { created: number; updated?: number; archived?: number | null }
+  parentID?: string
+  summary?: {
+    diffs?: Array<{ file: string; before?: string; after?: string; additions?: number; deletions?: number }>
+    [key: string]: unknown
+  }
 }
 
-/**
- * Backward-compatible FileDiff type used throughout the app.
- * Maps to SnapshotFileDiff in the SDK but with the field names the app expects.
- */
+export interface SnapshotFileDiff {
+  file: string
+  before: string
+  after: string
+  additions: number
+  deletions: number
+}
+
 export interface FileDiff {
   file: string
   before: string
@@ -145,14 +39,9 @@ export interface FileDiff {
   deletions: number
 }
 
-/**
- * Flattened message type used throughout the app UI layer.
- * Combines message info with its parts for convenience.
- */
-export interface Message {
-  info: MessageInfo
-  parts: MessagePart[]
-}
+// ---------------------------------------------------------------------------
+// Message types
+// ---------------------------------------------------------------------------
 
 export interface MessageInfo {
   id: string
@@ -187,10 +76,6 @@ export interface MessageInfo {
   metadata?: Record<string, unknown>
 }
 
-/**
- * App-level message part type.
- * Superset shape that can represent any part type with optional fields.
- */
 export interface MessagePart {
   id: string
   sessionID: string
@@ -230,6 +115,11 @@ export interface MessagePart {
   tail_start_id?: string
 }
 
+export interface Message {
+  info: MessageInfo
+  parts: MessagePart[]
+}
+
 export interface ToolCallInfo {
   name: string
   id: string
@@ -242,14 +132,12 @@ export interface ToolResult {
   error?: string
 }
 
-/**
- * Alias kept for backward compatibility.
- */
-export type SessionListItem = import('@opencode-ai/sdk/v2').Session
+// ---------------------------------------------------------------------------
+// Aliases / compat shims
+// ---------------------------------------------------------------------------
 
-/**
- * Tool call lifecycle status.
- */
+export type SessionListItem = Session
+
 export type ToolCallStatus = 'calling' | 'completed' | 'failed' | 'waiting'
 
 // ---------------------------------------------------------------------------
@@ -402,7 +290,7 @@ export interface Command {
 }
 
 // ---------------------------------------------------------------------------
-// MCP types (app-level, kept for backward compatibility)
+// MCP types (app-level)
 // ---------------------------------------------------------------------------
 
 export interface MCPServerConfig {
@@ -485,7 +373,6 @@ export interface SendMessageRequest {
 }
 
 // SSE event types used by session store handlers
-// These were previously in types.ts and sse.ts
 
 export interface QuestionAskedEvent {
   id: string
@@ -509,4 +396,14 @@ export interface TodoUpdatedEvent {
 export interface SessionDiffEvent {
   sessionId: string
   diff: FileDiff[]
+}
+
+// ---------------------------------------------------------------------------
+// OpenCode config type (kept for compat; config.ts no longer needs sdk)
+// ---------------------------------------------------------------------------
+
+export interface OpenCodeConfig {
+  baseUrl: string
+  password?: string
+  workspacePath?: string
 }

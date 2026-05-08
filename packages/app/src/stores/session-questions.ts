@@ -130,7 +130,7 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
         try {
           await client.replyQuestion(
             pendingQuestion.questionId,
-            formattedAnswers,
+            formattedAnswers as unknown as Record<string, string>,
           );
           console.log("[Question] Reply sent successfully");
         } catch (replyError) {

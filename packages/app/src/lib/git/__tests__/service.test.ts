@@ -1,15 +1,5 @@
 // Test file - vitest globals (describe, it, expect) provided by vitest/globals type config
-import { vi } from 'vitest'
 import { GitService, GitStatus, normalizePath, pathsEqual, isChildPath } from '../service'
-import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
-
-const { mockGetOpenCodeClient } = vi.hoisted(() => ({
-  mockGetOpenCodeClient: vi.fn(),
-}))
-
-vi.mock('@/lib/opencode/sdk-client', () => ({
-  getOpenCodeClient: mockGetOpenCodeClient,
-}))
 
 // Path utility tests (no mocks needed)
 describe('Path Utilities', () => {
@@ -81,129 +71,46 @@ describe('Path Utilities', () => {
 
 describe('GitService', () => {
   let gitService: GitService
-  let mockClient: any
 
   beforeEach(() => {
-    vi.clearAllMocks()
-    mockClient = {
-      getFileStatus: vi.fn(),
-    }
-    vi.mocked(getOpenCodeClient).mockReturnValue(mockClient)
     gitService = GitService.getInstance()
     gitService.clearCache()
   })
 
   describe('getGitStatus', () => {
-    it('应该成功获取Git状态', async () => {
-      mockClient.getFileStatus.mockResolvedValue([
-        { path: 'modified-file.js', status: 'modified' },
-        { path: 'new-file.txt', status: 'untracked' },
-        { path: 'another-new.js', status: 'untracked' },
-      ])
-
+    it('returns empty array (OpenCode sidecar removed)', async () => {
+      // OpenCode sidecar removed — git status via API is no longer available.
+      // getGitStatus() now returns an empty array until a Tauri-native implementation.
       const result = await gitService.getGitStatus()
-
-      expect(result).toHaveLength(3)
-      expect(result[0]).toEqual({
-        path: 'modified-file.js',
-        status: GitStatus.MODIFIED,
-        staged: false
-      })
-      expect(result[1]).toEqual({
-        path: 'new-file.txt',
-        status: GitStatus.UNTRACKED,
-        staged: false
-      })
-      expect(result[2]).toEqual({
-        path: 'another-new.js',
-        status: GitStatus.UNTRACKED,
-        staged: false
-      })
+      expect(result).toEqual([])
     })
 
-    it('应该处理非Git仓库的情况', async () => {
-      mockClient.getFileStatus.mockRejectedValue(new Error('Not a Git repository'))
-
-      await expect(gitService.getGitStatus()).rejects.toThrow('Git status query failed: Not a Git repository')
-    })
-
-    it('应该缓存结果', async () => {
-      mockClient.getFileStatus.mockResolvedValue([
-        { path: 'file1.txt', status: 'untracked' },
-      ])
-
+    it('caches results', async () => {
       const result1 = await gitService.getGitStatus()
-      expect(result1).toHaveLength(1)
-      
       const result2 = await gitService.getGitStatus()
-      expect(result2).toHaveLength(1)
-      expect(result2).toEqual(result1)
-      
-      expect(mockClient.getFileStatus).toHaveBeenCalledTimes(1)
-    })
-
-    it('应该处理API错误', async () => {
-      mockClient.getFileStatus.mockRejectedValue(new Error('Network error'))
-
-      await expect(gitService.getGitStatus()).rejects.toThrow('Git status query failed: Network error')
+      expect(result1).toEqual([])
+      expect(result2).toEqual([])
     })
   })
 
   describe('getFileGitStatus', () => {
-    it('应该返回指定文件的状态', async () => {
-      mockClient.getFileStatus.mockResolvedValue([
-        { path: 'test-file.txt', status: 'untracked' },
-      ])
-
+    it('returns null (no status data without OpenCode)', async () => {
       const result = await gitService.getFileGitStatus('test-file.txt')
-
-      expect(result).toEqual({
-        path: 'test-file.txt',
-        status: GitStatus.UNTRACKED,
-        staged: false
-      })
-    })
-
-    it('应该返回null当文件没有状态时', async () => {
-      mockClient.getFileStatus.mockResolvedValue([
-        { path: 'other-file.txt', status: 'untracked' },
-      ])
-
-      const result = await gitService.getFileGitStatus('non-existent-file.txt')
-
       expect(result).toBeNull()
     })
   })
 
   describe('hasFileChanged', () => {
-    it('应该正确判断文件是否有变更', async () => {
-      mockClient.getFileStatus.mockResolvedValue([
-        { path: 'modified-file.js', status: 'modified' },
-        { path: 'new-file.txt', status: 'untracked' },
-      ])
-
-      const hasChanged1 = await gitService.hasFileChanged('modified-file.js')
-      const hasChanged2 = await gitService.hasFileChanged('new-file.txt')
-      const hasChanged3 = await gitService.hasFileChanged('unchanged-file.txt')
-
-      expect(hasChanged1).toBe(true)
-      expect(hasChanged2).toBe(true)
-      expect(hasChanged3).toBe(false)
+    it('returns false for all files (no status data without OpenCode)', async () => {
+      const hasChanged = await gitService.hasFileChanged('any-file.js')
+      expect(hasChanged).toBe(false)
     })
   })
 
   describe('getChangedFiles', () => {
-    it('应该返回所有变更的文件', async () => {
-      mockClient.getFileStatus.mockResolvedValue([
-        { path: 'modified-file.js', status: 'modified' },
-        { path: 'new-file.txt', status: 'untracked' },
-      ])
-
+    it('returns empty array (no status data without OpenCode)', async () => {
       const result = await gitService.getChangedFiles()
-
-      expect(result).toHaveLength(2)
-      expect(result[0].path).toBe('modified-file.js')
-      expect(result[1].path).toBe('new-file.txt')
+      expect(result).toEqual([])
     })
   })
 

@@ -1,20 +1,10 @@
 /**
- * sdk-client.ts — Singleton wrapper around @opencode-ai/sdk OpencodeClient.
+ * sdk-client.ts — Phase 1E stub.
  *
- * Replaces the hand-rolled OpenCodeClient class in client.ts with thin
- * convenience wrappers that delegate to the SDK's generated client.
- *
- * Consumers can either:
- *   1. Call named function exports (createSession, sendMessage, ...) which
- *      internally grab the singleton and unwrap the SDK response.
- *   2. Call getOpenCodeClient() to get the raw OpencodeClient for advanced use.
+ * OpenCode sidecar removed. All functions throw at runtime.
+ * These stubs exist solely to keep TypeScript compilation clean during
+ * the transition to native Tauri-RPC session management.
  */
-
-import {
-  createOpencodeClient,
-  OpencodeClient,
-  type OpencodeClientConfig,
-} from '@opencode-ai/sdk/v2/client'
 
 import type {
   OpenCodeConfig,
@@ -30,850 +20,288 @@ import type {
   Project,
 } from './sdk-types'
 
-// Re-export Command type for convenience (matches old client.ts)
+// Re-export Command type for convenience
 export type { Command }
+
+// ---------------------------------------------------------------------------
+// Stub client interface — covers every method used across all stores
+// ---------------------------------------------------------------------------
+
+/** Compatibility interface stub */
+export interface OpenCodeClientCompat {
+  // Session management
+  getSessions(opts?: { workspacePath?: string }): Promise<SessionListItem[]>
+  listSessions(opts?: { directory?: string; roots?: boolean; archived?: boolean }): Promise<SessionListItem[]>
+  getSession(sessionId: string): Promise<Session | null>
+  createSession(opts?: { workspacePath?: string; title?: string }): Promise<Session>
+  deleteSession(sessionId: string): Promise<void>
+  getMessages(sessionId: string, opts?: { after?: string }): Promise<Message[]>
+  loadAllMessages(sessionId: string): Promise<Message[]>
+  getSessionChildren(sessionId: string): Promise<SessionListItem[]>
+  archiveSession(sessionId: string, directory?: string): Promise<void>
+  restoreSession(sessionId: string, directory?: string): Promise<void>
+  updateSession(sessionId: string, opts: unknown): Promise<void>
+
+  // Todo / Diff
+  getTodos(sessionId: string): Promise<Array<{ id: string; content: string; status: string; priority: string }>>
+  getSessionDiff(sessionId: string): Promise<Array<{ file: string; before?: string; after?: string; additions?: number; deletions?: number }>>
+
+  // Message sending
+  sendMessage(sessionId: string, request: SendMessageRequest): Promise<void>
+  sendMessageAsync(sessionId: string, content: string, model?: unknown, agent?: string, systemPrompt?: string): Promise<string>
+  sendMessageWithPartsAsync(sessionId: string, parts: unknown, model?: unknown, agent?: string, systemPrompt?: string): Promise<string>
+  abortSession(sessionId: string): Promise<void>
+
+  // Permission
+  replyPermission(permissionId: string, request: PermissionReplyRequest): Promise<void>
+  listPermissions(sessionId?: string): Promise<PermissionAskedEvent[]>
+
+  // Question
+  replyQuestion(
+    sessionIdOrQuestionId: string,
+    answersOrQuestionId: Record<string, string> | string,
+    answers?: Record<string, string>,
+  ): Promise<void>
+  rejectQuestion(sessionIdOrQuestionId: string, questionId?: string): Promise<void>
+
+  // MCP
+  getMCPStatus(): Promise<Record<string, { status: string; error?: string }>>
+  addMCPServer(name: string, config: MCPServerConfig): Promise<void>
+  removeMCPServer(name: string): Promise<void>
+  disconnectMCP(name: string): Promise<void>
+  connectMCP(name: string): Promise<void>
+
+  // Provider / Auth
+  getAuthMethods(): Promise<unknown>
+  getProviders(): Promise<{ all: unknown[]; connected?: string[] }>
+  getConfigProviders(): Promise<{ providers?: Array<{ id?: string; name?: string; models?: unknown }> }>
+  oauthAuthorize(providerId: string, methodIndex?: unknown): Promise<{ url: string; instructions?: string; method?: string } | null>
+  oauthCallback(providerId: string, methodIndex: unknown, code?: string): Promise<void>
+  setAuth(providerId: string, auth: unknown): Promise<void>
+  deleteAuth(providerId: string): Promise<void>
+
+  // Git
+  getFileStatus(): Promise<unknown>
+
+  // Other
+  isReady(): boolean
+  getConfig(): Promise<unknown>
+  updateConfig(config: unknown): Promise<void>
+  getProject(): Promise<Project | null>
+  listCommands(): Promise<Command[]>
+  executeCommand(name: string, sessionId?: string): Promise<void>
+}
 
 // ---------------------------------------------------------------------------
 // Singleton state
 // ---------------------------------------------------------------------------
 
-let sdkClient: OpencodeClient | null = null
-let currentConfig: OpenCodeConfig | null = null
+let _config: OpenCodeConfig | null = null
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Public API
 // ---------------------------------------------------------------------------
 
-/**
- * Produce a human-readable message from an OpenCode SDK error object,
- * prioritising structured fields (name, data.path, data.message) and
- * never stringifying the raw payload — stringifying would leak secrets
- * like provider.options.apiKey that backends sometimes echo back.
- */
-function formatOpenCodeError(error: unknown): string {
-  if (typeof error === 'string') return error
-  if (!error || typeof error !== 'object') return 'Unknown error'
-
-  const obj = error as Record<string, unknown>
-  const name = typeof obj.name === 'string' ? obj.name : null
-  const data =
-    obj.data && typeof obj.data === 'object' ? (obj.data as Record<string, unknown>) : null
-  const path = data && typeof data.path === 'string' ? data.path : null
-  const inner = data && typeof data.message === 'string' ? data.message : null
-
-  if (name === 'ConfigJsonError') {
-    const loc = inner ? inner.match(/at line (\d+), column (\d+)/) : null
-    const where = loc ? ` (line ${loc[1]}, column ${loc[2]})` : ''
-    return path
-      ? `opencode.json has a syntax error${where}: ${path}`
-      : `opencode.json has a syntax error${where}`
-  }
-
-  if (typeof obj.message === 'string') return obj.message
-  if (name) return name
-  return 'Unknown error'
+/** Initialize the client configuration (no-op in stub). */
+export function initOpenCodeClient(config: OpenCodeConfig): void {
+  _config = config
 }
 
-/**
- * Unwrap an SDK response, throwing on error.
- * SDK methods return `{ data, error, request, response }` in "fields" mode.
- */
-function unwrap<T>(result: { data: T | undefined; error: unknown }): T {
-  if (result.error !== undefined) {
-    throw new Error(`OpenCode API Error: ${formatOpenCodeError(result.error)}`)
-  }
-  return result.data as T
+/** Get the current config. */
+export function getOpenCodeConfig(): OpenCodeConfig | null {
+  return _config
 }
 
-/**
- * Build SDK client config from our OpenCodeConfig shape.
- */
-function buildSdkConfig(config: OpenCodeConfig): OpencodeClientConfig & { directory?: string } {
-  const sdkConfig: OpencodeClientConfig & { directory?: string } = {
-    baseUrl: config.baseUrl.replace(/\/$/, ''),
-  }
-  if (config.workspacePath) {
-    sdkConfig.directory = config.workspacePath
-  }
-  return sdkConfig
+function notSupported(name: string): never {
+  throw new Error(
+    `[OpenCode stub] ${name}: OpenCode sidecar removed. This feature is not available in Phase 1E.`,
+  )
 }
 
-// ---------------------------------------------------------------------------
-// Lifecycle
-// ---------------------------------------------------------------------------
-
-/**
- * Initialize the singleton SDK client. Must be called before any other function.
- */
-export function initOpenCodeClient(config: OpenCodeConfig): OpencodeClient {
-  currentConfig = config
-  const sdkConfig = buildSdkConfig(config)
-  sdkClient = createOpencodeClient(sdkConfig)
-
-  // If there is a password / bearer token, add an auth interceptor
-  if (config.password) {
-    const token = config.password
-    sdkClient['client'].interceptors.request.use((req) => {
-      req.headers.set('Authorization', `Bearer ${token}`)
-      return req
-    })
-  }
-
-  return sdkClient
-}
-
-/**
- * Compatibility wrapper that exposes the same method names as the old
- * OpenCodeClient class so existing consumers (`const c = getRawSdkClient();
- * client.sendMessage(...)`) continue to work without changes.
- *
- * Each method delegates to the corresponding named export below.
- */
-export interface OpenCodeClientCompat {
-  createSession: typeof createSession
-  listSessions: typeof listSessions
-  getSession: typeof getSession
-  getSessionChildren: typeof getSessionChildren
-  deleteSession: typeof deleteSession
-  archiveSession: typeof archiveSession
-  restoreSession: typeof restoreSession
-  updateSession: typeof updateSession
-  abortSession: typeof abortSession
-  getMessages: typeof getMessages
-  sendMessage: typeof sendMessage
-  sendMessageWithParts: typeof sendMessageWithParts
-  sendMessageAsync: typeof sendMessageAsync
-  sendMessageWithPartsAsync: typeof sendMessageWithPartsAsync
-  replyQuestion: typeof replyQuestion
-  rejectQuestion: typeof rejectQuestion
-  listQuestions: typeof listQuestions
-  getTodos: typeof getTodos
-  getSessionDiff: typeof getSessionDiff
-  getFileStatus: typeof getFileStatus
-  listPermissions: typeof listPermissions
-  replyPermission: typeof replyPermission
-  getProviders: typeof getProviders
-  getConfigProviders: typeof getConfigProviders
-  getConfig: typeof getConfig
-  updateConfig: typeof updateConfig
-  setAuth: typeof setAuth
-  deleteAuth: typeof deleteAuth
-  getAuthMethods: typeof getAuthMethods
-  oauthAuthorize: typeof oauthAuthorize
-  oauthCallback: typeof oauthCallback
-  getProject: typeof getProject
-  readFile: typeof readFile
-  listDirectory: typeof listDirectory
-  listCommands: typeof listCommands
-  executeCommand: typeof executeCommand
-  getMCPStatus: typeof getMCPStatus
-  addMCPServer: typeof addMCPServer
-  connectMCP: typeof connectMCP
-  disconnectMCP: typeof disconnectMCP
-  getToolIds: typeof getToolIds
-  isReady: typeof isReady
-  setWorkspacePath: (path: string | null | undefined) => void
-}
-
-let compatClient: OpenCodeClientCompat | null = null
-
-function buildCompat(): OpenCodeClientCompat {
-  return {
-    createSession, listSessions, getSession, getSessionChildren, deleteSession,
-    archiveSession, restoreSession, updateSession, abortSession, getMessages,
-    sendMessage, sendMessageWithParts, sendMessageAsync,
-    sendMessageWithPartsAsync, replyQuestion, rejectQuestion,
-    listQuestions, getTodos, getSessionDiff, getFileStatus,
-    listPermissions, replyPermission, getProviders, getConfigProviders,
-    getConfig, updateConfig, setAuth, deleteAuth, getAuthMethods,
-    oauthAuthorize, oauthCallback, getProject, readFile, listDirectory,
-    listCommands, executeCommand, getMCPStatus, addMCPServer,
-    connectMCP, disconnectMCP, getToolIds, isReady,
-    setWorkspacePath: (path: string | null | undefined) =>
-      updateOpenCodeClientWorkspace(path ?? null),
-  }
-}
-
-/**
- * Return a compatibility client object with the same method names as the old
- * OpenCodeClient class. Throws if initOpenCodeClient() has not been called.
- */
+/** Returns a stub client object. All methods throw at runtime. */
 export function getOpenCodeClient(): OpenCodeClientCompat {
-  if (!sdkClient) {
-    throw new Error('OpenCodeClient not initialized. Call initOpenCodeClient() first.')
+  return {
+    getSessions: () => notSupported('getSessions'),
+    listSessions: () => notSupported('listSessions'),
+    getSession: () => notSupported('getSession'),
+    createSession: () => notSupported('createSession'),
+    deleteSession: () => notSupported('deleteSession'),
+    getMessages: () => notSupported('getMessages'),
+    loadAllMessages: () => notSupported('loadAllMessages'),
+    getSessionChildren: () => notSupported('getSessionChildren'),
+    archiveSession: () => notSupported('archiveSession'),
+    restoreSession: () => notSupported('restoreSession'),
+    updateSession: () => notSupported('updateSession'),
+    sendMessage: () => notSupported('sendMessage'),
+    sendMessageAsync: () => notSupported('sendMessageAsync'),
+    sendMessageWithPartsAsync: () => notSupported('sendMessageWithPartsAsync'),
+    abortSession: () => notSupported('abortSession'),
+    replyPermission: () => notSupported('replyPermission'),
+    listPermissions: () => notSupported('listPermissions'),
+    replyQuestion: () => notSupported('replyQuestion'),
+    rejectQuestion: () => notSupported('rejectQuestion'),
+    getTodos: () => notSupported('getTodos'),
+    getSessionDiff: () => notSupported('getSessionDiff'),
+    getMCPStatus: () => notSupported('getMCPStatus'),
+    addMCPServer: () => notSupported('addMCPServer'),
+    removeMCPServer: () => notSupported('removeMCPServer'),
+    disconnectMCP: () => notSupported('disconnectMCP'),
+    connectMCP: () => notSupported('connectMCP'),
+    getAuthMethods: () => notSupported('getAuthMethods'),
+    getProviders: () => notSupported('getProviders'),
+    getConfigProviders: () => notSupported('getConfigProviders'),
+    oauthAuthorize: () => notSupported('oauthAuthorize'),
+    oauthCallback: () => notSupported('oauthCallback'),
+    setAuth: () => notSupported('setAuth'),
+    deleteAuth: () => notSupported('deleteAuth'),
+    getFileStatus: () => notSupported('getFileStatus'),
+    isReady: () => false,
+    getConfig: () => notSupported('getConfig'),
+    updateConfig: () => notSupported('updateConfig'),
+    getProject: () => notSupported('getProject'),
+    listCommands: () => notSupported('listCommands'),
+    executeCommand: () => notSupported('executeCommand'),
   }
-  if (!compatClient) {
-    compatClient = buildCompat()
-  }
-  return compatClient
 }
 
-/**
- * Return the raw SDK OpencodeClient for advanced/direct use.
- */
-export function getRawSdkClient(): OpencodeClient {
-  if (!sdkClient) {
-    throw new Error('OpenCodeClient not initialized. Call initOpenCodeClient() first.')
-  }
-  return sdkClient
+// Individual function exports that mirror the old sdk-client API
+
+export async function getSessions(_opts?: { workspacePath?: string }): Promise<SessionListItem[]> {
+  return notSupported('getSessions')
 }
 
-/**
- * Update the workspace / directory path used for all subsequent API calls.
- * Recreates the underlying SDK client so that the `directory` default is baked in.
- */
-export function updateOpenCodeClientWorkspace(workspacePath: string | null): void {
-  if (!currentConfig) return
-  currentConfig = { ...currentConfig, workspacePath: workspacePath || undefined }
-  // Re-init with updated config so that directory param is set globally
-  initOpenCodeClient(currentConfig)
+export async function createSession(_opts?: {
+  workspacePath?: string
+  title?: string
+}): Promise<Session> {
+  return notSupported('createSession')
 }
 
-// ---------------------------------------------------------------------------
-// Internal helper — get directory param from current config
-// ---------------------------------------------------------------------------
-
-function dir(): string | undefined {
-  return currentConfig?.workspacePath || undefined
+export async function deleteSession(_sessionId: string): Promise<void> {
+  return notSupported('deleteSession')
 }
 
-type SyncHistoryEvent = {
-  id: string
-  aggregate_id: string
-  seq: number
-  type: string
-  data: Record<string, unknown>
-}
-
-function createSyncEventId(): string {
-  const random =
-    typeof globalThis.crypto?.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`
-  return `teamclaw-restore-${random}`
-}
-
-async function getNextSyncSequence(
-  c: OpencodeClient,
-  id: string,
-  directory: string,
-): Promise<number> {
-  const result = await c.sync.history.list({
-    directory,
-    body: {},
-  })
-  const events = unwrap(result) as unknown as SyncHistoryEvent[]
-  const latest = events
-    .filter((event) => event.aggregate_id === id)
-    .reduce((max, event) => Math.max(max, event.seq), -1)
-  return latest + 1
-}
-
-// ---------------------------------------------------------------------------
-// Session convenience wrappers
-// ---------------------------------------------------------------------------
-
-export async function createSession(): Promise<Session> {
-  const c = getRawSdkClient()
-  const result = await c.session.create({ directory: dir() })
-  return unwrap(result) as unknown as Session
-}
-
-export async function listSessions(options?: {
-  directory?: string
-  roots?: boolean
-  archived?: boolean
-}): Promise<SessionListItem[]> {
-  const c = getRawSdkClient()
-  const hasArchivedFilter =
-    options != null && Object.prototype.hasOwnProperty.call(options, 'archived')
-  const params = {
-    directory: options?.directory || dir(),
-    roots: options?.roots,
-  }
-  const result = hasArchivedFilter
-    ? await c.experimental.session.list({
-      ...params,
-      archived: options?.archived,
-    })
-    : await c.session.list(params)
-  return unwrap(result) as unknown as SessionListItem[]
-}
-
-export async function getSession(id: string): Promise<Session> {
-  const c = getRawSdkClient()
-  const result = await c.session.get({ sessionID: id, directory: dir() })
-  return unwrap(result) as unknown as Session
-}
-
-export async function getSessionChildren(id: string): Promise<SessionListItem[]> {
-  const c = getRawSdkClient()
-  const result = await c.session.children({ sessionID: id, directory: dir() })
-  return unwrap(result) as unknown as SessionListItem[]
-}
-
-export async function deleteSession(id: string): Promise<void> {
-  const c = getRawSdkClient()
-  const result = await c.session.delete({ sessionID: id, directory: dir() })
-  unwrap(result)
-}
-
-export async function archiveSession(id: string, directory?: string): Promise<void> {
-  const c = getRawSdkClient()
-  const result = await c.session.update({
-    sessionID: id,
-    directory: directory || dir(),
-    time: { archived: Date.now() },
-  })
-  unwrap(result)
-}
-
-export async function restoreSession(id: string, directory?: string): Promise<void> {
-  const c = getRawSdkClient()
-  const resolvedDirectory = directory || dir()
-  if (!resolvedDirectory) {
-    throw new Error('Cannot restore an archived session without a workspace directory.')
-  }
-
-  // OpenCode's session.update schema only accepts numeric archive timestamps;
-  // clearing archive state has to go through the sync event projector.
-  const result = await c.sync.replay({
-    query_directory: resolvedDirectory,
-    body_directory: resolvedDirectory,
-    events: [
-      {
-        id: createSyncEventId(),
-        aggregateID: id,
-        seq: await getNextSyncSequence(c, id, resolvedDirectory),
-        type: 'session.updated.1',
-        data: {
-          sessionID: id,
-          info: {
-            time: {
-              archived: null,
-            },
-          },
-        },
-      },
-    ],
-  })
-  unwrap(result)
-}
-
-export async function updateSession(
-  id: string,
-  updates: { title?: string },
-): Promise<Session> {
-  const c = getRawSdkClient()
-  const result = await c.session.update({
-    sessionID: id,
-    directory: dir(),
-    ...updates,
-  })
-  return unwrap(result) as never
-}
-
-export async function abortSession(id: string): Promise<boolean> {
-  const c = getRawSdkClient()
-  const result = await c.session.abort({ sessionID: id, directory: dir() })
-  unwrap(result)
-  return true
-}
-
-// ---------------------------------------------------------------------------
-// Message convenience wrappers
-// ---------------------------------------------------------------------------
-
-export async function getMessages(sessionId: string): Promise<Message[]> {
-  const c = getRawSdkClient()
-  const result = await c.session.messages({
-    sessionID: sessionId,
-    directory: dir(),
-  })
-  return unwrap(result) as unknown as Message[]
+export async function getMessages(_sessionId: string): Promise<Message[]> {
+  return notSupported('getMessages')
 }
 
 export async function sendMessage(
-  sessionId: string,
-  content: string,
-  model?: { providerID: string; modelID: string },
-  agent?: string,
-  systemPrompt?: string,
-): Promise<Message> {
-  const c = getRawSdkClient()
-  const trimmedSystem = systemPrompt?.trim()
-
-  if (trimmedSystem) {
-    console.log('[OpenCode] Sending message with system prompt:', {
-      sessionId,
-      systemPromptLength: trimmedSystem.length,
-      systemPromptPreview:
-        trimmedSystem.substring(0, 100) +
-        (trimmedSystem.length > 100 ? '...' : ''),
-    })
-  }
-
-  const result = await c.session.prompt({
-    sessionID: sessionId,
-    directory: dir(),
-    parts: [{ type: 'text', text: content }],
-    ...(model && { model }),
-    ...(agent && { agent }),
-    ...(trimmedSystem && { system: trimmedSystem }),
-  })
-  return unwrap(result) as unknown as Message
-}
-
-export async function sendMessageWithParts(
-  sessionId: string,
-  parts: SendMessageRequest['parts'],
-  model?: { providerID: string; modelID: string },
-  systemPrompt?: string,
-): Promise<Message> {
-  const c = getRawSdkClient()
-  const result = await c.session.prompt({
-    sessionID: sessionId,
-    directory: dir(),
-    parts: parts as Array<{ type: 'text'; text: string } | { type: 'file'; mime: string; url: string; filename?: string }>,
-    ...(model && { model }),
-    ...(systemPrompt?.trim() && { system: systemPrompt.trim() }),
-  })
-  return unwrap(result) as never
-}
-
-export async function sendMessageAsync(
-  sessionId: string,
-  content: string,
-  model?: { providerID: string; modelID: string },
-  agent?: string,
-  systemPrompt?: string,
+  _sessionId: string,
+  _request: SendMessageRequest,
 ): Promise<void> {
-  const c = getRawSdkClient()
-  const result = await c.session.promptAsync({
-    sessionID: sessionId,
-    directory: dir(),
-    parts: [{ type: 'text', text: content }],
-    ...(model && { model }),
-    ...(agent && { agent }),
-    ...(systemPrompt?.trim() && { system: systemPrompt.trim() }),
-  })
-  unwrap(result)
+  return notSupported('sendMessage')
 }
 
-export async function sendMessageWithPartsAsync(
-  sessionId: string,
-  parts: SendMessageRequest['parts'],
-  model?: { providerID: string; modelID: string },
-  agent?: string,
-  systemPrompt?: string,
-): Promise<void> {
-  const c = getRawSdkClient()
-  const result = await c.session.promptAsync({
-    sessionID: sessionId,
-    directory: dir(),
-    parts: parts as Array<{ type: 'text'; text: string } | { type: 'file'; mime: string; url: string; filename?: string }>,
-    ...(model && { model }),
-    ...(agent && { agent }),
-    ...(systemPrompt?.trim() && { system: systemPrompt.trim() }),
-  })
-  unwrap(result)
-}
-
-// ---------------------------------------------------------------------------
-// Question convenience wrappers
-// ---------------------------------------------------------------------------
-
-export async function replyQuestion(
-  requestID: string,
-  answers: string[][],
-): Promise<boolean> {
-  const c = getRawSdkClient()
-  const result = await c.question.reply({
-    requestID,
-    directory: dir(),
-    answers,
-  })
-  unwrap(result)
-  return true
-}
-
-export async function rejectQuestion(requestID: string): Promise<boolean> {
-  const c = getRawSdkClient()
-  const result = await c.question.reject({
-    requestID,
-    directory: dir(),
-  })
-  unwrap(result)
-  return true
-}
-
-export async function listQuestions(): Promise<unknown[]> {
-  const c = getRawSdkClient()
-  const result = await c.question.list({ directory: dir() })
-  return unwrap(result) as unknown[]
-}
-
-// ---------------------------------------------------------------------------
-// Todo / Diff / File status
-// ---------------------------------------------------------------------------
-
-export async function getTodos(
-  sessionId: string,
-): Promise<
-  Array<{ id: string; content: string; status: string; priority: string }>
-> {
-  const c = getRawSdkClient()
-  const result = await c.session.todo({
-    sessionID: sessionId,
-    directory: dir(),
-  })
-  return unwrap(result) as Array<{
-    id: string
-    content: string
-    status: string
-    priority: string
-  }>
-}
-
-export async function getSessionDiff(
-  sessionId: string,
-): Promise<
-  Array<{
-    file: string
-    before: string
-    after: string
-    additions: number
-    deletions: number
-  }>
-> {
-  const c = getRawSdkClient()
-  const result = await c.session.diff({
-    sessionID: sessionId,
-    directory: dir(),
-  })
-  // SDK returns SnapshotFileDiff[] with { file, patch, additions, deletions }
-  // We map to the old shape with before/after (patch goes into after, before is empty)
-  const diffs = unwrap(result) as unknown as Array<{
-    file: string
-    patch: string
-    additions: number
-    deletions: number
-  }>
-  return diffs.map((d) => ({
-    file: d.file,
-    before: '',
-    after: d.patch || '',
-    additions: d.additions,
-    deletions: d.deletions,
-  }))
-}
-
-export async function getFileStatus(): Promise<
-  Array<{
-    path: string
-    added: number
-    removed: number
-    status: 'added' | 'deleted' | 'modified'
-  }>
-> {
-  const c = getRawSdkClient()
-  const result = await c.file.status({ directory: dir() })
-  return unwrap(result) as Array<{
-    path: string
-    added: number
-    removed: number
-    status: 'added' | 'deleted' | 'modified'
-  }>
-}
-
-// ---------------------------------------------------------------------------
-// Permission convenience wrappers
-// ---------------------------------------------------------------------------
-
-export async function listPermissions(): Promise<PermissionAskedEvent[]> {
-  const c = getRawSdkClient()
-  const result = await c.permission.list({ directory: dir() })
-  return unwrap(result) as unknown as PermissionAskedEvent[]
+export async function abortSession(_sessionId: string): Promise<void> {
+  return notSupported('abortSession')
 }
 
 export async function replyPermission(
-  permissionId: string,
-  request: PermissionReplyRequest,
+  _permissionId: string,
+  _request: PermissionReplyRequest,
 ): Promise<void> {
-  const c = getRawSdkClient()
-  const result = await c.permission.reply({
-    requestID: permissionId,
-    directory: dir(),
-    reply: request.reply,
-  })
-  unwrap(result)
+  return notSupported('replyPermission')
 }
 
-// ---------------------------------------------------------------------------
-// Provider convenience wrappers
-// ---------------------------------------------------------------------------
-
-export async function getProviders(): Promise<{
-  all: Array<{
-    id: string
-    name: string
-    models: Record<string, { id: string; name: string }>
-  }>
-  connected: string[]
-  default: Record<string, string>
-}> {
-  const c = getRawSdkClient()
-  const result = await c.provider.list({ directory: dir() })
-  return unwrap(result) as {
-    all: Array<{
-      id: string
-      name: string
-      models: Record<string, { id: string; name: string }>
-    }>
-    connected: string[]
-    default: Record<string, string>
-  }
+export async function replyQuestion(
+  _sessionId: string,
+  _questionId: string,
+  _answers: Record<string, string>,
+): Promise<void> {
+  return notSupported('replyQuestion')
 }
 
-export async function getConfigProviders(): Promise<{
-  providers: Array<{
-    id: string
-    name: string
-    models: Record<string, { id: string; name: string }>
-  }>
-  default: Record<string, string>
-}> {
-  const c = getRawSdkClient()
-  const result = await c.config.providers({ directory: dir() })
-  return unwrap(result) as {
-    providers: Array<{
-      id: string
-      name: string
-      models: Record<string, { id: string; name: string }>
-    }>
-    default: Record<string, string>
-  }
+export async function getMCPStatus(): Promise<MCPStatusMap> {
+  return notSupported('getMCPStatus')
 }
 
-// ---------------------------------------------------------------------------
-// Config convenience wrappers
-// ---------------------------------------------------------------------------
-
-export async function getConfig(): Promise<{ model?: string }> {
-  const c = getRawSdkClient()
-  const result = await c.config.get({ directory: dir() })
-  return unwrap(result) as { model?: string }
+export async function getConfig(): Promise<unknown> {
+  return notSupported('getConfig')
 }
 
-export async function updateConfig(
-  config: { model?: string },
-): Promise<{ model?: string }> {
-  const c = getRawSdkClient()
-  const result = await c.config.update({
-    directory: dir(),
-    config,
-  })
-  return unwrap(result) as { model?: string }
+export async function updateConfig(_config: unknown): Promise<void> {
+  return notSupported('updateConfig')
 }
 
-// ---------------------------------------------------------------------------
-// Auth convenience wrappers
-// ---------------------------------------------------------------------------
+export async function listCommands(): Promise<Command[]> {
+  return notSupported('listCommands')
+}
+
+export async function executeCommand(_name: string, _sessionId?: string): Promise<void> {
+  return notSupported('executeCommand')
+}
+
+export async function addMCPServer(_name: string, _config: MCPServerConfig): Promise<void> {
+  return notSupported('addMCPServer')
+}
+
+export async function updateMCPServer(_name: string, _config: MCPServerConfig): Promise<void> {
+  return notSupported('updateMCPServer')
+}
+
+export async function removeMCPServer(_name: string): Promise<void> {
+  return notSupported('removeMCPServer')
+}
+
+export async function updateSession(_sessionId: string, _opts: unknown): Promise<void> {
+  return notSupported('updateSession')
+}
+
+export async function sendMessageWithParts(
+  _sessionId: string,
+  _request: SendMessageRequest,
+): Promise<void> {
+  return notSupported('sendMessageWithParts')
+}
+
+export async function sendMessageAsync(
+  _sessionId: string,
+  _request: SendMessageRequest,
+): Promise<string> {
+  return notSupported('sendMessageAsync')
+}
+
+export async function sendMessageWithPartsAsync(
+  _sessionId: string,
+  _request: SendMessageRequest,
+): Promise<string> {
+  return notSupported('sendMessageWithPartsAsync')
+}
+
+export async function getTodos(_sessionId: string): Promise<unknown[]> {
+  return notSupported('getTodos')
+}
+
+export async function getSessionDiff(_sessionId: string): Promise<unknown[]> {
+  return notSupported('getSessionDiff')
+}
+
+export async function updateConfig2(_key: string, _value: unknown): Promise<void> {
+  return notSupported('updateConfig')
+}
 
 export async function setAuth(
-  providerId: string,
-  auth:
-    | { type: 'api'; key: string }
-    | { type: 'oauth'; refresh: string; access: string; expires: number },
-): Promise<boolean> {
-  const c = getRawSdkClient()
-  const result = await c.auth.set({
-    providerID: providerId,
-    auth: auth as { type: 'api'; key: string },
-  })
-  unwrap(result)
-  return true
-}
-
-export async function deleteAuth(providerId: string): Promise<boolean> {
-  const c = getRawSdkClient()
-  const result = await c.auth.remove({ providerID: providerId })
-  unwrap(result)
-  return true
-}
-
-export async function getAuthMethods(): Promise<
-  Record<
-    string,
-    Array<{ type: 'oauth' | 'api'; label: string; prompts?: unknown[] }>
-  >
-> {
-  const c = getRawSdkClient()
-  const result = await c.provider.auth({ directory: dir() })
-  return unwrap(result) as Record<
-    string,
-    Array<{ type: 'oauth' | 'api'; label: string; prompts?: unknown[] }>
-  >
+  _providerId: string,
+  _auth: unknown,
+): Promise<void> {
+  return notSupported('setAuth')
 }
 
 export async function oauthAuthorize(
-  providerId: string,
-  method: number,
-  inputs?: Record<string, string>,
-): Promise<
-  | { url: string; method: 'auto' | 'code'; instructions: string }
-  | undefined
-> {
-  const c = getRawSdkClient()
-  const result = await c.provider.oauth.authorize({
-    providerID: providerId,
-    directory: dir(),
-    method,
-    inputs,
-  })
-  return unwrap(result) as
-    | { url: string; method: 'auto' | 'code'; instructions: string }
-    | undefined
+  _providerId: string,
+  _opts?: unknown,
+): Promise<{ url: string; state: string }> {
+  return notSupported('oauthAuthorize')
 }
 
-export async function oauthCallback(
-  providerId: string,
-  method: number,
-  code?: string,
-): Promise<boolean> {
-  const c = getRawSdkClient()
-  const result = await c.provider.oauth.callback({
-    providerID: providerId,
-    directory: dir(),
-    method,
-    ...(code ? { code } : {}),
-  })
-  unwrap(result)
-  return true
+export async function oauthCallback(_code: string, _state: string): Promise<void> {
+  return notSupported('oauthCallback')
 }
 
-// ---------------------------------------------------------------------------
-// Project convenience wrappers
-// ---------------------------------------------------------------------------
-
-export async function getProject(): Promise<Project> {
-  const c = getRawSdkClient()
-  const result = await c.project.current({ directory: dir() })
-  return unwrap(result) as never
+export async function getProviders(): Promise<unknown[]> {
+  return notSupported('getProviders')
 }
 
-// ---------------------------------------------------------------------------
-// File convenience wrappers
-// ---------------------------------------------------------------------------
-
-export async function readFile(path: string): Promise<string> {
-  const c = getRawSdkClient()
-  const result = await c.file.read({ directory: dir(), path })
-  // SDK returns FileContent { type, content, ... } — extract the text content
-  const fileContent = unwrap(result) as unknown as { type: string; content: string }
-  return fileContent.content
-}
-
-export async function listDirectory(path: string): Promise<string[]> {
-  const c = getRawSdkClient()
-  const result = await c.file.list({ directory: dir(), path })
-  // SDK returns FileNode[] { name, path, absolute, type, ignored }
-  const nodes = unwrap(result) as unknown as Array<{ name: string; path: string }>
-  return nodes.map((n) => n.path)
-}
-
-// ---------------------------------------------------------------------------
-// Command convenience wrappers
-// ---------------------------------------------------------------------------
-
-export async function listCommands(): Promise<Command[]> {
-  const c = getRawSdkClient()
-  const result = await c.command.list({ directory: dir() })
-  return unwrap(result) as unknown as Command[]
-}
-
-export async function executeCommand(
-  sessionId: string,
-  command: string,
-  args?: string[],
-  options?: {
-    messageID?: string
-    agent?: string
-    model?: { providerID: string; modelID: string }
-  },
-): Promise<Message> {
-  const c = getRawSdkClient()
-  const result = await c.session.command({
-    sessionID: sessionId,
-    directory: dir(),
-    command,
-    ...(args && args.length > 0 && { arguments: args.join(' ') }),
-    ...(options?.messageID && { messageID: options.messageID }),
-    ...(options?.agent && { agent: options.agent }),
-    // Note: session.command takes model as a string, not an object
-    ...(options?.model && { model: `${options.model.providerID}/${options.model.modelID}` }),
-  })
-  return unwrap(result) as never
-}
-
-// ---------------------------------------------------------------------------
-// MCP convenience wrappers
-// ---------------------------------------------------------------------------
-
-export async function getMCPStatus(): Promise<MCPStatusMap> {
-  const c = getRawSdkClient()
-  const result = await c.mcp.status({ directory: dir() })
-  return unwrap(result) as never
-}
-
-export async function addMCPServer(
-  name: string,
-  config: MCPServerConfig,
-): Promise<MCPStatusMap> {
-  const c = getRawSdkClient()
-  const result = await c.mcp.add({
-    directory: dir(),
-    name,
-    config: config as { type: 'local'; command: string[] },
-  })
-  return unwrap(result) as never
-}
-
-export async function connectMCP(name: string): Promise<boolean> {
-  const c = getRawSdkClient()
-  const result = await c.mcp.connect({ name, directory: dir() })
-  unwrap(result)
-  return true
-}
-
-export async function disconnectMCP(name: string): Promise<boolean> {
-  const c = getRawSdkClient()
-  const result = await c.mcp.disconnect({ name, directory: dir() })
-  unwrap(result)
-  return true
-}
-
-// ---------------------------------------------------------------------------
-// Tool convenience wrappers
-// ---------------------------------------------------------------------------
-
-export async function getToolIds(): Promise<string[]> {
-  const c = getRawSdkClient()
-  const result = await c.tool.ids({ directory: dir() })
-  return unwrap(result) as string[]
-}
-
-// ---------------------------------------------------------------------------
-// Health check
-// ---------------------------------------------------------------------------
-
-export async function isReady(): Promise<boolean> {
-  try {
-    const c = getRawSdkClient()
-    const result = await c.session.list({ directory: dir() })
-    unwrap(result)
-    return true
-  } catch {
-    return false
-  }
+export async function getProject(): Promise<Project | null> {
+  return notSupported('getProject')
 }

@@ -35,26 +35,26 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // @ts-expect-error Phase 1E removal
   const error = useSessionStore(s => s.error);
   // @ts-expect-error Phase 1E removal
-  const errorSessionId = useSessionStore(s => s.errorSessionId);
+  const _errorSessionId = useSessionStore(s => s.errorSessionId);
   // @ts-expect-error Phase 1E removal
   const isConnected = useSessionStore(s => s.isConnected);
   const streamingMessageId = useStreamingStore(s => s.streamingMessageId);
   // @ts-expect-error Phase 1E removal
-  const messageQueue = useSessionStore(s => s.messageQueue);
+  const _messageQueue = useSessionStore(s => s.messageQueue);
   // @ts-expect-error Phase 1E removal
   const sessionError = useSessionStore(s => s.sessionError);
   // @ts-expect-error Phase 1E removal
   const inactivityWarning = useSessionStore(s => s.inactivityWarning);
   // @ts-expect-error Phase 1E removal
-  const draftInput = useSessionStore(s => s.draftInput);
+  const _draftInput = useSessionStore(s => s.draftInput);
   // @ts-expect-error Phase 1E removal
-  const todos = useSessionStore(s => s.todos);
+  const _todos = useSessionStore(s => s.todos);
   // @ts-expect-error Phase 1E removal
-  const pendingPermissions = useSessionStore(s => s.pendingPermissions);
+  const _pendingPermissions = useSessionStore(s => s.pendingPermissions);
   // @ts-expect-error Phase 1E removal
-  const pendingQuestions = useSessionStore(s => s.pendingQuestions);
+  const _pendingQuestions = useSessionStore(s => s.pendingQuestions);
   // @ts-expect-error Phase 1E removal
-  const sessions = useSessionStore(s => s.sessions);
+  const _sessions = useSessionStore(s => s.sessions);
 
   // ── Archived session viewing ────────────────────────────────────────
   // @ts-expect-error Phase 1E removal
@@ -67,14 +67,14 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       : undefined
   );
   // @ts-expect-error Phase 1E removal
-  const archivedSessionError = useSessionStore(s => s.archivedSessionError);
+  const _archivedSessionError = useSessionStore(s => s.archivedSessionError);
   const isViewingArchived = !!viewingArchivedSessionId;
 
   // ── Child session viewing ──────────────────────────────────────────
   // @ts-expect-error Phase 1E removal
   const viewingChildSessionId = useSessionStore(s => s.viewingChildSessionId);
   // @ts-expect-error Phase 1E removal
-  const isLoadingChildMessages = useSessionStore(s => s.isLoadingChildMessages);
+  const _isLoadingChildMessages = useSessionStore(s => s.isLoadingChildMessages);
   const childStreamingContent = useStreamingStore(s =>
     viewingChildSessionId && !isViewingArchived
       ? s.childSessionStreaming[viewingChildSessionId]
@@ -85,11 +85,11 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // Zustand actions are stable references; subscribing to them wastes equality checks.
   const acts = useSessionStore.getState();
   // @ts-expect-error Phase 1E removal
-  const sendMessage = acts.sendMessage;
+  const _sendMessage = acts.sendMessage;
   // @ts-expect-error Phase 1E removal
-  const abortSession = acts.abortSession;
+  const _abortSession = acts.abortSession;
   // @ts-expect-error Phase 1E removal
-  const removeFromQueue = acts.removeFromQueue;
+  const _removeFromQueue = acts.removeFromQueue;
   // @ts-expect-error Phase 1E removal
   const loadSessions = acts.loadSessions;
   // @ts-expect-error Phase 1E removal
@@ -101,7 +101,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // @ts-expect-error Phase 1E removal
   const setStoreSelectedModel = acts.setSelectedModel;
   // @ts-expect-error Phase 1E removal
-  const setDraftInput = acts.setDraftInput;
+  const _setDraftInput = acts.setDraftInput;
   // @ts-expect-error Phase 1E removal
   const closeArchivedSession = acts.closeArchivedSession;
   // @ts-expect-error Phase 1E removal

@@ -45,6 +45,22 @@ vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: vi.fn(() => ({ setFocus: vi.fn() })),
 }));
 
+// Mock Supabase-backed actor components to prevent module evaluation errors
+// and avoid render-loop issues with the real Supabase client in test env.
+vi.mock('../ActorChatInput', () => ({
+  ActorChatInput: vi.fn(() => null),
+}));
+vi.mock('../ActorMessageList', () => ({
+  ActorMessageList: vi.fn(() => null),
+}));
+vi.mock('@/lib/supabase-client', () => ({
+  supabase: {
+    channel: vi.fn(() => ({ on: vi.fn().mockReturnThis(), subscribe: vi.fn().mockReturnThis(), unsubscribe: vi.fn() })),
+    from: vi.fn(() => ({ select: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue({ data: [], error: null }) })),
+    auth: { getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }) },
+  },
+}));
+
 // Session store state — mutated per test
 const sessionState = {
   activeSessionId: null as string | null,
@@ -276,6 +292,8 @@ describe('ChatPanel', () => {
   });
 
   it('renders streaming child session content before child messages finish loading', () => {
+    // Phase 1E/v2: ActorMessageList handles child session rendering via Supabase.
+    // The "Back to main session" navigation bar is still rendered by ChatPanel.
     sessionState.activeSessionId = 'sess-parent';
     sessionState.viewingChildSessionId = 'child-1';
     sessionState.childSessionMessages = {
@@ -292,11 +310,14 @@ describe('ChatPanel', () => {
 
     const { container } = render(<ChatPanel />);
 
-    expect(container.textContent).toContain('Child stream in progress');
+    // Navigation bar is still rendered by ChatPanel itself
     expect(container.textContent).toContain('Back to main session');
+    // Message content is now rendered by ActorMessageList (mocked to null in tests)
   });
 
   it('renders archived messages in read-only mode', () => {
+    // Phase 1E/v2: ActorMessageList handles archived session rendering via Supabase.
+    // ChatPanel still renders the archived session navigation bar.
     sessionState.viewingArchivedSessionId = 'archived-1';
     sessionState.archivedSessions = [
       {
@@ -325,9 +346,8 @@ describe('ChatPanel', () => {
     const { container } = render(<ChatPanel />);
 
     expect(container.textContent).toContain('Archived Todo Chat');
-    expect(container.textContent).toContain('Archived hello');
     expect(container.textContent).toContain('Restore');
-    expect(container.textContent).toContain('Restore this session to continue chatting');
+    // Message content (Archived hello) is rendered by ActorMessageList (mocked to null in tests)
   });
 
   it('prioritizes archived view over child session view', () => {
@@ -380,11 +400,10 @@ describe('ChatPanel', () => {
     const { container, getByText } = render(<ChatPanel />);
 
     expect(container.textContent).toContain('Archived Todo Chat');
-    expect(container.textContent).toContain('Archived message wins');
+    // Archived message content is rendered by ActorMessageList (mocked to null in tests)
+    // Child session bars should not be shown when viewing an archived session
     expect(container.textContent).not.toContain('Back to main session');
     expect(container.textContent).not.toContain('Sub-agent');
-    expect(container.textContent).not.toContain('Child message should be hidden');
-    expect(container.textContent).not.toContain('Child stream should be hidden');
 
     fireEvent.click(getByText('Back to active session'));
 
@@ -415,7 +434,10 @@ describe('ChatPanel', () => {
     });
   });
 
-  it('shows archived message load errors in the read-only view', () => {
+  it('shows archived session navigation bar with title when viewing an archived session', () => {
+    // Phase 1E/v2: Error display from archivedSessionError is no longer rendered
+    // by ChatPanel directly — error handling is managed by ActorMessageList.
+    // This test verifies the archived navigation bar is still shown.
     sessionState.viewingArchivedSessionId = 'archived-1';
     sessionState.archivedSessionError = 'OpenCode API Error: unavailable';
     sessionState.archivedSessions = [
@@ -430,11 +452,10 @@ describe('ChatPanel', () => {
       },
     ];
 
-    const { getByText } = render(<ChatPanel />);
+    const { container } = render(<ChatPanel />);
 
-    expect(getByText('Could not load archived session')).toBeTruthy();
-    expect(getByText('OpenCode API Error: unavailable')).toBeTruthy();
-    expect(getByText('Restore this session to continue chatting')).toBeTruthy();
+    expect(container.textContent).toContain('Archived Todo Chat');
+    expect(container.textContent).toContain('Restore');
   });
 
   it('ignores duplicate restore clicks while restore is pending', async () => {

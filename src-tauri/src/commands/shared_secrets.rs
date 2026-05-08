@@ -320,9 +320,9 @@ pub async fn shared_secret_set(
 
     // Lazy-init from workspace config when not yet initialized (e.g. Git teams
     // whose TeamGitConfig panel hasn't been mounted yet this session).
-    if let Some(opencode_state) = app_handle.try_state::<super::opencode::OpenCodeState>() {
+    {
         let workspace_path =
-            super::window::current_workspace_for_window(&window, &registry, &opencode_state).ok();
+            super::window::current_workspace_for_window(&window, &registry).ok();
         if let Some(wp) = workspace_path {
             if let Err(e) = try_lazy_init_from_workspace(&state, &wp) {
                 log::debug!("shared_secret_set: lazy init skipped: {e}");
@@ -399,9 +399,9 @@ pub async fn shared_secret_delete(
     validate_key_id(&key_id)?;
 
     // Same lazy-init as `shared_secret_set` — needed before the team_dir check below.
-    if let Some(opencode_state) = app_handle.try_state::<super::opencode::OpenCodeState>() {
+    {
         let workspace_path =
-            super::window::current_workspace_for_window(&window, &registry, &opencode_state).ok();
+            super::window::current_workspace_for_window(&window, &registry).ok();
         if let Some(wp) = workspace_path {
             if let Err(e) = try_lazy_init_from_workspace(&state, &wp) {
                 log::debug!("shared_secret_delete: lazy init skipped: {e}");

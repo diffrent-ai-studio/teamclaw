@@ -1,8 +1,7 @@
 //! Multi-window support — Phase 2 MVP.
 //!
-//! Each secondary workspace window owns its own OpenCode sidecar instance on
-//! a dynamically-allocated port. The window registry maps window labels to
-//! workspace paths so the Destroyed handler can shut the matching sidecar.
+//! The window registry maps window labels to workspace paths so that
+//! commands can resolve the correct workspace for the calling window.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -11,24 +10,27 @@ use std::sync::Mutex;
 use tauri::TitleBarStyle;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-use super::opencode::{find_available_port, shutdown_opencode, OpenCodeState};
-
 /// window_label → workspace_path mapping for every workspace-owning window.
 ///
 /// Both the main window (label `"main"`) and secondary windows opened via
 /// `create_workspace_window` register here. Commands resolve their workspace
 /// from the calling window's label so that, in multi-window mode, an event
-/// from window A never routes to window B's sidecar.
+/// from window A never routes to window B's workspace.
 #[derive(Default)]
 pub struct WindowRegistry {
     pub windows: Mutex<HashMap<String, String>>,
+    /// Single-window fallback: last registered workspace path.
+    pub current_workspace: Mutex<Option<String>>,
 }
 
-/// Insert or update the label → workspace mapping. Called from `start_opencode`
-/// for the main window and from `create_workspace_window` for secondary windows.
+/// Insert or update the label → workspace mapping.
+/// Also updates the single-window fallback.
 pub fn register_window_workspace(registry: &WindowRegistry, label: &str, workspace_path: &str) {
     if let Ok(mut windows) = registry.windows.lock() {
         windows.insert(label.to_string(), workspace_path.to_string());
+    }
+    if let Ok(mut cw) = registry.current_workspace.lock() {
+        *cw = Some(workspace_path.to_string());
     }
 }
 
@@ -41,33 +43,28 @@ pub fn workspace_for_window(registry: &WindowRegistry, label: &str) -> Option<St
 ///
 /// Strategy:
 /// 1. Look up the window label in `WindowRegistry` — this is authoritative once
-///    `start_opencode` has run.
-/// 2. Fall back to single-instance inference via `current_workspace_path`. This
-///    keeps single-window flows working before the registry is populated and
-///    preserves existing behavior for any caller that doesn't own a sidecar.
-///
-/// In multi-window mode the registry lookup almost always succeeds; the
-/// fallback only fires during the brief window before the calling window's
-/// `start_opencode` has registered itself, in which case `current_workspace_path`
-/// errors with the existing "N instances active" message rather than silently
-/// routing to the wrong workspace.
+///    the workspace is selected.
+/// 2. Fall back to `current_workspace` for the single-window flow before
+///    the registry is populated.
 pub fn current_workspace_for_window(
     window: &tauri::WebviewWindow,
     registry: &WindowRegistry,
-    state: &OpenCodeState,
 ) -> Result<String, String> {
     if let Some(ws) = workspace_for_window(registry, window.label()) {
         return Ok(ws);
     }
-    super::opencode::current_workspace_path(state)
+    registry
+        .current_workspace
+        .lock()
+        .ok()
+        .and_then(|cw| cw.clone())
+        .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())
 }
 
 /// Open a new TeamClaw window for an additional workspace.
 ///
-/// Allocates a fresh sidecar port, generates a unique window label, registers
-/// the label→workspace mapping, and opens the window with `?workspace=&port=`
-/// query params. The frontend reads these in `useAppInit` and starts the
-/// sidecar on the assigned port.
+/// Generates a unique window label, registers the label→workspace mapping,
+/// and opens the window with `?workspace=` query param.
 #[tauri::command]
 pub async fn create_workspace_window(
     app: AppHandle,
@@ -78,10 +75,6 @@ pub async fn create_workspace_window(
         return Err("workspace_path is empty".to_string());
     }
 
-    // Allocate a port for this window's sidecar. Phase 1 main slot uses
-    // DEFAULT_PORT; secondary windows always get a free ephemeral port.
-    let port = find_available_port().await?;
-
     // Unique label so multiple secondary windows can coexist.
     let label = format!("ws-{}", nanoid::nanoid!(10));
 
@@ -91,7 +84,7 @@ pub async fn create_workspace_window(
     }
 
     let encoded_ws = urlencoding::encode(&workspace_path);
-    let url = format!("index.html?workspace={}&port={}", encoded_ws, port);
+    let url = format!("index.html?workspace={}", encoded_ws);
 
     let ws_name = std::path::Path::new(&workspace_path)
         .file_name()
@@ -132,7 +125,7 @@ pub async fn create_workspace_window(
     #[cfg(target_os = "macos")]
     super::spotlight::reposition_traffic_lights(&win);
 
-    // Cleanup on close: unregister + shutdown the sidecar for this workspace.
+    // Cleanup on close: unregister this window's workspace mapping.
     let app_handle = app.clone();
     let label_for_handler = label.clone();
     let workspace_for_handler = workspace_path.clone();
@@ -146,11 +139,6 @@ pub async fn create_workspace_window(
                 if let Some(registry) = app.try_state::<WindowRegistry>() {
                     if let Ok(mut windows) = registry.windows.lock() {
                         windows.remove(&label);
-                    }
-                }
-                if let Some(state) = app.try_state::<OpenCodeState>() {
-                    if let Err(e) = shutdown_opencode(&state, Some(&ws)).await {
-                        eprintln!("[Window] Failed to shut sidecar for {}: {}", ws, e);
                     }
                 }
             });

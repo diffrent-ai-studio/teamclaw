@@ -235,14 +235,13 @@ mod git_manifest_tests {
 #[tauri::command]
 pub async fn unified_team_get_members(
     workspace_path: Option<String>,
-    opencode_state: State<'_, super::opencode::OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
     oss_state: State<'_, super::oss_sync::OssSyncState>,
     iroh_state: State<'_, super::p2p_state::IrohState>,
 ) -> Result<Vec<TeamMember>, String> {
     let workspace_path =
-        super::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+        super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     let status = super::team::check_team_status(&workspace_path);
 
     match status.mode.as_deref() {
@@ -303,7 +302,6 @@ pub async fn unified_team_get_members(
 pub async fn unified_team_add_member(
     member: TeamMember,
     workspace_path: Option<String>,
-    opencode_state: State<'_, super::opencode::OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
     oss_state: State<'_, super::oss_sync::OssSyncState>,
@@ -312,7 +310,7 @@ pub async fn unified_team_add_member(
     validate_node_id(&member.node_id)?;
 
     let workspace_path =
-        super::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+        super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     let status = super::team::check_team_status(&workspace_path);
 
     match status.mode.as_deref() {
@@ -414,14 +412,13 @@ pub async fn unified_team_add_member(
 pub async fn unified_team_remove_member(
     node_id: String,
     workspace_path: Option<String>,
-    opencode_state: State<'_, super::opencode::OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
     oss_state: State<'_, super::oss_sync::OssSyncState>,
     iroh_state: State<'_, super::p2p_state::IrohState>,
 ) -> Result<(), String> {
     let workspace_path =
-        super::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+        super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     let status = super::team::check_team_status(&workspace_path);
 
     match status.mode.as_deref() {
@@ -543,14 +540,13 @@ pub async fn unified_team_update_member_role(
     node_id: String,
     role: MemberRole,
     workspace_path: Option<String>,
-    opencode_state: State<'_, super::opencode::OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
     oss_state: State<'_, super::oss_sync::OssSyncState>,
     iroh_state: State<'_, super::p2p_state::IrohState>,
 ) -> Result<(), String> {
     let workspace_path =
-        super::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+        super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     let status = super::team::check_team_status(&workspace_path);
 
     match status.mode.as_deref() {
@@ -595,14 +591,13 @@ pub async fn unified_team_update_member_role(
 #[tauri::command]
 pub async fn unified_team_get_my_role(
     workspace_path: Option<String>,
-    opencode_state: State<'_, super::opencode::OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
     oss_state: State<'_, super::oss_sync::OssSyncState>,
     iroh_state: State<'_, super::p2p_state::IrohState>,
 ) -> Result<MemberRole, String> {
     let workspace_path =
-        super::team::resolve_workspace_path(workspace_path, &window, &registry, &opencode_state)?;
+        super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     let status = super::team::check_team_status(&workspace_path);
 
     match status.mode.as_deref() {

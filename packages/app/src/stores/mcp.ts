@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
-import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
 import type { MCPRuntimeStatus } from '@/lib/opencode/sdk-types'
 import { withAsync } from '@/lib/store-utils'
 import { useWorkspaceStore } from './workspace'
@@ -73,19 +72,8 @@ export const useMCPStore = create<MCPState>((set) => ({
   },
 
   loadRuntimeStatus: async () => {
-    try {
-      // Fetch runtime status from OpenCode API
-      let client
-      try {
-        client = getOpenCodeClient()
-      } catch {
-        return // Client not initialized yet
-      }
-      const statusMap = await client.getMCPStatus().catch(() => ({} as Record<string, MCPRuntimeStatus>))
-      set({ runtimeStatus: statusMap })
-    } catch (error) {
-      console.error('Failed to load MCP runtime status:', error)
-    }
+    // OpenCode sidecar removed — runtime status is no longer available via API
+    // Status is managed via Tauri commands (list_mcp_tools, test_mcp_server, etc.)
   },
 
   loadTools: async () => {
@@ -168,48 +156,8 @@ export const useMCPStore = create<MCPState>((set) => ({
   syncFromFile: async () => {
     try {
       const newConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
-      const oldConfig = useMCPStore.getState().servers
-
-      let client
-      try {
-        client = getOpenCodeClient()
-      } catch {
-        // Client not initialized, just update local state
-        set({ servers: newConfig })
-        return
-      }
-
-      const oldNames = new Set(Object.keys(oldConfig))
-      const newNames = new Set(Object.keys(newConfig))
-      const ops: Promise<unknown>[] = []
-
-      // Removed servers → disconnect
-      for (const name of oldNames) {
-        if (!newNames.has(name)) {
-          ops.push(client.disconnectMCP(name).catch(() => {}))
-        }
-      }
-
-      // Added servers → add to runtime
-      for (const name of newNames) {
-        if (!oldNames.has(name) && newConfig[name].enabled !== false) {
-          ops.push(client.addMCPServer(name, newConfig[name]).catch(() => {}))
-        }
-      }
-
-      // Changed servers → disconnect + connect
-      for (const name of newNames) {
-        if (oldNames.has(name) && JSON.stringify(oldConfig[name]) !== JSON.stringify(newConfig[name])) {
-          ops.push(
-            client.disconnectMCP(name).catch(() => {})
-              .then(() => client.connectMCP(name).catch(() => {}))
-          )
-        }
-      }
-
-      await Promise.all(ops)
-      const runtimeStatus = await client.getMCPStatus().catch(() => ({} as Record<string, import('@/lib/opencode/sdk-types').MCPRuntimeStatus>))
-      set({ servers: newConfig, runtimeStatus })
+      // OpenCode sidecar removed — just update local state from file
+      set({ servers: newConfig })
     } catch (error) {
       console.error('[MCP] syncFromFile failed:', error)
     }

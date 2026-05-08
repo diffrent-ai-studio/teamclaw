@@ -7,7 +7,6 @@ use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, State};
 
-use crate::commands::opencode::OpenCodeState;
 
 /// Gateway state managed by Tauri
 pub struct GatewayState {
@@ -133,10 +132,9 @@ fn read_channels_for(workspace_path: &str) -> Result<ChannelsConfig, String> {
 pub async fn get_channel_config(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
 ) -> Result<ChannelsConfig, String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
     read_channels_for(&workspace_path)
 }
 
@@ -146,10 +144,9 @@ pub async fn save_channel_config(
     channels: ChannelsConfig,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
 
     let mut config = read_config(&workspace_path)?;
     config.channels = Some(channels);
@@ -161,10 +158,9 @@ pub async fn save_channel_config(
 pub async fn get_discord_config(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
 ) -> Result<Option<config::DiscordConfig>, String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
     Ok(read_channels_for(&workspace_path)?.discord)
 }
 
@@ -174,11 +170,10 @@ pub async fn save_discord_config(
     discord: config::DiscordConfig,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -205,11 +200,10 @@ pub async fn save_discord_config(
 pub async fn set_config_locale(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     locale: String,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
     let mut config = read_config(&workspace_path)?;
     config.locale = Some(locale);
     write_config(&workspace_path, &config)
@@ -220,13 +214,11 @@ pub async fn set_config_locale(
 pub async fn start_gateway(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
+    let port: u16 = 0; // OpenCode removed; port unused
 
     println!("[Gateway] Reading config from: {}", workspace_path);
     let config = read_config(&workspace_path)?;
@@ -316,10 +308,9 @@ pub async fn test_discord_token(token: String) -> Result<String, String> {
 pub async fn get_feishu_config(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
 ) -> Result<Option<feishu_config::FeishuConfig>, String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
     Ok(read_channels_for(&workspace_path)?.feishu)
 }
 
@@ -329,11 +320,10 @@ pub async fn save_feishu_config(
     feishu: feishu_config::FeishuConfig,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -360,13 +350,11 @@ pub async fn save_feishu_config(
 pub async fn start_feishu_gateway(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
+    let port: u16 = 0; // OpenCode removed; port unused
 
     let config = read_config(&workspace_path)?;
     let feishu_config = config
@@ -475,10 +463,9 @@ pub async fn sync_gateway_session_model(
 pub async fn get_email_config(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
 ) -> Result<Option<email_config::EmailConfig>, String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
     Ok(read_channels_for(&workspace_path)?.email)
 }
 
@@ -488,11 +475,10 @@ pub async fn save_email_config(
     email: email_config::EmailConfig,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -519,13 +505,11 @@ pub async fn save_email_config(
 pub async fn start_email_gateway(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
+    let port: u16 = 0; // OpenCode removed; port unused
 
     let config = read_config(&workspace_path)?;
     let email_config = config
@@ -611,10 +595,9 @@ pub async fn gmail_authorize(
     app: AppHandle,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
 ) -> Result<String, String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
 
     let app_for_callback = app.clone();
     let on_url: teamclaw_gateway::AuthUrlCallback = Box::new(move |url: &str| {
@@ -629,10 +612,9 @@ pub async fn gmail_authorize(
 pub async fn check_gmail_auth(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
 ) -> Result<bool, String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
 
     Ok(EmailGateway::check_gmail_auth(&workspace_path).await)
 }
@@ -644,10 +626,9 @@ pub async fn check_gmail_auth(
 pub async fn get_kook_config(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
 ) -> Result<kook_config::KookConfig, String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
     Ok(read_channels_for(&workspace_path)?.kook.unwrap_or_default())
 }
 
@@ -657,11 +638,10 @@ pub async fn save_kook_config(
     kook: kook_config::KookConfig,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -688,13 +668,11 @@ pub async fn save_kook_config(
 pub async fn start_kook_gateway(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
+    let port: u16 = 0; // OpenCode removed; port unused
 
     let config = read_config(&workspace_path)?;
     let kook_config = config
@@ -835,13 +813,11 @@ pub async fn get_wecom_config(
     workspace_path: Option<String>,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
 ) -> Result<wecom_config::WeComConfig, String> {
     let workspace_path = crate::commands::team::resolve_workspace_path(
         workspace_path,
         &window,
         &registry,
-        &opencode_state,
     )?;
     let config = read_config(&workspace_path)?;
     Ok(config
@@ -857,14 +833,12 @@ pub async fn save_wecom_config(
     workspace_path: Option<String>,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path = crate::commands::team::resolve_workspace_path(
         workspace_path,
         &window,
         &registry,
-        &opencode_state,
     )?;
 
     let mut config = read_config(&workspace_path)?;
@@ -891,11 +865,12 @@ pub async fn save_wecom_config(
 #[tauri::command]
 pub async fn start_wecom_gateway(
     workspace_path: Option<String>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, workspace_path.as_deref())?;
+    let workspace_path = workspace_path
+        .filter(|p| !p.is_empty())
+        .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?;
+    let port: u16 = 0; // OpenCode removed; port unused
 
     println!(
         "[Gateway] start_wecom_gateway called, workspace={}",
@@ -987,14 +962,12 @@ pub async fn stop_wecom_gateway(
     workspace_path: Option<String>,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let resolved_workspace_path = crate::commands::team::resolve_workspace_path(
         workspace_path,
         &window,
         &registry,
-        &opencode_state,
     )
     .ok();
 
@@ -1024,14 +997,12 @@ pub async fn get_wecom_gateway_status(
     workspace_path: Option<String>,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<WeComGatewayStatusResponse, String> {
     let workspace_path = crate::commands::team::resolve_workspace_path(
         workspace_path,
         &window,
         &registry,
-        &opencode_state,
     )?;
     let gateway_clone = {
         let guard = gateway_state
@@ -1125,10 +1096,9 @@ pub async fn poll_wecom_qr_auth(
 pub async fn get_wechat_config(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
 ) -> Result<wechat_config::WeChatConfig, String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
     Ok(read_channels_for(&workspace_path)?
         .wechat
         .unwrap_or_default())
@@ -1140,11 +1110,10 @@ pub async fn save_wechat_config(
     wechat: wechat_config::WeChatConfig,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
 
     let mut config = read_config(&workspace_path)?;
     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -1171,13 +1140,11 @@ pub async fn save_wechat_config(
 pub async fn start_wechat_gateway(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(&window, &registry, &opencode_state)?;
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
+        crate::commands::window::current_workspace_for_window(&window, &registry)?;
+    let port: u16 = 0; // OpenCode removed; port unused
 
     println!(
         "[Gateway] start_wechat_gateway called, workspace={}",
@@ -1294,7 +1261,6 @@ pub async fn poll_wechat_qr_status(
     qrcode: String,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     _gateway_state: State<'_, GatewayState>,
 ) -> Result<WeChatQrStatusResponse, String> {
     let resp = wechat::poll_qr_status(&wechat_config::default_ilink_base_url(), &qrcode).await?;
@@ -1315,7 +1281,6 @@ pub async fn poll_wechat_qr_status(
             if let Ok(workspace_path) = crate::commands::window::current_workspace_for_window(
                 &window,
                 &registry,
-                &opencode_state,
             ) {
                 if let Ok(mut config) = read_config(&workspace_path) {
                     let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
@@ -1340,7 +1305,6 @@ pub async fn test_wechat_connection(bot_token: String) -> Result<String, String>
 /// Load personal shortcuts from the workspace config file (teamclaw.json).
 #[tauri::command]
 pub fn load_shortcuts(
-    opencode_state: State<'_, super::opencode::OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
     workspace_path: Option<String>,
@@ -1349,7 +1313,6 @@ pub fn load_shortcuts(
         workspace_path,
         &window,
         &registry,
-        &opencode_state,
     )?;
     let config = read_config(&workspace_path)?;
     let shortcuts = config
@@ -1363,7 +1326,6 @@ pub fn load_shortcuts(
 /// Save personal shortcuts to the workspace config file (teamclaw.json).
 #[tauri::command]
 pub fn save_shortcuts(
-    opencode_state: State<'_, super::opencode::OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
     nodes: Vec<serde_json::Value>,
@@ -1373,7 +1335,6 @@ pub fn save_shortcuts(
         workspace_path,
         &window,
         &registry,
-        &opencode_state,
     )?;
     let mut config = read_config(&workspace_path)?;
     config
@@ -1385,7 +1346,6 @@ pub fn save_shortcuts(
 /// Load the per-workspace system prompt from teamclaw.json. Returns "" if unset.
 #[tauri::command]
 pub fn load_system_prompt(
-    opencode_state: State<'_, super::opencode::OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
     workspace_path: Option<String>,
@@ -1394,7 +1354,6 @@ pub fn load_system_prompt(
         workspace_path,
         &window,
         &registry,
-        &opencode_state,
     )?;
     let config = read_config(&workspace_path)?;
     Ok(config
@@ -1408,7 +1367,6 @@ pub fn load_system_prompt(
 /// Save the per-workspace system prompt to teamclaw.json.
 #[tauri::command]
 pub fn save_system_prompt(
-    opencode_state: State<'_, super::opencode::OpenCodeState>,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
     prompt: String,
@@ -1418,7 +1376,6 @@ pub fn save_system_prompt(
         workspace_path,
         &window,
         &registry,
-        &opencode_state,
     )?;
     let mut config = read_config(&workspace_path)?;
     config

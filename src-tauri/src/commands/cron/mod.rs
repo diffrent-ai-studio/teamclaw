@@ -3,7 +3,6 @@ pub mod scheduler;
 pub mod storage;
 pub mod types;
 
-use crate::commands::opencode::OpenCodeState;
 use delivery::DeliveryManager;
 use scheduler::CronScheduler;
 use storage::CronStorage;
@@ -70,11 +69,10 @@ impl CronState {
 async fn require_instance(
     window: &tauri::WebviewWindow,
     registry: &State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: &State<'_, OpenCodeState>,
     cron_state: &State<'_, CronState>,
 ) -> Result<CronInstance, String> {
     let workspace_path =
-        crate::commands::window::current_workspace_for_window(window, registry, opencode_state)?;
+        crate::commands::window::current_workspace_for_window(window, registry)?;
     cron_state
         .try_instance_for(&workspace_path)
         .await
@@ -93,24 +91,17 @@ pub async fn cron_init(
     app: AppHandle,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     cron_state: State<'_, CronState>,
     gateway_state: State<'_, crate::commands::gateway::GatewayState>,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
     // The frontend may pass an explicit workspace; otherwise we resolve from
     // the calling window. We then `resolve_workspace` against OpenCodeState
-    // to pick up the sidecar port for this workspace.
     let workspace_path = match workspace_path.filter(|p| !p.is_empty()) {
         Some(p) => p,
-        None => crate::commands::window::current_workspace_for_window(
-            &window,
-            &registry,
-            &opencode_state,
-        )?,
+        None => crate::commands::window::current_workspace_for_window(&window, &registry)?,
     };
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
+    let port: u16 = 0; // OpenCode removed; port unused
 
     // Get-or-create per-workspace instance, then stop its old scheduler
     // (if any) before reloading. This is workspace-local — peer workspaces
@@ -148,10 +139,9 @@ pub async fn cron_init(
 pub async fn cron_list_jobs(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     cron_state: State<'_, CronState>,
 ) -> Result<Vec<CronJob>, String> {
-    let instance = require_instance(&window, &registry, &opencode_state, &cron_state).await?;
+    let instance = require_instance(&window, &registry, &cron_state).await?;
     Ok(instance.storage.list_jobs().await)
 }
 
@@ -161,10 +151,9 @@ pub async fn cron_add_job(
     request: CreateCronJobRequest,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     cron_state: State<'_, CronState>,
 ) -> Result<CronJob, String> {
-    let instance = require_instance(&window, &registry, &opencode_state, &cron_state).await?;
+    let instance = require_instance(&window, &registry, &cron_state).await?;
 
     let now = chrono::Utc::now();
     let id = uuid::Uuid::new_v4().to_string();
@@ -199,10 +188,9 @@ pub async fn cron_update_job(
     request: UpdateCronJobRequest,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     cron_state: State<'_, CronState>,
 ) -> Result<CronJob, String> {
-    let instance = require_instance(&window, &registry, &opencode_state, &cron_state).await?;
+    let instance = require_instance(&window, &registry, &cron_state).await?;
 
     let mut job = instance
         .storage
@@ -247,10 +235,9 @@ pub async fn cron_remove_job(
     job_id: String,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     cron_state: State<'_, CronState>,
 ) -> Result<(), String> {
-    let instance = require_instance(&window, &registry, &opencode_state, &cron_state).await?;
+    let instance = require_instance(&window, &registry, &cron_state).await?;
     instance.storage.remove_job(&job_id).await?;
     println!("[Cron] Job removed: {}", job_id);
     Ok(())
@@ -263,10 +250,9 @@ pub async fn cron_toggle_enabled(
     enabled: bool,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     cron_state: State<'_, CronState>,
 ) -> Result<(), String> {
-    let instance = require_instance(&window, &registry, &opencode_state, &cron_state).await?;
+    let instance = require_instance(&window, &registry, &cron_state).await?;
     instance.storage.toggle_enabled(&job_id, enabled).await?;
 
     if enabled {
@@ -290,10 +276,9 @@ pub async fn cron_run_job(
     job_id: String,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     cron_state: State<'_, CronState>,
 ) -> Result<(), String> {
-    let instance = require_instance(&window, &registry, &opencode_state, &cron_state).await?;
+    let instance = require_instance(&window, &registry, &cron_state).await?;
 
     let job = instance
         .storage
@@ -318,10 +303,9 @@ pub async fn cron_get_runs(
     limit: Option<usize>,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     cron_state: State<'_, CronState>,
 ) -> Result<Vec<CronRunRecord>, String> {
-    let instance = require_instance(&window, &registry, &opencode_state, &cron_state).await?;
+    let instance = require_instance(&window, &registry, &cron_state).await?;
     let limit = limit.unwrap_or(50);
     Ok(instance.storage.get_runs(&job_id, Some(limit)).await)
 }
@@ -331,10 +315,9 @@ pub async fn cron_get_runs(
 pub async fn cron_get_all_session_ids(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, OpenCodeState>,
     cron_state: State<'_, CronState>,
 ) -> Result<Vec<String>, String> {
-    let instance = require_instance(&window, &registry, &opencode_state, &cron_state).await?;
+    let instance = require_instance(&window, &registry, &cron_state).await?;
     Ok(instance.storage.get_all_session_ids().await)
 }
 

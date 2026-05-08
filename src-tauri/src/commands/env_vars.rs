@@ -3,7 +3,7 @@ use std::path::Path;
 use tauri::State;
 
 use super::local_secret_store;
-use super::opencode::OpenCodeState;
+
 
 /// Single keychain entry that stores all env vars as a JSON blob.
 pub(crate) const KEYRING_SERVICE: &str = concat!(env!("APP_SHORT_NAME"), ".env");
@@ -462,9 +462,8 @@ fn set_env_vars_in_json(json: &mut serde_json::Value, entries: &[EnvVarEntry]) {
 fn get_workspace_path(
     window: &tauri::WebviewWindow,
     registry: &State<'_, super::window::WindowRegistry>,
-    state: &State<'_, OpenCodeState>,
 ) -> Result<String, String> {
-    super::window::current_workspace_for_window(window, registry, state)
+    super::window::current_workspace_for_window(window, registry)
 }
 
 // ─── Tauri Commands ─────────────────────────────────────────────────────
@@ -510,12 +509,11 @@ pub(crate) async fn env_var_set_for_workspace(
 pub async fn env_var_set(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
     key: String,
     value: String,
     description: Option<String>,
 ) -> Result<(), String> {
-    let workspace_path = get_workspace_path(&window, &registry, &state)?;
+    let workspace_path = get_workspace_path(&window, &registry)?;
     env_var_set_for_workspace(&workspace_path, key, value, description).await
 }
 
@@ -524,10 +522,9 @@ pub async fn env_var_set(
 pub async fn env_var_get(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
     key: String,
 ) -> Result<String, String> {
-    let workspace_path = get_workspace_path(&window, &registry, &state)?;
+    let workspace_path = get_workspace_path(&window, &registry)?;
     let blob = tokio::task::spawn_blocking({
         let wp = workspace_path.clone();
         move || read_env_blob(&wp)
@@ -579,10 +576,9 @@ pub(crate) async fn env_var_delete_for_workspace(
 pub async fn env_var_delete(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
     key: String,
 ) -> Result<(), String> {
-    let workspace_path = get_workspace_path(&window, &registry, &state)?;
+    let workspace_path = get_workspace_path(&window, &registry)?;
     env_var_delete_for_workspace(&workspace_path, key).await
 }
 
@@ -591,9 +587,8 @@ pub async fn env_var_delete(
 pub async fn env_var_list(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
 ) -> Result<Vec<EnvVarEntry>, String> {
-    let workspace_path = get_workspace_path(&window, &registry, &state)?;
+    let workspace_path = get_workspace_path(&window, &registry)?;
     let json = read_teamclaw_json(&workspace_path)?;
     Ok(get_env_vars_from_json(&json))
 }
@@ -608,11 +603,10 @@ pub async fn env_var_list(
 pub async fn env_var_resolve(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
-    state: State<'_, OpenCodeState>,
     shared_secrets: State<'_, super::shared_secrets::SharedSecretsState>,
     input: String,
 ) -> Result<String, String> {
-    let workspace_path = get_workspace_path(&window, &registry, &state)?;
+    let workspace_path = get_workspace_path(&window, &registry)?;
     let re = regex::Regex::new(r"\$\{([^}]+)\}").map_err(|e| format!("Invalid regex: {}", e))?;
 
     let mut result = input.clone();

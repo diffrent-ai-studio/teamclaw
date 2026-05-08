@@ -176,13 +176,13 @@ async fn handle_send_wecom(app: &AppHandle, body: &[u8]) -> Result<String, Strin
 }
 
 async fn handle_team_sync_all(app: &AppHandle, _body: &[u8]) -> Result<String, String> {
-    use super::opencode::OpenCodeState;
-
     // introspect_api has no calling-window context (HTTP server). Falls back
-    // to single-instance inference, which errors in multi-window — out of
-    // scope here; needs workspace_path in payload eventually.
-    let opencode_state = app.state::<OpenCodeState>();
-    let workspace = super::opencode::current_workspace_path(&opencode_state)?;
+    // to current_workspace in WindowRegistry.
+    let registry = app.state::<super::window::WindowRegistry>();
+    let workspace = registry.current_workspace.lock()
+        .ok()
+        .and_then(|cw| cw.clone())
+        .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?;
     let result = super::team_sync_all::sync_all(app, &workspace).await;
     serde_json::to_string(&result).map_err(|e| format!("Serialization error: {e}"))
 }
@@ -202,8 +202,13 @@ async fn handle_cron_run(app: &AppHandle, body: &[u8]) -> Result<String, String>
     let workspace_path = match v.get("workspace_path").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s.to_string(),
         _ => {
-            let oc_state = app.state::<super::opencode::OpenCodeState>();
-            super::opencode::current_workspace_path(&oc_state)?
+            {
+            let registry = app.state::<super::window::WindowRegistry>();
+            registry.current_workspace.lock()
+                .ok()
+                .and_then(|cw| cw.clone())
+                .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
+        }
         }
     };
 
@@ -232,8 +237,13 @@ async fn handle_cron_run(app: &AppHandle, body: &[u8]) -> Result<String, String>
 /// Read the WeCom ownerId from the config file.
 /// Returns the ownerId or an error if not configured.
 fn resolve_wecom_owner_id(app: &AppHandle) -> Result<String, String> {
-    let oc_state = app.state::<super::opencode::OpenCodeState>();
-    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+    let workspace_path = {
+        let registry = app.state::<super::window::WindowRegistry>();
+        registry.current_workspace.lock()
+            .ok()
+            .and_then(|cw| cw.clone())
+            .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
+    };
 
     let config = teamclaw_gateway::read_config(&workspace_path)?;
     let owner_id = config
@@ -281,8 +291,13 @@ async fn handle_knowledge_search(app: &AppHandle, body: &[u8]) -> Result<String,
         .to_string();
     let top_k = v.get("top_k").and_then(|v| v.as_u64()).map(|n| n as usize);
 
-    let oc_state = app.state::<super::opencode::OpenCodeState>();
-    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+    let workspace_path = {
+        let registry = app.state::<super::window::WindowRegistry>();
+        registry.current_workspace.lock()
+            .ok()
+            .and_then(|cw| cw.clone())
+            .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
+    };
 
     let rag_state = app.state::<super::knowledge::RagState>();
     let result =
@@ -305,8 +320,13 @@ async fn handle_knowledge_add(app: &AppHandle, body: &[u8]) -> Result<String, St
         .unwrap_or("Untitled");
     let filename = v.get("filename").and_then(|v| v.as_str());
 
-    let oc_state = app.state::<super::opencode::OpenCodeState>();
-    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+    let workspace_path = {
+        let registry = app.state::<super::window::WindowRegistry>();
+        registry.current_workspace.lock()
+            .ok()
+            .and_then(|cw| cw.clone())
+            .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
+    };
 
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let safe_filename = filename
@@ -345,8 +365,13 @@ async fn handle_knowledge_add(app: &AppHandle, body: &[u8]) -> Result<String, St
 }
 
 async fn handle_knowledge_list(app: &AppHandle, _body: &[u8]) -> Result<String, String> {
-    let oc_state = app.state::<super::opencode::OpenCodeState>();
-    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+    let workspace_path = {
+        let registry = app.state::<super::window::WindowRegistry>();
+        registry.current_workspace.lock()
+            .ok()
+            .and_then(|cw| cw.clone())
+            .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
+    };
 
     let memories = super::knowledge::rag_list_memories(workspace_path).await?;
     serde_json::to_string(&memories).map_err(|e| format!("Serialization error: {e}"))
@@ -362,8 +387,13 @@ async fn handle_knowledge_delete(app: &AppHandle, body: &[u8]) -> Result<String,
         .ok_or("Missing field: filename")?
         .to_string();
 
-    let oc_state = app.state::<super::opencode::OpenCodeState>();
-    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+    let workspace_path = {
+        let registry = app.state::<super::window::WindowRegistry>();
+        registry.current_workspace.lock()
+            .ok()
+            .and_then(|cw| cw.clone())
+            .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
+    };
 
     let rag_state = app.state::<super::knowledge::RagState>();
     super::knowledge::rag_delete_memory(workspace_path, filename.clone(), rag_state).await?;
@@ -395,8 +425,13 @@ async fn handle_env_var_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
     // introspect_api has no calling-window context (it's an HTTP server).
     // Multi-window workspace selection is out of scope here — falls back to
     // single-instance inference, which errors in multi-window mode.
-    let oc_state = app.state::<super::opencode::OpenCodeState>();
-    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+    let workspace_path = {
+        let registry = app.state::<super::window::WindowRegistry>();
+        registry.current_workspace.lock()
+            .ok()
+            .and_then(|cw| cw.clone())
+            .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
+    };
     super::env_vars::env_var_set_for_workspace(&workspace_path, key.clone(), value, description)
         .await?;
 
@@ -413,8 +448,13 @@ async fn handle_env_var_delete(app: &AppHandle, body: &[u8]) -> Result<String, S
         .ok_or("Missing field: key")?
         .to_string();
 
-    let oc_state = app.state::<super::opencode::OpenCodeState>();
-    let workspace_path = super::opencode::current_workspace_path(&oc_state)?;
+    let workspace_path = {
+        let registry = app.state::<super::window::WindowRegistry>();
+        registry.current_workspace.lock()
+            .ok()
+            .and_then(|cw| cw.clone())
+            .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
+    };
     super::env_vars::env_var_delete_for_workspace(&workspace_path, key.clone()).await?;
 
     Ok(format!(r#"{{"ok":true,"key":"{}"}}"#, key))
@@ -441,8 +481,13 @@ async fn handle_channel_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         ));
     }
 
-    let oc_state = app.state::<super::opencode::OpenCodeState>();
-    let workspace = super::opencode::current_workspace_path(&oc_state)?;
+    let workspace = {
+        let registry = app.state::<super::window::WindowRegistry>();
+        registry.current_workspace.lock()
+            .ok()
+            .and_then(|cw| cw.clone())
+            .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
+    };
 
     let mut json = super::env_vars::read_teamclaw_json(&workspace)?;
 

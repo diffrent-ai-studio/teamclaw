@@ -309,14 +309,17 @@ pub struct TeamFeedbackSummary {
 #[tauri::command]
 pub async fn telemetry_export_team_feedback(
     state: tauri::State<'_, TelemetryState>,
-    opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
     let db = get_db(&state).await?;
 
     let node_id = crate::commands::oss_commands::get_device_id()?;
     let hostname = gethostname::gethostname().to_string_lossy().to_string();
 
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = registry.current_workspace.lock()
+        .ok()
+        .and_then(|cw| cw.clone())
+        .ok_or_else(|| "No workspace path set.".to_string())?;
     let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
     if !team_dir.exists() {
         return Ok(());
@@ -358,9 +361,12 @@ pub async fn telemetry_export_team_feedback(
 /// Read all member feedback JSONs from teamclaw-team/_feedback/ and return aggregated team summary.
 #[tauri::command]
 pub async fn telemetry_get_team_feedback_summary(
-    opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamFeedbackSummary, String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = registry.current_workspace.lock()
+        .ok()
+        .and_then(|cw| cw.clone())
+        .ok_or_else(|| "No workspace path set.".to_string())?;
     let feedback_dir = std::path::Path::new(&workspace_path)
         .join(crate::commands::TEAM_REPO_DIR)
         .join("_feedback");
@@ -469,12 +475,15 @@ pub struct TeamLeaderboard {
 /// `~/.teamclaw/iroh/secret_key`. The iroh node does NOT need to be running.
 #[tauri::command]
 pub async fn telemetry_export_leaderboard(
-    opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<(), String> {
     let node_id = crate::commands::oss_commands::get_device_id()?;
     let hostname = gethostname::gethostname().to_string_lossy().to_string();
 
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = registry.current_workspace.lock()
+        .ok()
+        .and_then(|cw| cw.clone())
+        .ok_or_else(|| "No workspace path set.".to_string())?;
     let team_dir = std::path::Path::new(&workspace_path).join(crate::commands::TEAM_REPO_DIR);
     if !team_dir.exists() {
         return Ok(());
@@ -609,9 +618,12 @@ fn aggregate_workspace_stats(
 /// Aggregates stats from all workspaces for each member.
 #[tauri::command]
 pub async fn telemetry_get_team_leaderboard(
-    opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamLeaderboard, String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = registry.current_workspace.lock()
+        .ok()
+        .and_then(|cw| cw.clone())
+        .ok_or_else(|| "No workspace path set.".to_string())?;
     let leaderboard_dir = std::path::Path::new(&workspace_path)
         .join(crate::commands::TEAM_REPO_DIR)
         .join(".leaderboard");
@@ -641,9 +653,12 @@ pub async fn telemetry_get_team_leaderboard(
 #[tauri::command]
 pub async fn telemetry_get_member_aggregated_stats(
     member_name: String,
-    opencode_state: tauri::State<'_, crate::commands::opencode::OpenCodeState>,
+    registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<LeaderboardStats, String> {
-    let workspace_path = crate::commands::opencode::current_workspace_path(&opencode_state)?;
+    let workspace_path = registry.current_workspace.lock()
+        .ok()
+        .and_then(|cw| cw.clone())
+        .ok_or_else(|| "No workspace path set.".to_string())?;
     let leaderboard_dir = std::path::Path::new(&workspace_path)
         .join(crate::commands::TEAM_REPO_DIR)
         .join(".leaderboard");

@@ -1,5 +1,7 @@
+use crate::mqtt::{topics, ClientConfig, MqttBus, MqttClient};
+use rumqttc::QoS;
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MqttStatus {
@@ -8,20 +10,74 @@ pub struct MqttStatus {
 }
 
 #[tauri::command]
-pub async fn mqtt_subscribe(_app: AppHandle, _session_id: String) -> Result<(), String> {
-    Err("not_implemented".into())
+pub async fn mqtt_connect(
+    app: AppHandle,
+    bus: State<'_, MqttBus>,
+    broker_host: String,
+    broker_port: u16,
+    username: String,
+    password: String,
+    client_id: String,
+) -> Result<(), String> {
+    let cfg = ClientConfig {
+        broker_host,
+        broker_port,
+        client_id,
+        username,
+        password,
+    };
+    let client = MqttClient::connect(cfg).map_err(|e| e.to_string())?;
+    *bus.client.lock().await = Some(client);
+
+    let bus_arc = (*bus).clone();
+    let app_clone = app.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::mqtt::client::run_event_loop(bus_arc, app_clone).await;
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn mqtt_subscribe(
+    bus: State<'_, MqttBus>,
+    session_id: String,
+) -> Result<(), String> {
+    let topic = topics::session_topic(&session_id);
+    let client_guard = bus.client.lock().await;
+    let client = client_guard.as_ref().ok_or("mqtt not connected")?;
+    client
+        .client
+        .subscribe(topic, QoS::AtLeastOnce)
+        .await
+        .map_err(|e| e.to_string())?;
+    drop(client_guard);
+    bus.subscribed.lock().await.insert(session_id);
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn mqtt_publish(
-    _app: AppHandle,
-    _session_id: String,
-    _envelope_bytes: Vec<u8>,
+    bus: State<'_, MqttBus>,
+    session_id: String,
+    envelope_bytes: Vec<u8>,
 ) -> Result<(), String> {
-    Err("not_implemented".into())
+    let topic = topics::session_topic(&session_id);
+    let client_guard = bus.client.lock().await;
+    let client = client_guard.as_ref().ok_or("mqtt not connected")?;
+    client
+        .client
+        .publish(topic, QoS::AtLeastOnce, false, envelope_bytes)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn mqtt_status(_app: AppHandle) -> Result<MqttStatus, String> {
-    Ok(MqttStatus { connected: false, subscribed_sessions: vec![] })
+pub async fn mqtt_status(bus: State<'_, MqttBus>) -> Result<MqttStatus, String> {
+    let connected = bus.client.lock().await.is_some();
+    let subscribed_sessions: Vec<String> = bus.subscribed.lock().await.iter().cloned().collect();
+    Ok(MqttStatus {
+        connected,
+        subscribed_sessions,
+    })
 }

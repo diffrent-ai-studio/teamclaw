@@ -38,6 +38,7 @@ use tauri_plugin_aptabase::EventTracker;
 use tauri_plugin_global_shortcut::ShortcutState;
 
 mod commands;
+pub mod mqtt;
 pub mod process_util;
 pub mod proto;
 pub mod sentry_utils;
@@ -307,6 +308,7 @@ pub fn run() {
         .manage(commands::oss_sync::OssSyncState::default())
         .manage(commands::version_commands::VersionStoreState::default())
         .manage(commands::shared_secrets::SharedSecretsState::default())
+        .manage::<crate::mqtt::MqttBus>(std::sync::Arc::new(crate::mqtt::MqttBusInner::new()))
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             commands::show_in_folder,
@@ -350,6 +352,7 @@ pub fn run() {
             commands::mcp::toggle_mcp_server,
             commands::mcp::list_mcp_tools,
             commands::mcp::test_mcp_server,
+            commands::mqtt_bus::mqtt_connect,
             commands::mqtt_bus::mqtt_subscribe,
             commands::mqtt_bus::mqtt_publish,
             commands::mqtt_bus::mqtt_status,
@@ -1049,6 +1052,16 @@ pub fn run() {
                     maybe_emit_app_active(app);
                 }
                 tauri::RunEvent::Resumed => {
+                    // Force-reconnect MQTT after system wake so the persistent
+                    // session re-establishes quickly (broker drops the TCP connection
+                    // during sleep but the client may not notice for 30s+).
+                    if let Some(bus) = app.try_state::<crate::mqtt::MqttBus>() {
+                        let bus = (*bus).clone();
+                        tauri::async_runtime::spawn(async move {
+                            bus.force_reconnect().await;
+                        });
+                    }
+
                     let app_handle = app.clone();
                     std::thread::spawn(move || {
                         std::thread::sleep(std::time::Duration::from_millis(750));

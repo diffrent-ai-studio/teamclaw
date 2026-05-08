@@ -41,6 +41,7 @@ prost-types = "0.13"
 indexmap = { version = "2", features = ["serde"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process", "io-util"] }
 reqwest = { version = "0.11", features = ["json", "blocking", "stream", "rustls-tls-native-roots"], default-features = false }
+rumqttc = "0.24"
 notify = { version = "8", features = ["macos_fsevent"] }
 notify-debouncer-mini = "0.7"
 futures = "0.3"
@@ -57,6 +58,7 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.9"
 uuid = { version = "1", features = ["v4"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+jsonwebtoken = "9"
 regex = "1"
 libsql = "0.9"
 nanoid = "0.4"

@@ -12,6 +12,8 @@
 
 **Spec deviation noted up front:** The spec proposed a `@{member:UUID:DisplayName}` chip-token format and a new regex in `editable-with-file-chips.tsx`. During plan-writing we found `prompt-input.tsx` already inserts members as plain `@Name` text and tracks IDs in a `PromptInputContext.mentions` state — exactly amux iOS's behavior and simpler. The plan uses that path; the user-visible result and wire format are identical. The spec's "added regex" task is replaced by "consume existing `mentions` state on send".
 
+**Working-tree note (read before dispatch):** `ChatInputArea.tsx`, `ChatPanel.tsx`, and `__tests__/ChatPanel-submission.test.tsx` carry uncommitted in-progress changes from a parallel session (small cleanup in ChatInputArea/test, +711 lines refactor in ChatPanel) at the time this plan was written. We chose to proceed without stashing — so when subagents stage those files for commit (`git add <file>`), the parallel-session changes will land in the same commits. Each commit message should call this out (`"+ bundles in-progress parallel-session changes in <file>"`) so the user can split later if needed. Implementer subagents should NOT discard or revert any pre-existing modifications they did not make themselves; only ADD their changes on top.
+
 ---
 
 ## File map (8 files touched, 1 new)
@@ -969,9 +971,14 @@ Expected: chat-area tests still pass for non-mention paths; `ChatPanel-submissio
 
 We commit despite ChatPanel's type errors because the next task is small and self-contained. If you prefer red bars never landing on the branch, defer this commit and combine with Task 7.
 
+> **Bundling notice:** ChatInputArea.tsx has ~27 lines of uncommitted parallel-session cleanup (Plan-mode removal). Staging the whole file will include them. Mention this in the commit body.
+
 ```bash
 git add packages/app/src/components/chat/ChatInputArea.tsx
-git commit -m "feat(chat): swap # for files and @ for session participants in ChatInputArea"
+git commit -m "feat(chat): swap # for files and @ for session participants in ChatInputArea
+
+(also bundles ~27 lines of pre-existing parallel-session cleanup in
+ChatInputArea.tsx that were uncommitted at the time of this work.)"
 ```
 
 ---
@@ -982,133 +989,166 @@ git commit -m "feat(chat): swap # for files and @ for session participants in Ch
 - Modify: `packages/app/src/components/chat/ChatPanel.tsx`
 - Test: `packages/app/src/components/chat/__tests__/ChatPanel-submission.test.tsx` (extend)
 
-- [ ] **Step 1: Read the current `send` to confirm the line range**
+> **Reorientation:** ChatPanel.tsx is now ~1157 lines (was ~810 before parallel-session refactor). Use grep anchors below, not line numbers. `PromptInputMessage` already exposes `mentions`. The send code lives in `handleSubmit` and assembles `finalContent` from a `parts: string[]` array, then publishes. We add three deltas: `attachedAgents` state, `mentionActorIds` population, supabase metadata.
+
+- [ ] **Step 1: Confirm current send-flow anchors**
 
 ```bash
-grep -n "appendMessage\|mqttPublish\|mentionActorIds\|attachedFiles\|outgoing" packages/app/src/components/chat/ChatPanel.tsx | head -25
+grep -n "handleSubmit\|message.mentions\|mentionActorIds: \\[\\]\|setAttachedFiles(\\[\\])\|messages\").insert" packages/app/src/components/chat/ChatPanel.tsx | head
 ```
-Confirm the send block starts around line 770 and the `[File: ...]` replacement is around line 685-693.
+Expected hits (line numbers may drift; what matters is they all exist):
+- `const handleSubmit = async (message: PromptInputMessage) => {` — entry
+- `const mentions = message.mentions || [];` — already wired (no PromptInputMessage type edit needed)
+- `mentionActorIds: [],` — the field we're populating
+- `messages").insert({` — the row that needs `metadata` added
+- `setAttachedFiles([]);` — the reset block
 
 - [ ] **Step 2: Add `attachedAgents` state next to `attachedFiles`**
 
-In `ChatPanel.tsx`, find `const [attachedFiles, setAttachedFiles] = React.useState<string[]>([])` (or wherever `attachedFiles` is declared — could be a Zustand selector if lifted further; if so, add an equivalent local `useState` for `attachedAgents`). Add:
-
+Find:
 ```tsx
-  const [attachedAgents, setAttachedAgents] = React.useState<AttachedAgent[]>([]);
+const [attachedFiles, setAttachedFiles] = React.useState<string[]>([]);
+```
+Add directly below it:
+```tsx
+const [attachedAgents, setAttachedAgents] = React.useState<AttachedAgent[]>([]);
 ```
 
-Add the import at the top:
+Add the import at the top of the file (next to the `mqttPublish` import or wherever `prompt-input-insert-hooks` types belong):
 ```ts
 import type { AttachedAgent } from '@/packages/ai/prompt-input-insert-hooks'
 ```
 
-Pass new props to `<ChatInputArea>` (find the JSX usage of `<ChatInputArea ...>`):
+- [ ] **Step 3: Pass new props to `<ChatInputArea>`**
 
+Find the JSX usage `<ChatInputArea` and locate the `attachedFiles={attachedFiles}` prop. Below it, add:
 ```tsx
-            attachedAgents={attachedAgents}
-            onAttachAgent={(a) => setAttachedAgents(prev =>
-              prev.some(x => x.id === a.id) ? prev : [...prev, a]
-            )}
-            onRemoveAgent={(id) => setAttachedAgents(prev => prev.filter(x => x.id !== id))}
+attachedAgents={attachedAgents}
+onAttachAgent={(a) => setAttachedAgents((prev) =>
+  prev.some((x) => x.id === a.id) ? prev : [...prev, a]
+)}
+onRemoveAgent={(id) => setAttachedAgents((prev) => prev.filter((x) => x.id !== id))}
 ```
 
-- [ ] **Step 3: Read `mentions` from PromptInputContext on submit**
+- [ ] **Step 4: Compute `mentionActorIds` inside `handleSubmit`**
 
-`ChatInputArea`'s `onSubmit` already passes a `PromptInputMessage`. We need the mentions list too. Look up the PromptInputMessage type:
-
-```bash
-grep -n "PromptInputMessage" packages/app/src/packages/ai/prompt-input-types.ts packages/app/src/packages/ai/prompt-input.tsx | head -10
-```
-
-If `PromptInputMessage` already includes `mentions: MentionedPerson[]`, use that. Otherwise extend it: open `prompt-input-types.ts` and add `mentions?: MentionedPerson[]` to the message type, then make sure `prompt-input.tsx`'s submit handler includes the current `mentions` state.
-
-If you find the message type already wires `mentions`, no edit needed; just consume `message.mentions` in `ChatPanel.send`.
-
-- [ ] **Step 4: Update `ChatPanel.send` to populate `mentionActorIds` + Supabase metadata**
-
-Locate the existing block (around line 685-810):
-
+Find this block (early in `handleSubmit`):
 ```ts
-const outgoing = inputValue.replace(/@\{([^}]+)\}/g, '[File: $1]');
-// …
+const text = message.text?.trim() || "";
+const mentions = message.mentions || [];
+```
+
+Add directly after it:
+```ts
+const memberIds = mentions.map((m) => m.id);
+const agentIds = attachedAgents.map((a) => a.id);
+const mentionActorIds = Array.from(new Set([...memberIds, ...agentIds]));
+```
+
+- [ ] **Step 5: Use `mentionActorIds` in the `SessionMessageEnvelope`**
+
+Find:
+```ts
 const sessionMsg = createMessage(SessionMessageEnvelopeSchema, {
   message,
   mentionActorIds: [],
 });
-// …
-const { error: insErr } = await supabase.from('messages').insert({
-  id: messageId,
-  team_id: sessionRow.team_id,
-  session_id: sid,
-  sender_actor_id: senderActorId,
-  kind: 'text',
-  content: outgoing,
+```
+Replace `mentionActorIds: []` with `mentionActorIds`:
+```ts
+const sessionMsg = createMessage(SessionMessageEnvelopeSchema, {
+  message,
+  mentionActorIds,
 });
 ```
 
-Replace with:
+- [ ] **Step 6: Persist `metadata.mention_actor_ids` to Supabase**
 
+Find:
 ```ts
-const outgoing = inputValue.replace(/@\{([^}]+)\}/g, '[File: $1]');
-
-const memberIds = (message.mentions ?? []).map(m => m.id);
-const agentIds = attachedAgents.map(a => a.id);
-const mentionActorIds = Array.from(new Set([...memberIds, ...agentIds]));
-
-const sessionMsg = createMessage(SessionMessageEnvelopeSchema, {
-  message: messageProto,
-  mentionActorIds,
-});
-// … existing publish call …
-const { error: insErr } = await supabase.from('messages').insert({
+const { error: insErr } = await supabase.from("messages").insert({
   id: messageId,
   team_id: sessionRow.team_id,
   session_id: sid,
   sender_actor_id: senderActorId,
-  kind: 'text',
+  kind: "text",
+  content: outgoing,
+});
+```
+Add `metadata: { mention_actor_ids: mentionActorIds },` as the last property:
+```ts
+const { error: insErr } = await supabase.from("messages").insert({
+  id: messageId,
+  team_id: sessionRow.team_id,
+  session_id: sid,
+  sender_actor_id: senderActorId,
+  kind: "text",
   content: outgoing,
   metadata: { mention_actor_ids: mentionActorIds },
 });
 ```
 
-(`message` here is the `PromptInputMessage` from `ChatInputArea.onSubmit`. Rename your local proto variable if it was also called `message` to avoid shadowing — e.g. `messageProto` as shown above; pick whatever the existing code calls it.)
+- [ ] **Step 7: Reset `attachedAgents` after submit**
 
-After the insert succeeds, clear local state:
+Find the existing reset block at the end of `handleSubmit`:
 ```ts
+setInputValue("");
+setAttachedFiles([]);
+setImageFiles([]);
+```
+Add a line:
+```ts
+setInputValue("");
+setAttachedFiles([]);
 setAttachedAgents([]);
+setImageFiles([]);
 ```
 
-- [ ] **Step 5: Extend `ChatPanel-submission.test.tsx`**
+- [ ] **Step 8: Extend `ChatPanel-submission.test.tsx`**
 
-Add a new test to the file's `describe` block:
+Open the existing test file and locate one of the green send tests (e.g. one that asserts on `mqttPublish` being called). Mirror its setup (the file already mocks `mqttPublish`, `supabase.from(...)`, and the auth/session stores). Add a new `it` inside the same `describe`:
 
 ```tsx
-  it('populates mentionActorIds (deduped) on send and persists metadata', async () => {
-    const sendCapture: any[] = []
-    mockSendMessage.mockImplementation((msg: any) => { sendCapture.push(msg); return Promise.resolve() })
-    // … set up render, simulate submitting a message with one member mention
-    // and one agent in attachedAgents (use the test's existing render harness)
-    // Assert:
-    //   captured envelope.mentionActorIds === ['m-1', 'a-1']
-    //   supabase.from('messages').insert called with metadata.mention_actor_ids === ['m-1', 'a-1']
-  })
+it('populates mentionActorIds (deduped) and persists metadata.mention_actor_ids', async () => {
+  // Arrange — use the existing helper(s) in this file to render <ChatPanel>
+  // and prime: a logged-in auth session, a session row with team_id 't1',
+  // an actors lookup that returns the current user's actor.
+  // Then simulate submitting a PromptInputMessage with:
+  //   text: 'hi @Alice please review',
+  //   mentions: [{ id: 'm-1', name: 'Alice' }],
+  // and pre-attach an agent by reaching into the rendered tree via the
+  // exposed onAttachAgent callback (see the test's existing pattern for
+  // injecting state into ChatInputArea — most likely a `data-testid` on the
+  // chip bar's hidden trigger, or a direct call on the captured props ref).
+
+  // Assert 1: the LiveEventEnvelope payload published over mqtt contains
+  //   mentionActorIds === ['m-1', 'a-1'] (after decoding via fromBinary).
+  // Assert 2: supabase.from('messages').insert was called with an object
+  //   containing metadata: { mention_actor_ids: ['m-1', 'a-1'] }.
+});
 ```
 
-The exact harness mechanics depend on how the existing tests render `ChatPanel`. Mirror the patterns of the existing send tests in this file (they already mock `supabase`, `mqttPublish`, and the session store).
+If the existing tests don't expose a way to drive `attachedAgents` from outside, add a minimal `data-testid="ci-attach-agent"` button to `ChatInputArea` (gated to test/dev only is unnecessary — leave it as a normal element) that calls `onAttachAgent` with a fixed test agent, OR refactor the send test to inject a mock `attachedAgents` via React state. Pick whichever lands smaller. **Document your choice in the test comment** so a future reader understands why the harness shape exists.
 
-- [ ] **Step 6: Run typecheck and tests**
+- [ ] **Step 9: Run typecheck and tests**
 
 ```bash
 pnpm typecheck
 pnpm test:unit -- --run packages/app/src/components/chat
 ```
-Expected: typecheck zero errors; chat tests all pass.
+Expected: typecheck zero errors; chat tests all pass (the new test included).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 10: Commit**
+
+> **Bundling notice:** `git add packages/app/src/components/chat/ChatPanel.tsx` will stage *all* uncommitted changes in that file, including the +711-line parallel-session refactor that predates this work. That's expected — the user explicitly chose to proceed with bundling. Call it out in the commit message so they can split later.
 
 ```bash
 git add packages/app/src/components/chat/ChatPanel.tsx packages/app/src/components/chat/__tests__/ChatPanel-submission.test.tsx
-git commit -m "feat(chat): populate mentionActorIds + metadata.mention_actor_ids on send"
+git commit -m "feat(chat): populate mentionActorIds + metadata.mention_actor_ids on send
+
+(also bundles pre-existing parallel-session changes in ChatPanel.tsx and
+ChatPanel-submission.test.tsx that were uncommitted at the time of this
+work; split if needed.)"
 ```
 
 ---

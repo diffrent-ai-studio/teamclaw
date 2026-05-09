@@ -5,6 +5,8 @@ import { cn, isTauri } from '@/lib/utils'
 import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
 import { buildSharedRankMap } from '@/lib/team-leaderboard-ranks'
 import { Button } from '@/components/ui/button'
+import { useTeamMembersStore } from '@/stores/team-members'
+import type { TeamMember } from '@/lib/git/types'
 
 async function tauriInvoke<T>(
   cmd: string,
@@ -52,6 +54,7 @@ export interface TeamLeaderboard {
 }
 
 interface MemberStats {
+  key: string
   name: string
   overallRank: number
   overallScore: number
@@ -73,6 +76,8 @@ export function LeaderboardSection() {
   const [leaderboard, setLeaderboard] = React.useState<TeamLeaderboard | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const teamMembers = useTeamMembersStore((s) => s.members)
+  const loadTeamMembers = useTeamMembersStore((s) => s.loadMembers)
 
   const load = React.useCallback(async () => {
     if (!isTauri()) return
@@ -124,6 +129,11 @@ export function LeaderboardSection() {
   }, [load])
 
   React.useEffect(() => {
+    if (!isTauri()) return
+    void loadTeamMembers()
+  }, [loadTeamMembers])
+
+  React.useEffect(() => {
     const handler = () => {
       load()
     }
@@ -161,56 +171,59 @@ export function LeaderboardSection() {
     // First, aggregate stats for each member
     const membersWithAggregated = leaderboard.members.map(m => ({
       ...m,
+      displayName: resolveLeaderboardMemberName(m, teamMembers),
+      leaderboardKey: m.memberId || m.memberName || 'unknown',
       aggregated: aggregateWorkspaceStats(m.workspaces)
     }))
 
     const tokenRanks = buildSharedRankMap({
       items: membersWithAggregated,
-      getKey: (member) => member.memberName,
+      getKey: (member) => member.leaderboardKey,
       getScore: (member) => member.aggregated.totalTokens,
     })
     const feedbackRanks = buildSharedRankMap({
       items: membersWithAggregated,
-      getKey: (member) => member.memberName,
+      getKey: (member) => member.leaderboardKey,
       getScore: (member) => member.aggregated.totalFeedbacks,
     })
     const skillRanks = buildSharedRankMap({
       items: membersWithAggregated,
-      getKey: (member) => member.memberName,
+      getKey: (member) => member.leaderboardKey,
       getScore: (member) => member.aggregated.totalSkillInvocations,
     })
 
     const overallScores = membersWithAggregated.map((member) => ({
-      memberName: member.memberName,
+      leaderboardKey: member.leaderboardKey,
       overallScore:
-        ((tokenRanks.get(member.memberName) ?? 0) +
-          (feedbackRanks.get(member.memberName) ?? 0) +
-          (skillRanks.get(member.memberName) ?? 0)) / 3,
+        ((tokenRanks.get(member.leaderboardKey) ?? 0) +
+          (feedbackRanks.get(member.leaderboardKey) ?? 0) +
+          (skillRanks.get(member.leaderboardKey) ?? 0)) / 3,
     }))
     const overallScoreMap = new Map(
-      overallScores.map((member) => [member.memberName, member.overallScore])
+      overallScores.map((member) => [member.leaderboardKey, member.overallScore])
     )
     const overallRanks = buildSharedRankMap({
       items: overallScores,
-      getKey: (member) => member.memberName,
+      getKey: (member) => member.leaderboardKey,
       getScore: (member) => member.overallScore,
       direction: 'asc',
     })
 
     return membersWithAggregated.map((member) => ({
-      name: member.memberName || 'Unknown',
-      overallRank: overallRanks.get(member.memberName) ?? 0,
-      overallScore: overallScoreMap.get(member.memberName) ?? 0,
-      tokenRank: tokenRanks.get(member.memberName) ?? 0,
-      feedbackRank: feedbackRanks.get(member.memberName) ?? 0,
-      skillRank: skillRanks.get(member.memberName) ?? 0,
+      key: member.leaderboardKey,
+      name: member.displayName,
+      overallRank: overallRanks.get(member.leaderboardKey) ?? 0,
+      overallScore: overallScoreMap.get(member.leaderboardKey) ?? 0,
+      tokenRank: tokenRanks.get(member.leaderboardKey) ?? 0,
+      feedbackRank: feedbackRanks.get(member.leaderboardKey) ?? 0,
+      skillRank: skillRanks.get(member.leaderboardKey) ?? 0,
       totalTokens: member.aggregated.totalTokens,
       totalFeedbacks: member.aggregated.totalFeedbacks,
       totalCost: member.aggregated.totalCost,
       sessionCount: member.aggregated.sessionCount,
       totalSkillInvocations: member.aggregated.totalSkillInvocations,
     }))
-  }, [leaderboard, aggregateWorkspaceStats])
+  }, [leaderboard, teamMembers, aggregateWorkspaceStats])
 
   const topSkills = React.useMemo(
     () => (leaderboard ? computeTopSkills(leaderboard, 10) : []),
@@ -321,7 +334,7 @@ export function LeaderboardSection() {
                 const rank = member.overallRank
                 return (
                   <div
-                    key={member.name}
+                    key={member.key}
                     className={cn(
                       "grid grid-cols-[40px_1fr_72px_72px_72px_112px] items-center gap-2 px-4 py-2.5 border-b last:border-b-0 transition-colors",
                       member.isCurrentUser
@@ -455,7 +468,7 @@ export function computeTopSkills(
       for (const [name, n] of Object.entries(ws.skillUsage || {})) {
         const entry = totals.get(name) ?? { count: 0, users: new Set<string>() }
         entry.count += n
-        entry.users.add(member.memberName)
+        entry.users.add(member.memberId || member.memberName)
         totals.set(name, entry)
       }
     }
@@ -464,6 +477,24 @@ export function computeTopSkills(
     .map(([name, { count, users }]) => ({ name, count, userCount: users.size }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
     .slice(0, limit)
+}
+
+type LeaderboardMemberNameSource = Pick<TeamMember, 'nodeId' | 'name'>
+
+export function resolveLeaderboardMemberName(
+  member: Pick<MemberLeaderboardExport, 'memberId' | 'memberName'>,
+  teamMembers: LeaderboardMemberNameSource[],
+): string {
+  const manifestName = teamMembers
+    .find((teamMember) => teamMember.nodeId === member.memberId)
+    ?.name
+    ?.trim()
+  if (manifestName) return manifestName
+
+  const exportedName = member.memberName?.trim()
+  if (exportedName) return exportedName
+
+  return 'Unknown'
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────

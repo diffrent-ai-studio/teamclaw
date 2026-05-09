@@ -28,6 +28,7 @@ import type {
   ToolExecutingEvent,
   QuestionAskedEvent,
 } from '@/lib/opencode/sdk-types';
+import type { CommandRisk } from '@/lib/dangerous-command-policy';
 
 // Re-export types for convenience
 export type { PermissionAskedEvent };
@@ -37,6 +38,7 @@ export interface PendingPermissionEntry {
   childSessionId: string | null;
   sourceToolName?: string | null;
   sourceToolCallId?: string | null;
+  productionRisk?: Extract<CommandRisk, { level: "production_data" }>;
 }
 
 export interface ToolCallPermission {

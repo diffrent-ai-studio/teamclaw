@@ -532,7 +532,8 @@ vi.mock('../ChatInputArea', () => ({
 // Supabase insert + appendMessage. These tests assert calls into the old
 // sendMessage path; they need to be rewritten against the v2 send path.
 // Skipped until Phase 2.
-describe.skip('ChatPanel submission flow', () => {
+// TODO: rewrite for v2 MQTT/Supabase path (T9)
+describe.skip('ChatPanel submission flow (v1 OpenCode path — pending rewrite)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     workspaceState.workspacePath = '/test';
@@ -652,67 +653,6 @@ describe.skip('ChatPanel submission flow', () => {
       );
     });
 
-    // T7: mentionActorIds + metadata.mention_actor_ids
-    // Agent attachment seam: Option 2 from the T7 plan — the mock ChatInputArea
-    // renders a data-testid="test-attach-agent" button that fires onAttachAgent
-    // with a fixed agent { id: 'a-1', displayName: 'Reviewer' }. A separate
-    // data-testid="mock-submit-with-mention" button fires onSubmit with a
-    // member mention { id: 'm-1', name: 'Alice' }. Both buttons are test-only
-    // seams added to the vi.mock factory above.
-    //
-    // NOTE: This test lives inside describe.skip while the suite is being
-    // migrated to the v2 MQTT/Supabase send path (the existing tests above
-    // still assert against the old OpenCode sendMessage path). Un-skip the
-    // outer describe and update the other tests when the v2 path is ready.
-    it('populates mentionActorIds (deduped) and persists metadata.mention_actor_ids', async () => {
-      // Set up a minimal v2-ready session so the send path reaches MQTT + Supabase.
-      // The auth actor controls senderActorId; null causes an early-return in the
-      // current handleSubmit guard, so we provide a mock actor.
-      const { useAuthStore } = await import('@/stores/auth-store');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (useAuthStore as any).getState = () => ({
-        actor: { id: 'actor-me', name: 'Me', role: 'admin' },
-      });
-
-      // Provide a team-mode session row so the v2 MQTT branch is taken.
-      const { useTeamModeStore } = await import('@/stores/team-mode');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (useTeamModeStore as any).getState = () => ({
-        teamMode: true,
-        loadTeamConfig: vi.fn().mockResolvedValue(undefined),
-        applyTeamModelToOpenCode: vi.fn(),
-        sessionRow: {
-          id: 'sess-1',
-          team_id: 'team-1',
-        },
-      });
-
-      const { ChatPanel } = await import('../ChatPanel');
-      render(React.createElement(ChatPanel));
-
-      // 1. Pre-attach agent via the test-only seam button.
-      await act(async () => {
-        fireEvent.click(screen.getByTestId('test-attach-agent'));
-      });
-
-      // 2. Submit with a member mention via the submit-with-mention seam button.
-      await act(async () => {
-        fireEvent.click(screen.getByTestId('mock-submit-with-mention'));
-      });
-
-      // Assert 1: mqttPublish was called (MQTT envelope published).
-      expect(mockMqttPublish).toHaveBeenCalled();
-
-      // Assert 2: supabase insert was called with metadata.mention_actor_ids
-      // containing both the member id ('m-1') and the agent id ('a-1').
-      expect(mockInsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          metadata: expect.objectContaining({
-            mention_actor_ids: expect.arrayContaining(['m-1', 'a-1']),
-          }),
-        }),
-      );
-    });
   });
 
   describe('empty state with suggestions', () => {
@@ -1094,5 +1034,106 @@ describe.skip('ChatPanel submission flow', () => {
 
       expect(mockAbortSession).toHaveBeenCalled();
     });
+  });
+});
+
+// ── v2 MQTT/Supabase send path ────────────────────────────────────────────────
+
+// T7: mentionActorIds + metadata.mention_actor_ids
+// Agent attachment seam: Option 2 from the T7 plan — the mock ChatInputArea
+// renders a data-testid="test-attach-agent" button that fires onAttachAgent
+// with a fixed agent { id: 'a-1', displayName: 'Reviewer' }. A separate
+// data-testid="mock-submit-with-mention" button fires onSubmit with a
+// member mention { id: 'm-1', name: 'Alice' }. Both buttons are test-only
+// seams added to the vi.mock factory above.
+describe('ChatPanel mentionActorIds (v2 send path)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    workspaceState.workspacePath = '/test';
+    workspaceState.openCodeBootstrapped = true;
+    workspaceState.openCodeReady = true;
+    mockSessionState.activeSessionId = 'sess-1';
+    mockSessionState.error = null;
+    mockSessionState.errorSessionId = null;
+    mockSessionState.isConnected = true;
+    mockSessionState.messageQueue = [];
+    mockSessionState.sessionError = null;
+    mockSessionState.draftInput = '';
+    mockSessionState.pendingPermissions = [];
+    mockSessionState.pendingQuestions = [];
+    mockSessionState.todos = [];
+    mockSkipQuestion.mockClear();
+    mockSessionState.sessions = [
+      {
+        id: 'sess-1',
+        title: 'Test',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+  });
+
+  it('populates mentionActorIds (deduped) and persists metadata.mention_actor_ids', async () => {
+    // Set up a minimal v2-ready session so the send path reaches MQTT + Supabase.
+    // ChatPanel v2 reads useAuthStore.getState().session (a Supabase Session with
+    // .user.id) to gate the MQTT branch — null causes an early-return.
+    const { useAuthStore } = await import('@/stores/auth-store');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (useAuthStore as any).getState = () => ({
+      session: { user: { id: 'user-1' } },
+    });
+
+    // Provide a session row via useSessionListStore.getState().rows so the
+    // v2 MQTT branch can find the session's team_id.
+    const { useSessionListStore } = await import('@/stores/session-list-store');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (useSessionListStore as any).getState = () => ({
+      rows: [{ id: 'sess-1', team_id: 'team-1' }],
+    });
+
+    // The actors sub-query (supabase.from("actors").select(...).eq(...)) must
+    // resolve to a matching actor row so senderActorId is populated and the
+    // branch doesn't throw before mqttPublish / insert.
+    const { supabase } = await import('@/lib/supabase-client');
+    const actorQueryMock = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ data: [{ id: 'actor-me', team_id: 'team-1' }], error: null }),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+      insert: mockInsert,
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase.from as any).mockImplementation((table: string) => {
+      if (table === 'actors') return actorQueryMock;
+      // messages.insert goes through mockInsert directly
+      return { select: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue({ data: [], error: null }), insert: mockInsert };
+    });
+
+    const { ChatPanel } = await import('../ChatPanel');
+    render(React.createElement(ChatPanel));
+
+    // 1. Pre-attach agent via the test-only seam button.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('test-attach-agent'));
+    });
+
+    // 2. Submit with a member mention via the submit-with-mention seam button.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mock-submit-with-mention'));
+    });
+
+    // Assert 1: mqttPublish was called (MQTT envelope published).
+    expect(mockMqttPublish).toHaveBeenCalled();
+
+    // Assert 2: supabase insert was called with metadata.mention_actor_ids
+    // containing both the member id ('m-1') and the agent id ('a-1').
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          mention_actor_ids: expect.arrayContaining(['m-1', 'a-1']),
+        }),
+      }),
+    );
   });
 });

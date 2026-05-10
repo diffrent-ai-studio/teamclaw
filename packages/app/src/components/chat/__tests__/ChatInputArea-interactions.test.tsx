@@ -81,6 +81,9 @@ const createDefaultProps = () => ({
   onAbort: vi.fn(),
   messageQueue: [] as Array<{ id: string; content: string; timestamp: Date }>,
   onRemoveFromQueue: vi.fn(),
+  attachedAgents: [] as Array<{ id: string; displayName: string }>,
+  onAttachAgent: vi.fn(),
+  onRemoveAgent: vi.fn(),
 });
 
 // ── Polyfill for jsdom ───────────────────────────────────────────────────────
@@ -214,7 +217,8 @@ describe('ChatInputArea interactions', () => {
     });
   });
 
-  describe('plan mode toggle', () => {
+  // v2: Plan mode removed from ChatInputArea.
+  describe.skip('plan mode toggle', () => {
     it('toggles plan mode on click', () => {
       render(<ChatInputArea {...defaultProps} />);
       const planButton = screen.getByText('Plan');

@@ -101,6 +101,9 @@ const defaultProps = {
   onAbort: vi.fn(),
   messageQueue: [],
   onRemoveFromQueue: vi.fn(),
+  attachedAgents: [],
+  onAttachAgent: vi.fn(),
+  onRemoveAgent: vi.fn(),
 };
 
 function dropFile(form: HTMLElement, filePath: string) {

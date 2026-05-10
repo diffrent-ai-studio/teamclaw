@@ -11,11 +11,19 @@ import {
   PromptInputTools,
   PromptInputButton,
   PromptInputSubmit,
-  useInsertFileMention,
+  usePromptInputContext,
   useInsertSkillMention,
   type PromptInputMessage,
 } from "@/packages/ai/prompt-input";
+import {
+  createInsertHashFile,
+  createInsertMention,
+  createInsertAgentMention,
+  type AttachedAgent,
+} from "@/packages/ai/prompt-input-insert-hooks";
 import { FileMentionPopover } from "./FileMentionPopover";
+import { MentionPopover } from "./MentionPopover";
+import { AgentChipBar } from "./AgentChipBar";
 import { CommandPopover } from "./CommandPopover";
 import type { Command as OpenCodeCommand } from "@/lib/opencode/sdk-client";
 import { useTeamModeStore } from "@/stores/team-mode";
@@ -54,7 +62,11 @@ function FileMentionPopoverWrapper({
   searchQuery: string;
   onSearchChange: (query: string) => void;
 }) {
-  const insertFileMention = useInsertFileMention();
+  const context = usePromptInputContext();
+  const insertFileMention = React.useMemo(
+    () => createInsertHashFile(context),
+    [context],
+  );
 
   return (
     <FileMentionPopover
@@ -63,6 +75,37 @@ function FileMentionPopoverWrapper({
       searchQuery={searchQuery}
       onSearchChange={onSearchChange}
       onSelect={insertFileMention}
+    />
+  );
+}
+
+function MentionPopoverWrapper({
+  open,
+  onOpenChange,
+  searchQuery,
+  onAttachAgent,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  searchQuery: string;
+  onAttachAgent: (agent: AttachedAgent) => void;
+}) {
+  const context = usePromptInputContext();
+  const insertMember = React.useMemo(() => createInsertMention(context), [context]);
+  const insertAgent = React.useMemo(
+    () => createInsertAgentMention(context, onAttachAgent),
+    [context, onAttachAgent],
+  );
+  const [innerQuery, setInnerQuery] = React.useState(searchQuery);
+  React.useEffect(() => { setInnerQuery(searchQuery); }, [searchQuery]);
+  return (
+    <MentionPopover
+      open={open}
+      onOpenChange={onOpenChange}
+      searchQuery={innerQuery}
+      onSearchChange={setInnerQuery}
+      onSelectMember={(person) => insertMember(person)}
+      onSelectAgent={(agent) => insertAgent(agent)}
     />
   );
 }
@@ -115,6 +158,9 @@ interface ChatInputAreaProps {
   onRemoveFromQueue: (id: string) => void;
   onHeightChange?: (height: number) => void;
   headerContent?: React.ReactNode;
+  attachedAgents: AttachedAgent[];
+  onAttachAgent: (agent: AttachedAgent) => void;
+  onRemoveAgent: (id: string) => void;
 }
 
 function isImagePath(path: string): boolean {
@@ -138,8 +184,15 @@ export function ChatInputArea({
   onRemoveFromQueue: _onRemoveFromQueue,
   onHeightChange,
   headerContent,
+  attachedAgents = [],
+  onAttachAgent = () => {},
+  onRemoveAgent = () => {},
 }: ChatInputAreaProps) {
   const { t } = useTranslation();
+
+  // # file reference states
+  const [filePopoverOpen, setFilePopoverOpen] = React.useState(false);
+  const [hashSearchQuery, setHashSearchQuery] = React.useState("");
 
   // @ mention states
   const [mentionPopoverOpen, setMentionPopoverOpen] = React.useState(false);
@@ -149,8 +202,7 @@ export function ChatInputArea({
   const [commandPopoverOpen, setCommandPopoverOpen] = React.useState(false);
   const [commandSearchQuery, setCommandSearchQuery] = React.useState("");
 
-  // Plan mode
-  const [isPlanMode, setIsPlanMode] = React.useState(false);
+  // v2: Plan mode removed.
 
   // Team mode
   const teamMode = useTeamModeStore(s => s.teamMode);
@@ -177,7 +229,6 @@ export function ChatInputArea({
         displayPath = path.slice(wsPath.length + 1);
       }
       // Read current text inside loop — draftInput updates after each insertToChat
-      // @ts-expect-error Phase 1E removal
       const currentText = useSessionStore.getState().draftInput;
       if (currentText.includes(`@{${displayPath}}`)) continue;
       const mention = `@{${displayPath}} `;
@@ -211,11 +262,10 @@ export function ChatInputArea({
     };
   }, [imagePreviewUrls]);
 
-  // Wrap onSubmit to inject plan mode agent
+  // v2: Plan mode removed. Forward submit unchanged.
   const handleSubmit = React.useCallback((message: PromptInputMessage) => {
-    (message as PromptInputMessage & { _planMode?: boolean })._planMode = isPlanMode;
     onSubmit(message);
-  }, [onSubmit, isPlanMode]);
+  }, [onSubmit]);
 
   // Measure height and report to parent via ResizeObserver
   // Round to nearest integer to prevent sub-pixel oscillation feedback loops
@@ -271,6 +321,14 @@ export function ChatInputArea({
             onSubmit={handleSubmit}
             onFilesChange={handlePastedFiles}
             onFilePathsDrop={handleFilePathsDrop}
+            onHashTrigger={(query) => {
+              setHashSearchQuery(query);
+              setFilePopoverOpen(true);
+            }}
+            onHashClose={() => {
+              setFilePopoverOpen(false);
+              setHashSearchQuery("");
+            }}
             onMentionTrigger={(query) => {
               setMentionSearchQuery(query);
               setMentionPopoverOpen(true);
@@ -290,6 +348,9 @@ export function ChatInputArea({
             multiple
             className="relative z-10 bg-card shadow-lg"
           >
+          {/* Agent chips */}
+          <AgentChipBar agents={attachedAgents} onRemove={onRemoveAgent} />
+
           {/* Image previews */}
           {imageFiles.length > 0 && (
             <div className="flex flex-wrap gap-2 px-4 pt-3 pb-2">
@@ -390,17 +451,23 @@ export function ChatInputArea({
                   ? t('chat.inputPlaceholderQueue', 'Type to queue message...')
                   : attachedFiles.length > 0
                     ? t('chat.inputPlaceholderDescription', 'Add a description...')
-                    : t('chat.inputPlaceholderMention', 'Type @ to reference files...')
+                    : t('chat.inputPlaceholderMention', 'Mention with @, reference files with #...')
               }
             />
           </PromptInputBody>
 
           {/* Popovers (inside PromptInput for context) */}
           <FileMentionPopoverWrapper
+            open={filePopoverOpen}
+            onOpenChange={setFilePopoverOpen}
+            searchQuery={hashSearchQuery}
+            onSearchChange={setHashSearchQuery}
+          />
+          <MentionPopoverWrapper
             open={mentionPopoverOpen}
             onOpenChange={setMentionPopoverOpen}
             searchQuery={mentionSearchQuery}
-            onSearchChange={setMentionSearchQuery}
+            onAttachAgent={onAttachAgent}
           />
           <CommandPopoverWrapper
             open={commandPopoverOpen}
@@ -413,24 +480,6 @@ export function ChatInputArea({
               <div data-onboarding-id="chat-input-files">
                 <FileInputButton onFilesSelected={onFilesChange} />
               </div>
-
-              {/* Plan mode toggle (Advanced Mode + Dev Mode only) */}
-              {canShowPlanToggle && (
-                <Button
-                  type="button"
-                  variant={isPlanMode ? "default" : "ghost"}
-                  size="sm"
-                  className={cn(
-                    "h-8 px-2 text-xs",
-                    isPlanMode
-                      ? "bg-[#F5A623] text-black hover:bg-[#E09500]"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => setIsPlanMode(!isPlanMode)}
-                >
-                  Plan
-                </Button>
-              )}
 
               {teamMode && teamModelConfig && !devUnlocked && teamModelOptions.length > 1 ? (
                 <ModelSelector

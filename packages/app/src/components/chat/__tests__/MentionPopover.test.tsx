@@ -96,4 +96,23 @@ describe('MentionPopover', () => {
     )
     await waitFor(() => expect(screen.getByText(/no one to mention/i)).toBeInTheDocument())
   })
+
+  it('shows error state when supabase returns an error', async () => {
+    supabaseFrom.mockImplementation(() => ({
+      select: () => ({
+        eq: () => Promise.resolve({ data: null, error: new Error('rls denied') }),
+      }),
+    }))
+    render(
+      <MentionPopover
+        open={true}
+        onOpenChange={() => {}}
+        searchQuery=""
+        onSearchChange={() => {}}
+        onSelectMember={vi.fn()}
+        onSelectAgent={vi.fn()}
+      />,
+    )
+    await waitFor(() => expect(screen.getByText(/failed to load participants/i)).toBeInTheDocument())
+  })
 })

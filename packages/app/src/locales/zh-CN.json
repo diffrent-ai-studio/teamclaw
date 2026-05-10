@@ -236,6 +236,8 @@
     "inputPlaceholderMention": "输入 @ 提及人或 agent，# 引用文件...",
     "mentionPopoverTitle": "提及人或 agent",
     "mentionEmptyState": "当前会话还没有可 @ 的人或 agent",
+    "mentionGroupAgents": "智能体",
+    "mentionGroupMembers": "成员",
     "mentionPopoverError": "加载参与者失败",
     "resourcePopoverTitle": "引用文件",
     "inputPlaceholderQueue": "输入消息以加入队列...",

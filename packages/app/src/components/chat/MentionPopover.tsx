@@ -43,9 +43,8 @@ async function fetchParticipants(sessionId: string): Promise<ParticipantRow[]> {
     .from('session_participants')
     .select('actor_id, actors!inner(id, actor_type, display_name)')
     .eq('session_id', sessionId)
-  if (error || !data) {
-    return []
-  }
+  if (error) throw error
+  if (!data) return []
   const rows: ParticipantRow[] = data
     .map((d: any) => d.actors as ParticipantRow)
     .filter((a): a is ParticipantRow => !!a)
@@ -125,7 +124,7 @@ export function MentionPopover({
             <CommandEmpty>{t('chat.mentionEmptyState', 'No one to mention in this session yet')}</CommandEmpty>
           )}
           {members.length > 0 && (
-            <CommandGroup heading="Members">
+            <CommandGroup heading={t('chat.mentionGroupMembers', 'Members')}>
               {members.map(m => (
                 <CommandItem
                   key={m.id}
@@ -143,7 +142,7 @@ export function MentionPopover({
             </CommandGroup>
           )}
           {agents.length > 0 && (
-            <CommandGroup heading="Agents">
+            <CommandGroup heading={t('chat.mentionGroupAgents', 'Agents')}>
               {agents.map(a => (
                 <CommandItem
                   key={a.id}

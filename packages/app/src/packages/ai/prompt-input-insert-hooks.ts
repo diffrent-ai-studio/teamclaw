@@ -311,6 +311,50 @@ export function createInsertHashFile(context: PromptInputContextValue) {
   }
 }
 
+export type AttachedAgent = { id: string; displayName: string }
+
+export function createInsertAgentMention(
+  context: PromptInputContextValue,
+  onAttachAgent: (agent: AttachedAgent) => void,
+) {
+  const { text, setText, onMentionClose, textareaRef, mentionStartRef } = context
+
+  return (agent: AttachedAgent) => {
+    let lastValidAtIndex = -1
+    for (let i = text.length - 1; i >= 0; i--) {
+      if (text[i] === '@') {
+        const afterAt = text.slice(i + 1)
+        const isFileMention = afterAt.match(/^\{[^}]*\}/)
+        if (!isFileMention) {
+          lastValidAtIndex = i
+          break
+        }
+      }
+    }
+
+    if (lastValidAtIndex !== -1) {
+      const beforeAt = text.slice(0, lastValidAtIndex)
+      const afterAt = text.slice(lastValidAtIndex)
+      const queryEndMatch = afterAt.match(/^@[^\s]*/)
+      const queryEnd = queryEndMatch ? queryEndMatch[0].length : 1
+      const afterQuery = text.slice(lastValidAtIndex + queryEnd).trimStart()
+      setText(`${beforeAt}${afterQuery}`)
+
+      setTimeout(() => {
+        const editable = textareaRef.current
+        if (editable) {
+          editable.focus()
+          setCursorAtPosition(editable, beforeAt.length)
+        }
+      }, 10)
+    }
+
+    onAttachAgent(agent)
+    mentionStartRef.current = null
+    onMentionClose?.()
+  }
+}
+
 // React hooks that wrap the factory functions above
 export function useInsertMentionHook(PromptInputContext: React.Context<PromptInputContextValue | null>) {
   const context = React.useContext(PromptInputContext)

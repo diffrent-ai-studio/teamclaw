@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createInsertHashFile } from '../prompt-input-insert-hooks'
+import { createInsertHashFile, createInsertAgentMention } from '../prompt-input-insert-hooks'
 
 function makeContext(initialText: string, hashAt: number) {
   let text = initialText
@@ -34,5 +34,27 @@ describe('createInsertHashFile', () => {
     expect(spies.setText).toHaveBeenCalledWith('Hello @{src/main.ts} ')
     expect(spies.hashStartRef.current).toBeNull()
     expect(spies.onHashClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('createInsertAgentMention', () => {
+  it('strips @query from text without inserting anything and calls onAttachAgent', () => {
+    let text = 'Hi @qu'
+    const setText = vi.fn((next: string) => { text = next })
+    const onMentionClose = vi.fn()
+    const onAttachAgent = vi.fn()
+    const mentionStartRef = { current: 3 as number | null }
+    const insert = createInsertAgentMention({
+      get text() { return text },
+      setText,
+      onMentionClose,
+      mentionStartRef,
+      textareaRef: { current: null },
+    } as any, onAttachAgent)
+    insert({ id: 'actor-1', displayName: 'Reviewer Agent' })
+    expect(setText).toHaveBeenCalledWith('Hi ')
+    expect(onAttachAgent).toHaveBeenCalledWith({ id: 'actor-1', displayName: 'Reviewer Agent' })
+    expect(mentionStartRef.current).toBeNull()
+    expect(onMentionClose).toHaveBeenCalledTimes(1)
   })
 })

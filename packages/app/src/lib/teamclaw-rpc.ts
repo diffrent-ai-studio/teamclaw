@@ -35,7 +35,10 @@ const DEFAULT_TIMEOUT_MS = 30_000
 export async function initTeamclawRpc(teamIdArg: string): Promise<void> {
   if (initialized) return
   teamId = teamIdArg
-  await mqttSubscribe(`amux/${teamIdArg}/rpc/res`)
+  // Daemon publishes RPC responses to `amux/{team}/device/{daemon_device_id}/rpc/res`.
+  // Subscribe with a wildcard so any daemon in the team can answer; we correlate
+  // by request_id inside the response, so the device segment doesn't matter for routing.
+  await mqttSubscribe(`amux/${teamIdArg}/device/+/rpc/res`)
   unlisten = await listenForEnvelopes(handleEnvelope)
   initialized = true
 }
@@ -58,8 +61,10 @@ export function disposeTeamclawRpc(): void {
 
 function handleEnvelope(env: IncomingEnvelope): void {
   if (!teamId) return
-  const expectedTopic = `amux/${teamId}/rpc/res`
-  if (env.topic !== expectedTopic) return // ignore unrelated envelopes
+  // Match `amux/{team}/device/{any}/rpc/res`.
+  const expectedPrefix = `amux/${teamId}/device/`
+  const expectedSuffix = `/rpc/res`
+  if (!env.topic.startsWith(expectedPrefix) || !env.topic.endsWith(expectedSuffix)) return
   let response: RpcResponse
   try {
     response = fromBinary(RpcResponseSchema, new Uint8Array(env.bytes))
@@ -83,10 +88,14 @@ function handleEnvelope(env: IncomingEnvelope): void {
 
 async function sendRequest(
   build: (req: RpcRequest) => void,
+  targetDeviceId: string,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<RpcResponse> {
   if (!initialized || !teamId) {
     throw new Error('teamclaw-rpc not initialized')
+  }
+  if (!targetDeviceId) {
+    throw new Error('teamclaw-rpc: targetDeviceId required')
   }
   const requestId = crypto.randomUUID()
   const session = useAuthStore.getState().session
@@ -109,7 +118,8 @@ async function sendRequest(
 
     pending.set(requestId, { resolve, reject, timer })
 
-    mqttPublish(`amux/${teamId!}/rpc/req`, toBinary(RpcRequestSchema, req), false).catch((err) => {
+    const topic = `amux/${teamId!}/device/${targetDeviceId}/rpc/req`
+    mqttPublish(topic, toBinary(RpcRequestSchema, req), false).catch((err) => {
       clearTimeout(timer)
       pending.delete(requestId)
       reject(err instanceof Error ? err : new Error(String(err)))
@@ -122,6 +132,7 @@ async function sendRequest(
 // ---------------------------------------------------------------------------
 
 export interface RuntimeStartArgs {
+  targetDeviceId: string    // daemon device_id to route the RPC to
   workspaceId: string       // supabase workspace id (or empty for bare spawn)
   worktree: string          // local path (or empty)
   sessionId: string         // supabase session id
@@ -142,7 +153,7 @@ export async function runtimeStart(args: RuntimeStartArgs): Promise<RuntimeStart
       modelId: args.modelId ?? '',
     })
     req.method = { case: 'runtimeStart', value: start }
-  }, args.timeoutMs)
+  }, args.targetDeviceId, args.timeoutMs)
 
   if (!response.success) {
     throw new Error(response.error || 'runtimeStart rejected')
@@ -158,6 +169,7 @@ export async function runtimeStart(args: RuntimeStartArgs): Promise<RuntimeStart
 // ---------------------------------------------------------------------------
 
 export interface RuntimeStopArgs {
+  targetDeviceId: string
   runtimeId: string
   timeoutMs?: number
 }
@@ -166,7 +178,7 @@ export async function runtimeStop(args: RuntimeStopArgs): Promise<RuntimeStopRes
   const response = await sendRequest((req) => {
     const stop = create(RuntimeStopRequestSchema, { runtimeId: args.runtimeId })
     req.method = { case: 'runtimeStop', value: stop }
-  }, args.timeoutMs)
+  }, args.targetDeviceId, args.timeoutMs)
 
   if (!response.success) {
     throw new Error(response.error || 'runtimeStop rejected')

@@ -65,7 +65,13 @@ export async function createSessionWithParticipants(args: CreateSessionArgs): Pr
   await Promise.all(args.agentActorIds.map(async (agentActorId) => {
     const prior = priorByAgent.get(agentActorId)
     try {
+      // For now, assume daemon device_id == agent actor_id (current
+      // amuxd convention: one daemon = one actor, MQTT username = actor_id
+      // and is used as device_id in topic routing). If iOS later needs to
+      // disambiguate across multi-daemon teams, look up via a separate
+      // (actor -> deviceId) table or RPC.
       const result = await runtimeStart({
+        targetDeviceId: agentActorId,
         workspaceId: prior?.workspace_id ?? '',
         worktree: '',
         sessionId,

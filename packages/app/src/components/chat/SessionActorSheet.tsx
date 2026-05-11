@@ -369,9 +369,11 @@ export function SessionActorSheet({ open, onOpenChange, sessionId, teamId }: Ses
       const workspaceId = priorRows?.[0]?.workspace_id ?? ''
 
       // 3. Call runtimeStart RPC
+      // Assume daemon device_id == agent actor_id (current amuxd convention).
       const { runtimeStart } = await import('@/lib/teamclaw-rpc')
       const { AgentType } = await import('@/lib/proto/amux_pb')
       const result = await runtimeStart({
+        targetDeviceId: candidate.id,
         workspaceId,
         worktree: '', // daemon falls back to '.' when empty
         sessionId,

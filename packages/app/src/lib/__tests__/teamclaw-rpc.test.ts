@@ -36,9 +36,10 @@ describe('teamclaw-rpc', () => {
     const { initTeamclawRpc, runtimeStart } = await import('../teamclaw-rpc')
     await initTeamclawRpc('team-1')
 
-    expect(mockSubscribe).toHaveBeenCalledWith('amux/team-1/rpc/res')
+    expect(mockSubscribe).toHaveBeenCalledWith('amux/team-1/device/+/rpc/res')
 
     const promise = runtimeStart({
+      targetDeviceId: 'dev-a',
       workspaceId: 'ws-1',
       worktree: '/tmp/x',
       sessionId: 'sess-1',
@@ -49,7 +50,7 @@ describe('teamclaw-rpc', () => {
     // mqttPublish should have been called once
     expect(mockPublish).toHaveBeenCalledTimes(1)
     const [topic, bytes] = mockPublish.mock.calls[0] as [string, Uint8Array]
-    expect(topic).toBe('amux/team-1/rpc/req')
+    expect(topic).toBe('amux/team-1/device/dev-a/rpc/req')
 
     // Decode the request to extract its id
     const { fromBinary } = await import('@bufbuild/protobuf')
@@ -74,7 +75,7 @@ describe('teamclaw-rpc', () => {
     })
 
     envelopeHandler!({
-      topic: 'amux/team-1/rpc/res',
+      topic: 'amux/team-1/device/dev-a/rpc/res',
       bytes: Array.from(toBinary(RpcResponseSchema, response)),
     })
 
@@ -88,6 +89,7 @@ describe('teamclaw-rpc', () => {
     await initTeamclawRpc('team-1')
 
     const promise = runtimeStart({
+      targetDeviceId: 'dev-a',
       workspaceId: '',
       worktree: '',
       sessionId: 'sess-1',
@@ -103,6 +105,7 @@ describe('teamclaw-rpc', () => {
     await initTeamclawRpc('team-1')
 
     const promise = runtimeStart({
+      targetDeviceId: 'dev-a',
       workspaceId: '',
       worktree: '',
       sessionId: 'sess-1',

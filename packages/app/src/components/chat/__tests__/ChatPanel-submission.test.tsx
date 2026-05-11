@@ -122,11 +122,11 @@ vi.mock('@/stores/suggestions', () => ({
 
 vi.mock('@/hooks/useAppInit', () => ({
   SKILLS_CHANGED_EVENT: 'skills-files-changed',
-  SKILLS_RUNTIME_RELOADED_EVENT: 'skills-runtime-reloaded',
 }));
 
 vi.mock('@/lib/opencode/restart', () => ({
-  requestOpenCodeRuntimeReload: vi.fn(async () => ({ url: 'http://localhost:4096' })),
+  OPENCODE_RUNTIME_RELOADED_EVENT: 'opencode-runtime-reloaded',
+  requestOpenCodeRuntimeReload: vi.fn(async () => ({ status: 'restarted', url: 'http://localhost:4096' })),
 }));
 
 vi.mock('@/stores/shortcuts', () => ({
@@ -417,7 +417,14 @@ describe('ChatPanel submission flow', () => {
   });
 
   describe('skills runtime restart prompt', () => {
-    it('clears the prompt when the skills runtime reload event is broadcast', async () => {
+    it('keeps the prompt visible when a manual restart is deferred', async () => {
+      const { requestOpenCodeRuntimeReload } = await import('@/lib/opencode/restart');
+      vi.mocked(requestOpenCodeRuntimeReload).mockResolvedValueOnce({
+        status: 'deferred',
+        workspacePath: '/test',
+        reason: 'manual',
+      });
+
       const { ChatPanel } = await import('../ChatPanel');
       render(React.createElement(ChatPanel));
 
@@ -428,7 +435,33 @@ describe('ChatPanel submission flow', () => {
       expect(await screen.findByText('Detected new skills')).toBeTruthy();
 
       await act(async () => {
-        window.dispatchEvent(new CustomEvent('skills-runtime-reloaded'));
+        fireEvent.click(screen.getByRole('button', { name: /restart/i }));
+      });
+
+      expect(requestOpenCodeRuntimeReload).toHaveBeenCalledWith('/test', 'manual', {
+        mode: 'defer-if-busy',
+      });
+      expect(screen.getByText('Detected new skills')).toBeTruthy();
+    });
+
+    it('clears the prompt when the OpenCode reload event matches the workspace and skills reason', async () => {
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('skills-files-changed'));
+      });
+
+      expect(await screen.findByText('Detected new skills')).toBeTruthy();
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('opencode-runtime-reloaded', {
+          detail: {
+            workspacePath: '/test',
+            reason: 'skills-file-change',
+            url: 'http://localhost:4096',
+          },
+        }));
       });
 
       await waitFor(() => {

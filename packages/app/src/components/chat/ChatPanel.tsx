@@ -4,7 +4,7 @@ import { AlertCircle, Archive, ArrowLeft, Bot, Loader2, RefreshCw, X } from "luc
 import { invoke } from "@tauri-apps/api/core";
 import { cn, isTauri } from "@/lib/utils";
 
-import { SKILLS_CHANGED_EVENT, SKILLS_RUNTIME_RELOADED_EVENT } from "@/hooks/useAppInit";
+import { SKILLS_CHANGED_EVENT } from "@/hooks/useAppInit";
 import { useSessionStore } from "@/stores/session";
 import { useStreamingStore } from "@/stores/streaming";
 import { useVoiceInputStore } from "@/stores/voice-input";
@@ -15,7 +15,11 @@ import { useSuggestionsStore } from "@/stores/suggestions";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
 import { ensureRoleSkillPlugin } from "../../lib/opencode/role-plugin-installer";
-import { requestOpenCodeRuntimeReload } from "@/lib/opencode/restart";
+import {
+  OPENCODE_RUNTIME_RELOADED_EVENT,
+  requestOpenCodeRuntimeReload,
+  type OpenCodeRuntimeReloadEventDetail,
+} from "@/lib/opencode/restart";
 import { resolveSessionActivityOwner } from "@/lib/session-list-activity";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { SendMessageFilePart } from "@/lib/opencode/sdk-types";
@@ -425,17 +429,27 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   React.useEffect(() => {
     const onSkillsChanged = () => setHasSkillRestartPrompt(true);
-    const onSkillsRuntimeReloaded = () => {
+    const onOpenCodeRuntimeReloaded = (event: Event) => {
+      const detail = (event as CustomEvent<OpenCodeRuntimeReloadEventDetail>).detail;
+      if (!detail || detail.workspacePath !== workspacePath) return;
+      if (
+        detail.reason !== 'skills-file-change' &&
+        detail.reason !== 'skills-permission-change' &&
+        detail.reason !== 'team-skills-sync' &&
+        detail.reason !== 'manual'
+      ) {
+        return;
+      }
       setHasSkillRestartPrompt(false);
       setIsRestartingSkillsRuntime(false);
     };
     window.addEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged);
-    window.addEventListener(SKILLS_RUNTIME_RELOADED_EVENT, onSkillsRuntimeReloaded);
+    window.addEventListener(OPENCODE_RUNTIME_RELOADED_EVENT, onOpenCodeRuntimeReloaded);
     return () => {
       window.removeEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged);
-      window.removeEventListener(SKILLS_RUNTIME_RELOADED_EVENT, onSkillsRuntimeReloaded);
+      window.removeEventListener(OPENCODE_RUNTIME_RELOADED_EVENT, onOpenCodeRuntimeReloaded);
     };
-  }, []);
+  }, [workspacePath]);
 
   // ── Team shortcuts hot reload via file watcher ─────────────────────────
   React.useEffect(() => {
@@ -753,8 +767,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     if (!workspacePath) return;
     setIsRestartingSkillsRuntime(true);
     try {
-      await requestOpenCodeRuntimeReload(workspacePath, 'manual');
-      window.dispatchEvent(new CustomEvent(SKILLS_RUNTIME_RELOADED_EVENT));
+      const result = await requestOpenCodeRuntimeReload(workspacePath, 'manual', {
+        mode: 'defer-if-busy',
+      });
+      if (result.status === 'deferred') return;
     } catch (error) {
       console.error("[ChatPanel] Failed to restart OpenCode for skills:", error);
       setOpenCodeBootstrapped(false);

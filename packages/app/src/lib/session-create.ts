@@ -77,11 +77,24 @@ export async function createSessionWithParticipants(args: CreateSessionArgs): Pr
         runtimeId: result.runtimeId,
         reason: result.rejectedReason || undefined,
       }
-    } catch (e) {
-      runtimeStartOutcomes[agentActorId] = {
-        accepted: false,
-        reason: e instanceof Error ? e.message : String(e),
+      if (!result.accepted) {
+        console.error('[session-create] runtimeStart rejected', {
+          agentActorId,
+          reason: result.rejectedReason,
+        })
+      } else {
+        console.info('[session-create] runtimeStart accepted', {
+          agentActorId,
+          runtimeId: result.runtimeId,
+        })
       }
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e)
+      runtimeStartOutcomes[agentActorId] = { accepted: false, reason }
+      console.error('[session-create] runtimeStart threw', {
+        agentActorId,
+        reason,
+      })
     }
   }))
 

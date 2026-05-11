@@ -27,7 +27,7 @@ const {
       return enabled
     }),
     mockRestartOpencode: vi.fn(async () => ({ url: 'http://localhost:4096' })),
-    mockRequestOpenCodeRuntimeReload: vi.fn(async () => ({ url: 'http://localhost:4096' })),
+    mockRequestOpenCodeRuntimeReload: vi.fn(async () => ({ status: 'restarted', url: 'http://localhost:4096' })),
   }
 })
 const { mockLoadRolesSkillsWorkspaceState } = vi.hoisted(() => ({
@@ -85,6 +85,8 @@ vi.mock('@/lib/opencode/runtime-settings', () => ({
   setAutoRestartOpencodeOnSkillsChange: mockSetAutoRestartOpencodeOnSkillsChange,
 }))
 vi.mock('@/lib/opencode/restart', () => ({
+  OPENCODE_RUNTIME_RELOAD_FAILED_EVENT: 'opencode-runtime-reload-failed',
+  OPENCODE_RUNTIME_RELOADED_EVENT: 'opencode-runtime-reloaded',
   restartOpencode: mockRestartOpencode,
   requestOpenCodeRuntimeReload: mockRequestOpenCodeRuntimeReload,
 }))
@@ -152,7 +154,7 @@ describe('SkillsSection', () => {
     mockRestartOpencode.mockReset()
     mockRestartOpencode.mockResolvedValue({ url: 'http://localhost:4096' })
     mockRequestOpenCodeRuntimeReload.mockReset()
-    mockRequestOpenCodeRuntimeReload.mockResolvedValue({ url: 'http://localhost:4096' })
+    mockRequestOpenCodeRuntimeReload.mockResolvedValue({ status: 'restarted', url: 'http://localhost:4096' })
     mockLoadRolesSkillsWorkspaceState.mockReset()
     mockLoadRolesSkillsWorkspaceState.mockResolvedValue({
       roles: [],
@@ -317,7 +319,7 @@ describe('SkillsSection', () => {
     })
 
     await waitFor(() => {
-      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change')
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
     })
     await waitFor(() => {
       expect(screen.queryByText('Detected Skill Changes')).toBeNull()
@@ -345,7 +347,7 @@ describe('SkillsSection', () => {
       expect(mockWriteTextFile).toHaveBeenCalled()
     })
     await waitFor(() => {
-      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change')
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
     })
     expect(screen.queryByText('Detected Skill Changes')).toBeNull()
   })
@@ -365,7 +367,7 @@ describe('SkillsSection', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Mock install skill' }))
 
     await waitFor(() => {
-      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change')
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
     })
     expect(screen.queryByText('Detected Skill Changes')).toBeNull()
   })
@@ -385,7 +387,7 @@ describe('SkillsSection', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Mock install skill' }))
 
     await waitFor(() => {
-      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change')
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
     })
     expect(screen.queryByText('Detected Skill Changes')).toBeNull()
   })
@@ -415,7 +417,7 @@ describe('SkillsSection', () => {
     })
 
     await waitFor(() => {
-      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change')
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
     })
     await waitFor(() => {
       expect(screen.queryByText('Detected Skill Changes')).toBeNull()
@@ -441,7 +443,7 @@ describe('SkillsSection', () => {
       })
 
       await waitFor(() => {
-        expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change')
+        expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
       })
 
       expect(consoleError).toHaveBeenCalled()
@@ -451,6 +453,68 @@ describe('SkillsSection', () => {
     } finally {
       consoleError.mockRestore()
     }
+  })
+
+  it('keeps the prompt with pending text when auto-restart is deferred', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+    mockRequestOpenCodeRuntimeReload.mockResolvedValueOnce({
+      status: 'deferred',
+      workspacePath: '/workspace/project',
+      reason: 'skills-file-change',
+    })
+
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('skills-files-changed'))
+    })
+
+    expect(await screen.findByText('Detected Skill Changes')).toBeTruthy()
+    expect(screen.getByText('OpenCode will restart after the current task finishes.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Restart' })).toHaveProperty('disabled', true)
+  })
+
+  it('clears the prompt when a deferred skills restart completes', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+    mockRequestOpenCodeRuntimeReload.mockResolvedValueOnce({
+      status: 'deferred',
+      workspacePath: '/workspace/project',
+      reason: 'skills-file-change',
+    })
+
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('skills-files-changed'))
+    })
+
+    expect(await screen.findByText('OpenCode will restart after the current task finishes.')).toBeTruthy()
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('opencode-runtime-reloaded', {
+        detail: {
+          workspacePath: '/workspace/project',
+          reason: 'skills-file-change',
+          url: 'http://localhost:4096',
+        },
+      }))
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+    })
   })
 
   it('opens the create skill flow from Add Skill', async () => {

@@ -11,8 +11,8 @@ export type MainContentLayout = 'stacked' | 'split'
 
 // Right panel tab in file mode
 export type FileModeRightTab = 'shortcuts' | 'changes' | 'files' | 'agent'
-export type DefaultPrimaryTab = 'session' | 'knowledge' | 'shortcuts'
-export type DefaultMoreDestination = 'automation' | 'rolesSkills' | 'settings'
+export type DefaultPrimaryTab = 'session' | 'knowledge' | 'actors' | 'ideas' | 'shortcuts'
+export type DefaultMoreDestination = 'shortcuts' | 'automation' | 'rolesSkills' | 'settings'
 
 export type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'roles' | 'rolesSkills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts'
 
@@ -113,6 +113,11 @@ export const useUIStore = create<UIState>((set, get) => ({
   openDefaultMoreDestination: (destination) => {
     set({ defaultMoreOpen: false })
 
+    if (destination === 'shortcuts') {
+      get().selectDefaultPrimaryTab('shortcuts')
+      return
+    }
+
     if (destination === 'settings') {
       get().openSettings()
       return
@@ -172,7 +177,6 @@ export const useUIStore = create<UIState>((set, get) => ({
             // Clear session state to show "Start a New Chat" UI
             // Actual session will be created when user sends first message
             useSessionStore.setState({
-              // @ts-expect-error Phase 1E removal
               activeSessionId: null,
               isLoading: false,
               messageQueue: [],
@@ -196,7 +200,6 @@ export const useUIStore = create<UIState>((set, get) => ({
     const { useTabsStore } = await import('@/stores/tabs')
     
     // Skip if already on this session (avoid unnecessary reloads)
-    // @ts-expect-error Phase 1E removal
     const currentActiveId = useSessionStore.getState().activeSessionId
     if (sessionId === currentActiveId) {
       return
@@ -212,7 +215,6 @@ export const useUIStore = create<UIState>((set, get) => ({
     useTabsStore.getState().hideAll()
     
     // Switch to the session (setActiveSession handles its own internal state)
-    // @ts-expect-error Phase 1E removal
     await useSessionStore.getState().setActiveSession(sessionId)
   },
 

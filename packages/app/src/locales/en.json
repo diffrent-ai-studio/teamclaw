@@ -62,6 +62,8 @@
     "session": "Session",
     "shortcuts": "Shortcuts",
     "knowledge": "Knowledge",
+    "actors": "Actors",
+    "ideas": "Ideas",
     "hideTabs": "Hide files",
     "restoreTabs": "Show files"
   },

@@ -7,11 +7,13 @@ import {
   Clock,
   Ellipsis,
   FolderOpen,
+  Lightbulb,
   Loader2,
   MessageSquare,
   Settings,
   Shapes,
   SquarePlus,
+  Users,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -23,10 +25,12 @@ import { useWorkspaceStore } from '@/stores/workspace'
 const PRIMARY_TABS = [
   { id: 'session', labelKey: 'navigation.session', fallback: 'Session', icon: MessageSquare },
   { id: 'knowledge', labelKey: 'navigation.knowledge', fallback: 'Knowledge', icon: BookOpen },
-  { id: 'shortcuts', labelKey: 'navigation.shortcuts', fallback: 'Shortcuts', icon: Bookmark },
+  { id: 'actors', labelKey: 'navigation.actors', fallback: 'Actors', icon: Users },
+  { id: 'ideas', labelKey: 'navigation.ideas', fallback: 'Ideas', icon: Lightbulb },
 ] as const
 
 const MORE_ITEMS = [
+  { id: 'shortcuts', labelKey: 'navigation.shortcuts', fallback: 'Shortcuts', icon: Bookmark },
   { id: 'automation', labelKey: 'settings.nav.automation', fallback: 'Automation', icon: Clock },
   { id: 'rolesSkills', labelKey: 'settings.nav.rolesSkills', fallback: 'Roles & Skills', icon: Shapes },
   { id: 'settings', labelKey: 'common.settings', fallback: 'Settings', icon: Settings },
@@ -101,13 +105,13 @@ export function DefaultBottomNav() {
 
   return (
     <div className="pb-1.5 pt-1">
-      <div className="relative grid grid-cols-4">
+      <div className="relative grid grid-cols-5">
         <span
           aria-hidden
           className="pointer-events-none absolute top-0 h-0.5 rounded-full bg-foreground transition-[left,opacity] duration-300 ease-out"
           style={{
-            width: 'calc(25% - 24px)',
-            left: `calc(${activePrimaryIndex * 25}% + 12px)`,
+            width: 'calc(20% - 24px)',
+            left: `calc(${activePrimaryIndex * 20}% + 12px)`,
           }}
         />
         {PRIMARY_TABS.map(({ id, labelKey, fallback, icon: Icon }) => {

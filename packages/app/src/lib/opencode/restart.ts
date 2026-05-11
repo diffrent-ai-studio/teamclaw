@@ -12,7 +12,7 @@ export type OpenCodeReloadReason =
   | 'team-skills-sync'
   | 'manual'
 
-let runtimeReloadInFlight: Promise<RestartResult> | null = null
+const runtimeReloadsInFlight = new Map<string, Promise<RestartResult>>()
 
 // Stop+start the OpenCode sidecar and restore the SDK client URL and ready flags.
 // Provider state (including the team provider) is reconciled by the Rust
@@ -36,12 +36,16 @@ export function requestOpenCodeRuntimeReload(
   workspacePath: string,
   _reason: OpenCodeReloadReason = 'manual',
 ): Promise<RestartResult> {
-  if (runtimeReloadInFlight) {
-    return runtimeReloadInFlight
+  const existingReload = runtimeReloadsInFlight.get(workspacePath)
+  if (existingReload) {
+    return existingReload
   }
 
-  runtimeReloadInFlight = restartOpencode(workspacePath).finally(() => {
-    runtimeReloadInFlight = null
+  const reload = restartOpencode(workspacePath).finally(() => {
+    if (runtimeReloadsInFlight.get(workspacePath) === reload) {
+      runtimeReloadsInFlight.delete(workspacePath)
+    }
   })
-  return runtimeReloadInFlight
+  runtimeReloadsInFlight.set(workspacePath, reload)
+  return reload
 }

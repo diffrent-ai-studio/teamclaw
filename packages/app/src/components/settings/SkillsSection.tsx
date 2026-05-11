@@ -114,6 +114,10 @@ const SKILLS_RELOAD_REASONS = new Set<OpenCodeReloadReason>([
   'team-skills-sync',
   'manual',
 ])
+const PERMISSION_RELOAD_REASONS = new Set<OpenCodeReloadReason>([
+  'skills-permission-change',
+  'manual',
+])
 
 function getSkillListKey(skill: Pick<Skill, 'filename' | 'dirPath' | 'source' | 'isRoleSkill'>): string {
   return `${skill.dirPath ?? ''}::${skill.filename}::${skill.source ?? 'unknown'}::${skill.isRoleSkill ? 'role' : 'normal'}`
@@ -156,8 +160,10 @@ export const SkillsSection = React.memo(function SkillsSection({
   const [skillPermissions, setSkillPermissions] = React.useState<SkillPermissionMap>({})
   const [hasChanges, setHasChanges] = React.useState(false)
   const [hasSkillRuntimeChanges, setHasSkillRuntimeChanges] = React.useState(false)
+  const [skillRuntimeChangesWorkspacePath, setSkillRuntimeChangesWorkspacePath] = React.useState<string | null>(null)
   const [isRestarting, setIsRestarting] = React.useState(false)
   const [isRestartPending, setIsRestartPending] = React.useState(false)
+  const [pendingRestartWorkspacePath, setPendingRestartWorkspacePath] = React.useState<string | null>(null)
   const [restartError, setRestartError] = React.useState<string | null>(null)
   const [autoRestartSkillsChanges, setAutoRestartSkillsChanges] = React.useState(false)
   const [autoRestartSettingLoaded, setAutoRestartSettingLoaded] = React.useState(false)
@@ -174,9 +180,39 @@ export const SkillsSection = React.memo(function SkillsSection({
   const autoRestartSkillsChangesRef = React.useRef(false)
   const isAutoRestartingSkillsRef = React.useRef(false)
   const pendingAutoRestartAfterSettingLoadRef = React.useRef(false)
+  const skillRuntimeChangesWorkspacePathRef = React.useRef<string | null>(null)
+  const pendingRestartWorkspacePathRef = React.useRef<string | null>(null)
 
   const defaultPermission: SkillPermission = skillPermissions['*'] ?? 'allow'
   const effectiveSearchQuery = embeddedConsole ? (sharedSearchQuery ?? '') : searchQuery
+  const isVisibleSkillRuntimeChanges = hasSkillRuntimeChanges && skillRuntimeChangesWorkspacePath === workspacePath
+  const isVisibleRestartPending = isRestartPending && pendingRestartWorkspacePath === workspacePath
+
+  const markSkillRuntimeChanges = React.useCallback((changedWorkspacePath: string) => {
+    skillRuntimeChangesWorkspacePathRef.current = changedWorkspacePath
+    setHasSkillRuntimeChanges(true)
+    setSkillRuntimeChangesWorkspacePath(changedWorkspacePath)
+  }, [])
+
+  const clearSkillRuntimeChangesForWorkspace = React.useCallback((changedWorkspacePath: string) => {
+    if (skillRuntimeChangesWorkspacePathRef.current !== changedWorkspacePath) return
+    skillRuntimeChangesWorkspacePathRef.current = null
+    setHasSkillRuntimeChanges(false)
+    setSkillRuntimeChangesWorkspacePath(null)
+  }, [])
+
+  const markRestartPending = React.useCallback((pendingWorkspacePath: string) => {
+    pendingRestartWorkspacePathRef.current = pendingWorkspacePath
+    setIsRestartPending(true)
+    setPendingRestartWorkspacePath(pendingWorkspacePath)
+  }, [])
+
+  const clearRestartPendingForWorkspace = React.useCallback((pendingWorkspacePath: string) => {
+    if (pendingRestartWorkspacePathRef.current !== pendingWorkspacePath) return
+    pendingRestartWorkspacePathRef.current = null
+    setIsRestartPending(false)
+    setPendingRestartWorkspacePath(null)
+  }, [])
 
   const switchTab = React.useCallback((nextTab: SkillsTab) => {
     setActiveTab(nextTab)
@@ -379,11 +415,11 @@ export const SkillsSection = React.memo(function SkillsSection({
     try {
       const result = await restartOpenCodeInstance({ preserveChangeFlag: true, reason: 'skills-file-change' })
       if (result?.status === 'deferred') {
-        setIsRestartPending(true)
-        setHasSkillRuntimeChanges(true)
+        markRestartPending(result.workspacePath)
+        markSkillRuntimeChanges(result.workspacePath)
       } else if (result?.status === 'restarted') {
-        setIsRestartPending(false)
-        setHasSkillRuntimeChanges(false)
+        clearRestartPendingForWorkspace(workspacePath)
+        clearSkillRuntimeChangesForWorkspace(workspacePath)
       }
     } catch (err) {
       console.error('[SkillsSection] Failed to auto-restart OpenCode:', err)
@@ -392,10 +428,18 @@ export const SkillsSection = React.memo(function SkillsSection({
       isAutoRestartingSkillsRef.current = false
       setIsRestarting(false)
     }
-  }, [restartOpenCodeInstance, workspacePath])
+  }, [
+    clearRestartPendingForWorkspace,
+    clearSkillRuntimeChangesForWorkspace,
+    markRestartPending,
+    markSkillRuntimeChanges,
+    restartOpenCodeInstance,
+    workspacePath,
+  ])
 
   const handleSkillsRuntimeChanged = React.useCallback(async (options?: SkillsRuntimeChangedOptions) => {
-    setHasSkillRuntimeChanges(true)
+    if (!workspacePath) return
+    markSkillRuntimeChanges(workspacePath)
     setRestartError(null)
     if (options?.reloadSkills !== false) {
       void loadSkills()
@@ -406,17 +450,17 @@ export const SkillsSection = React.memo(function SkillsSection({
       return
     }
 
-    if (!autoRestartSkillsChangesRef.current || !workspacePath) {
+    if (!autoRestartSkillsChangesRef.current) {
       return
     }
 
     await runSkillsAutoRestart()
-  }, [autoRestartSettingLoaded, loadSkills, runSkillsAutoRestart, workspacePath])
+  }, [autoRestartSettingLoaded, loadSkills, markSkillRuntimeChanges, runSkillsAutoRestart, workspacePath])
 
   React.useEffect(() => {
     if (
       !pendingAutoRestartAfterSettingLoadRef.current ||
-      !hasSkillRuntimeChanges ||
+      !isVisibleSkillRuntimeChanges ||
       !autoRestartSettingLoaded ||
       !autoRestartSkillsChanges ||
       !workspacePath
@@ -429,7 +473,7 @@ export const SkillsSection = React.memo(function SkillsSection({
   }, [
     autoRestartSettingLoaded,
     autoRestartSkillsChanges,
-    hasSkillRuntimeChanges,
+    isVisibleSkillRuntimeChanges,
     runSkillsAutoRestart,
     workspacePath,
   ])
@@ -451,7 +495,6 @@ export const SkillsSection = React.memo(function SkillsSection({
     const isMatchingSkillsReload = (detail?: OpenCodeRuntimeReloadEventDetail) => (
       Boolean(
         detail &&
-        detail.workspacePath === workspacePath &&
         SKILLS_RELOAD_REASONS.has(detail.reason),
       )
     )
@@ -459,17 +502,21 @@ export const SkillsSection = React.memo(function SkillsSection({
     const onRuntimeReloaded = (event: Event) => {
       const detail = (event as CustomEvent<OpenCodeRuntimeReloadEventDetail>).detail
       if (!isMatchingSkillsReload(detail)) return
-      setIsRestartPending(false)
-      setHasSkillRuntimeChanges(false)
-      setHasChanges(false)
+      clearRestartPendingForWorkspace(detail.workspacePath)
+      clearSkillRuntimeChangesForWorkspace(detail.workspacePath)
+      if (detail.workspacePath === workspacePath && PERMISSION_RELOAD_REASONS.has(detail.reason)) {
+        setHasChanges(false)
+      }
       setRestartError(null)
     }
 
     const onRuntimeReloadFailed = (event: Event) => {
       const detail = (event as CustomEvent<OpenCodeRuntimeReloadEventDetail>).detail
       if (!isMatchingSkillsReload(detail)) return
-      setIsRestartPending(false)
-      setRestartError(detail.error ?? t('settings.skills.restartFailed', 'Failed to restart OpenCode'))
+      clearRestartPendingForWorkspace(detail.workspacePath)
+      if (detail.workspacePath === workspacePath) {
+        setRestartError(detail.error ?? t('settings.skills.restartFailed', 'Failed to restart OpenCode'))
+      }
     }
 
     window.addEventListener(OPENCODE_RUNTIME_RELOADED_EVENT, onRuntimeReloaded)
@@ -478,7 +525,7 @@ export const SkillsSection = React.memo(function SkillsSection({
       window.removeEventListener(OPENCODE_RUNTIME_RELOADED_EVENT, onRuntimeReloaded)
       window.removeEventListener(OPENCODE_RUNTIME_RELOAD_FAILED_EVENT, onRuntimeReloadFailed)
     }
-  }, [t, workspacePath])
+  }, [clearRestartPendingForWorkspace, clearSkillRuntimeChangesForWorkspace, t, workspacePath])
 
   // Skills file watching is disabled - users can manually refresh if needed
 
@@ -517,7 +564,14 @@ export const SkillsSection = React.memo(function SkillsSection({
       })
       await loadSkills()
       onDataChange?.()
-      await restartOpenCodeInstance({ reason: 'skills-file-change' })
+      const result = await restartOpenCodeInstance({ reason: 'skills-file-change' })
+      if (result?.status === 'deferred') {
+        markSkillRuntimeChanges(result.workspacePath)
+        markRestartPending(result.workspacePath)
+      } else if (result?.status === 'restarted' && workspacePath) {
+        clearSkillRuntimeChangesForWorkspace(workspacePath)
+        clearRestartPendingForWorkspace(workspacePath)
+      }
       setDialogOpen(false)
       setSkillDialogMode('create')
       setImportZipPath(null)
@@ -772,11 +826,11 @@ ${skillContent.trim()}`
     try {
       const result = await restartOpenCodeInstance({ reason: 'manual' })
       if (result?.status === 'deferred') {
-        setIsRestartPending(true)
-        setHasSkillRuntimeChanges(true)
+        markRestartPending(result.workspacePath)
+        markSkillRuntimeChanges(result.workspacePath)
       } else if (result?.status === 'restarted') {
-        setIsRestartPending(false)
-        setHasSkillRuntimeChanges(false)
+        clearRestartPendingForWorkspace(workspacePath)
+        clearSkillRuntimeChangesForWorkspace(workspacePath)
       }
     } catch (err) {
       console.error('[SkillsSection] Failed to restart OpenCode:', err)
@@ -1082,7 +1136,7 @@ ${skillContent.trim()}`
             <Button
               size="sm"
               onClick={handleRestartOpenCode}
-              disabled={isRestarting || isRestartPending || !workspacePath}
+              disabled={isRestarting || isVisibleRestartPending || !workspacePath}
               className="gap-2"
             >
               {isRestarting ? (
@@ -1101,7 +1155,7 @@ ${skillContent.trim()}`
         </SettingCard>
       )}
 
-      {!embeddedConsole && hasSkillRuntimeChanges && (
+      {!embeddedConsole && isVisibleSkillRuntimeChanges && (
         <SettingCard className="bg-gradient-to-br from-sky-50 to-cyan-50 dark:from-sky-950/30 dark:to-cyan-950/30 border-sky-200 dark:border-sky-800">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-sky-600 dark:text-sky-400 mt-0.5" />
@@ -1110,7 +1164,7 @@ ${skillContent.trim()}`
                 {t('settings.skills.runtimeChanged', 'Detected Skill Changes')}
               </p>
               <p className="text-sm text-sky-700 dark:text-sky-300 mt-1">
-                {isRestartPending
+                {isVisibleRestartPending
                   ? t('settings.skills.restartPending', 'OpenCode will restart after the current task finishes.')
                   : t('settings.skills.restartToLoadNewSkills', 'New or updated skills were detected. Restart OpenCode to load them in the current runtime.')}
               </p>
@@ -1123,7 +1177,7 @@ ${skillContent.trim()}`
             <Button
               size="sm"
               onClick={handleRestartOpenCode}
-              disabled={isRestarting || isRestartPending || !workspacePath}
+              disabled={isRestarting || isVisibleRestartPending || !workspacePath}
               className="gap-2"
             >
               {isRestarting ? (

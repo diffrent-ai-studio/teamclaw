@@ -4,12 +4,13 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 const t = (k: string, d?: string) => d ?? k
 
-const { workspaceState, mockLoadAllSkills, mockInvoke, mockWriteTextFile, mockRemove } = vi.hoisted(() => ({
+const { workspaceState, mockLoadAllSkills, mockInvoke, mockWriteTextFile, mockRemove, mockOpenDialog } = vi.hoisted(() => ({
   workspaceState: { workspacePath: null as string | null },
   mockLoadAllSkills: vi.fn(async () => ({ skills: [], overrides: [] })),
   mockInvoke: vi.fn(),
   mockWriteTextFile: vi.fn(async () => undefined),
   mockRemove: vi.fn(async () => undefined),
+  mockOpenDialog: vi.fn(async () => '/tmp/example-skill.zip'),
 }))
 const {
   autoRestartState,
@@ -44,6 +45,10 @@ const { mockLoadRolesSkillsWorkspaceState } = vi.hoisted(() => ({
     },
   })),
 }))
+const { mockWriteSkillPermission, mockRemoveSkillPermission } = vi.hoisted(() => ({
+  mockWriteSkillPermission: vi.fn(async () => undefined),
+  mockRemoveSkillPermission: vi.fn(async () => undefined),
+}))
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t, i18n: { language: 'en', changeLanguage: vi.fn() } }),
@@ -65,10 +70,13 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 vi.mock('@tauri-apps/api/path', () => ({
   homeDir: vi.fn(async () => '/home/tester'),
 }))
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  open: mockOpenDialog,
+}))
 vi.mock('@/lib/opencode/config', () => ({
   readSkillPermissions: vi.fn(async () => ({})),
-  writeSkillPermission: vi.fn(),
-  removeSkillPermission: vi.fn(),
+  writeSkillPermission: mockWriteSkillPermission,
+  removeSkillPermission: mockRemoveSkillPermission,
   resolveSkillPermission: vi.fn(() => ({ permission: 'allow', isExact: false })),
 }))
 vi.mock('@/lib/git/skill-loader', () => ({
@@ -144,6 +152,12 @@ describe('SkillsSection', () => {
     mockWriteTextFile.mockResolvedValue(undefined)
     mockRemove.mockReset()
     mockRemove.mockResolvedValue(undefined)
+    mockOpenDialog.mockReset()
+    mockOpenDialog.mockResolvedValue('/tmp/example-skill.zip')
+    mockWriteSkillPermission.mockReset()
+    mockWriteSkillPermission.mockResolvedValue(undefined)
+    mockRemoveSkillPermission.mockReset()
+    mockRemoveSkillPermission.mockResolvedValue(undefined)
     mockGetAutoRestartOpencodeOnSkillsChange.mockReset()
     mockGetAutoRestartOpencodeOnSkillsChange.mockImplementation(async () => autoRestartState.enabled)
     mockSetAutoRestartOpencodeOnSkillsChange.mockReset()
@@ -515,6 +529,95 @@ describe('SkillsSection', () => {
     await waitFor(() => {
       expect(screen.queryByText('Detected Skill Changes')).toBeNull()
     })
+  })
+
+  it('does not clear permission-change prompt when a skills file reload completes', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+
+    render(<SkillsSection />)
+
+    await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
+
+    await waitFor(() => {
+      expect(mockWriteSkillPermission).toHaveBeenCalledWith('/workspace/project', '*', 'ask')
+    })
+    expect(await screen.findByText('Skill Permission Changed')).toBeTruthy()
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('opencode-runtime-reloaded', {
+        detail: {
+          workspacePath: '/workspace/project',
+          reason: 'skills-file-change',
+          url: 'http://localhost:4096',
+        },
+      }))
+    })
+
+    expect(screen.getByText('Skill Permission Changed')).toBeTruthy()
+  })
+
+  it('shows pending restart state after a deferred ZIP import restart', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    mockRequestOpenCodeRuntimeReload.mockResolvedValueOnce({
+      status: 'deferred',
+      workspacePath: '/workspace/project',
+      reason: 'skills-file-change',
+    })
+
+    render(<SkillsSection />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Skill' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Import Skill from ZIP' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose ZIP…' }))
+
+    expect(await screen.findByText('example-skill.zip')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('import_skill_from_zip', {
+        workspacePath: '/workspace/project',
+        zipPath: '/tmp/example-skill.zip',
+        isGlobal: false,
+      })
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Import Skill from ZIP')).toBeNull()
+    })
+    expect(await screen.findByText('Detected Skill Changes')).toBeTruthy()
+    expect(screen.getByText('OpenCode will restart after the current task finishes.')).toBeTruthy()
+  })
+
+  it('does not show a deferred restart prompt for a different workspace', async () => {
+    workspaceState.workspacePath = '/workspace/project-a'
+    autoRestartState.enabled = true
+    mockRequestOpenCodeRuntimeReload.mockResolvedValueOnce({
+      status: 'deferred',
+      workspacePath: '/workspace/project-a',
+      reason: 'skills-file-change',
+    })
+
+    const { rerender } = render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('skills-files-changed'))
+    })
+
+    expect(await screen.findByText('OpenCode will restart after the current task finishes.')).toBeTruthy()
+
+    workspaceState.workspacePath = '/workspace/project-b'
+    rerender(<SkillsSection onDataChange={() => undefined} />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+    })
+    expect(screen.queryByText('OpenCode will restart after the current task finishes.')).toBeNull()
   })
 
   it('opens the create skill flow from Add Skill', async () => {

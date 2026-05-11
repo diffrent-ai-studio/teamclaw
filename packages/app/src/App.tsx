@@ -761,10 +761,22 @@ function AppContent() {
 
           // Case 1: final message.created
           if (decoded.message) {
-            useSessionStore.getState().appendMessage(sid, decoded.message);
-            // Clear any in-flight streaming buffer for that actor
-            if (decoded.message.senderActorId) {
-              useV2StreamingStore.getState().clearActor(sid, decoded.message.senderActorId);
+            const senderActorId = decoded.message.senderActorId;
+            const streamingStore = useV2StreamingStore.getState();
+            const streamKey = senderActorId
+              ? streamingStore.byKey[`${sid}::${senderActorId}`]
+              : undefined;
+            if (streamKey) {
+              // Agent reply for an in-flight (or just-finalized) stream:
+              // finalize the bubble in-place so thinking + tool_calls
+              // stay visible alongside the canonical reply text. Skip
+              // appendMessage to avoid a duplicate plain ChatMessage
+              // alongside the rich bubble.
+              streamingStore.finalize(sid, senderActorId!, decoded.message.content);
+            } else {
+              // Non-agent message (member chat) or first-time agent stub:
+              // append normally so it renders as a regular ChatMessage.
+              useSessionStore.getState().appendMessage(sid, decoded.message);
             }
             return;
           }
@@ -799,8 +811,41 @@ function AppContent() {
                 success: !!tr.success,
                 summary: tr.summary ?? "",
               });
+            } else if (event?.case === "error") {
+              const er = event.value as { message?: string; details?: string };
+              useV2StreamingStore.getState().setError(
+                sid,
+                actorId,
+                er.message ?? "Agent error",
+                er.details ?? "",
+              );
+            } else if (event?.case === "permissionRequest") {
+              const pr = event.value as {
+                requestId?: string;
+                toolName?: string;
+                description?: string;
+                params?: Record<string, string>;
+              };
+              useV2StreamingStore.getState().setPermissionRequest(sid, actorId, {
+                requestId: pr.requestId ?? "",
+                toolName: pr.toolName ?? "",
+                description: pr.description ?? "",
+                params: pr.params ?? {},
+              });
+            } else if (event?.case === "todoUpdate") {
+              const tu = event.value as { items?: Array<{ content?: string; status?: number }> };
+              const items = (tu.items ?? []).map((it) => ({
+                content: it.content ?? "",
+                status: (it.status === 1
+                  ? ("in_progress" as const)
+                  : it.status === 2
+                  ? ("completed" as const)
+                  : ("pending" as const)),
+              }));
+              useV2StreamingStore.getState().setTodos(sid, actorId, items);
             }
-            // Other variants (error, permissionRequest, statusChange, todoUpdate, availableCommands, raw): MVP no-op
+            // statusChange / availableCommands / raw: MVP no-op (RuntimeInfo retain
+            // already surfaces agent status; commands TBD; raw is catch-all).
           }
         });
         if (cancelled) {

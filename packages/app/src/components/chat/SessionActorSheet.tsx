@@ -190,6 +190,28 @@ export function SessionActorSheet({ open, onOpenChange, sessionId, teamId }: Ses
       }
 
       const actorIds = (participantData ?? []).map((r: { actor_id: string }) => r.actor_id)
+      const presentActorIds = new Set(actorIds)
+
+      // Always query team agents (independent of participant count) so the
+      // "Add agent" button shows for brand-new sessions too. Failure is
+      // non-fatal — fall back to empty candidate list.
+      if (teamId) {
+        const { data: teamAgentRows, error: teamAgentsErr } = await supabase
+          .from('actors')
+          .select('id, display_name, actor_type')
+          .eq('team_id', teamId)
+          .eq('actor_type', 'agent')
+        if (!cancelled) {
+          if (teamAgentsErr) {
+            console.error('[SessionActorSheet] team agents fetch failed (non-fatal)', teamAgentsErr)
+          } else {
+            const candidates = (teamAgentRows ?? []).filter(
+              (a: { id: string; display_name: string; actor_type: string }) => !presentActorIds.has(a.id),
+            )
+            setCandidateAgents(candidates as Array<{ id: string; display_name: string }>)
+          }
+        }
+      }
 
       if (actorIds.length === 0) {
         setRows([])
@@ -240,26 +262,6 @@ export function SessionActorSheet({ open, onOpenChange, sessionId, teamId }: Ses
           .eq('user_id', user.id)
           .in('id', actorIds)
         myActorIdLocal = myActorRows?.[0]?.id ?? null
-      }
-
-      // Step 5: fetch team agents not yet in this session (candidates for add)
-      const presentActorIds = new Set(actorIds)
-      if (teamId) {
-        const { data: teamAgentRows, error: teamAgentsErr } = await supabase
-          .from('actors')
-          .select('id, display_name, actor_type')
-          .eq('team_id', teamId)
-          .eq('actor_type', 'agent')
-        if (!cancelled) {
-          if (teamAgentsErr) {
-            console.error('[SessionActorSheet] team agents fetch failed (non-fatal)', teamAgentsErr)
-          } else {
-            const candidates = (teamAgentRows ?? []).filter(
-              (a: { id: string; display_name: string; actor_type: string }) => !presentActorIds.has(a.id),
-            )
-            setCandidateAgents(candidates as Array<{ id: string; display_name: string }>)
-          }
-        }
       }
 
       if (cancelled) return

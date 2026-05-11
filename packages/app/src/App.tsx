@@ -108,6 +108,27 @@ import {
   clearPreload,
 } from "@/lib/opencode/preloader";
 import { Button } from "@/components/ui/button";
+
+// Module-level set of session/live topics we've already MQTT-subscribed to.
+// Lives outside the React tree so that the App.tsx mount effect + the
+// per-row sync effect + ChatPanel.handlePickerConfirm can share a single
+// dedup gate. mqttSubscribe is idempotent broker-side but we avoid sending
+// duplicate SUBSCRIBE packets here.
+export const subscribedSessionTopics = new Set<string>();
+
+/** Subscribe to a session's live topic, idempotently. */
+export async function ensureSessionLiveSubscribed(teamId: string, sessionId: string): Promise<void> {
+  const topic = `amux/${teamId}/session/${sessionId}/live`;
+  if (subscribedSessionTopics.has(topic)) return;
+  subscribedSessionTopics.add(topic);
+  try {
+    await mqttSubscribe(topic);
+  } catch (e) {
+    subscribedSessionTopics.delete(topic);
+    console.warn('[MQTT] subscribe failed', topic, e);
+    throw e;
+  }
+}
 import { Separator } from "@/components/ui/separator";
 import { TrafficLights } from "@/components/ui/traffic-lights";
 import {
@@ -762,9 +783,21 @@ function AppContent() {
           return;
         }
 
-        // Wildcard subscribe across all teams' sessions live topics.
-        await mqttSubscribe(`amux/+/session/+/live`);
-        console.log("[MQTT] receiver wired: subscribed to amux/+/session/+/live");
+        // Per-session subscribe — start from the loaded session list. A
+        // separate effect below keeps the subscribed set in sync with
+        // useSessionListStore.rows as new sessions are added.
+        const rowsAtBoot = useSessionListStore.getState().rows;
+        await Promise.all(
+          rowsAtBoot.map((r) => {
+            const topic = `amux/${r.team_id}/session/${r.id}/live`;
+            subscribedSessionTopics.add(topic);
+            return mqttSubscribe(topic).catch((e) => {
+              subscribedSessionTopics.delete(topic);
+              console.warn('[MQTT] subscribe failed', topic, e);
+            });
+          }),
+        );
+        console.log('[MQTT] receiver wired: subscribed to', rowsAtBoot.length, 'session/live topics');
 
         // RPC client: subscribe to the team's rpc/res topic and start correlating.
         await initTeamclawRpc(firstTeamId);
@@ -785,6 +818,31 @@ function AppContent() {
       disposeRuntimeStateStore();
     };
   }, [userId, firstTeamId]);
+
+  // Keep session/live subscriptions in sync with the user's session list.
+  // When a new session is created (via NewSessionActorPicker or otherwise),
+  // session-list-store reloads and `rows` gains an entry — we subscribe to
+  // that session's live topic so streaming and message events arrive.
+  const sessionRowsForSubscribe = useSessionListStore((s) => s.rows);
+  useEffect(() => {
+    if (!userId || !firstTeamId) return;
+    let cancelled = false;
+    void (async () => {
+      for (const r of sessionRowsForSubscribe) {
+        if (cancelled) return;
+        const topic = `amux/${r.team_id}/session/${r.id}/live`;
+        if (subscribedSessionTopics.has(topic)) continue;
+        subscribedSessionTopics.add(topic);
+        try {
+          await mqttSubscribe(topic);
+        } catch (e) {
+          subscribedSessionTopics.delete(topic);
+          console.warn('[MQTT] subscribe failed', topic, e);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [sessionRowsForSubscribe, userId, firstTeamId]);
 
   // v2 Phase 1: load message history from Supabase whenever the active
   // session changes. Single-window scope: no realtime sub here, we just

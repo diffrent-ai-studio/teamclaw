@@ -933,10 +933,19 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         additionalActorIds: allAdditional,
       });
 
-      // 2. Refresh session-list-store so the new row appears in the left
+      // 2. Subscribe to the new session's live topic BEFORE publishing the
+      //    first message. Otherwise the daemon's acp.event stream + final
+      //    message.created can arrive before the reactive per-rows
+      //    subscribe effect catches up, and the stream is silently lost
+      //    (user sees nothing until they switch sessions and supabase
+      //    re-loads the persisted final reply).
+      const { ensureSessionLiveSubscribed } = await import('@/App');
+      await ensureSessionLiveSubscribed(teamIdForSend, sessionId);
+
+      // 3. Refresh session-list-store so the new row appears in the left
       //    sidebar AND sendIntoSession can find it by id.
       await useSessionListStore.getState().load();
-      // 3. Switch to the new session (UI now shows the chat view).
+      // 4. Switch to the new session (UI now shows the chat view).
       await useUIStore.getState().switchToSession(sessionId);
 
       // 4. Replay the deferred first message immediately. Auto-mention picked

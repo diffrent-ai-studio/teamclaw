@@ -274,6 +274,12 @@
       "select": "选择",
       "close": "关闭",
       "description": "说明"
+    },
+    "actorSheet": {
+      "title": "Actors",
+      "loading": "正在加载成员...",
+      "empty": "当前会话暂无成员",
+      "error": "加载失败"
     }
   },
   "onboarding": {

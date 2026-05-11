@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { AlertCircle, Archive, ArrowLeft, Bot, Loader2, RefreshCw, X } from "lucide-react";
+import { AlertCircle, Archive, ArrowLeft, Bot, Loader2, RefreshCw, Users, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn, isTauri } from "@/lib/utils";
 
@@ -42,6 +42,7 @@ import { SessionErrorAlert } from "./SessionErrorAlert";
 import { PendingPermissionInline, hasVisiblePendingPermissions } from "./PermissionCard";
 import { TodoList } from "./TodoList";
 import { QuestionInputDock } from "./QuestionInputDock";
+import { SessionActorSheet } from "./SessionActorSheet";
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -249,6 +250,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const setInputValue = setDraftInput;
   const [attachedFiles, setAttachedFiles] = React.useState<string[]>([]);
   const [attachedAgents, setAttachedAgents] = React.useState<AttachedAgent[]>([]);
+  const [actorSheetOpen, setActorSheetOpen] = React.useState(false);
   const [imageFiles, setImageFiles] = React.useState<File[]>([]);
   const [hasSkillRestartPrompt, setHasSkillRestartPrompt] = React.useState(false);
   const [isRestartingSkillsRuntime, setIsRestartingSkillsRuntime] = React.useState(false);
@@ -974,9 +976,27 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         </div>
       )}
 
+      {/* SessionActorSheet entry */}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="absolute top-2 right-2 z-20 h-8 w-8 rounded-full bg-background/80 backdrop-blur shadow-sm hover:bg-muted"
+        onClick={() => setActorSheetOpen(true)}
+        aria-label={t('chat.actorSheet.title', 'Actors')}
+      >
+        <Users className="h-4 w-4" />
+      </Button>
+
+      <SessionActorSheet
+        open={actorSheetOpen}
+        onOpenChange={setActorSheetOpen}
+        sessionId={activeSessionId}
+      />
+
       {/* Inactivity warning - task still running but no events */}
       {inactivityWarning && isStreaming && isConnected && (
-        <div className="absolute top-2 right-2 z-20 flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1 text-xs text-blue-800">
+        <div className="absolute top-2 right-12 z-20 flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1 text-xs text-blue-800">
           <Loader2 className="h-3 w-3 animate-spin" />
           {t("chat.taskRunning", "Task running...")}
         </div>

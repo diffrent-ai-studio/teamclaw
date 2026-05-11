@@ -274,6 +274,12 @@
       "select": "select",
       "close": "close",
       "description": "Description"
+    },
+    "actorSheet": {
+      "title": "Actors",
+      "loading": "Loading actors...",
+      "empty": "No participants in this session",
+      "error": "Failed to load actors"
     }
   },
   "onboarding": {

@@ -14,6 +14,7 @@ import { buildConfig } from "@/lib/build-config";
 import {
   AlertTriangle,
   Terminal,
+  BookOpen,
   FolderGit,
   FolderTree,
   ChevronLeft,
@@ -26,7 +27,6 @@ import {
   RotateCw,
   MessageSquarePlus,
   AppWindow,
-  Columns2,
 } from "lucide-react";
 // Spotlight window - lazy loaded for spotlight window label
 const SpotlightWindow = lazy(() =>
@@ -83,6 +83,15 @@ import { WorkspacePrompt } from "@/components/workspace";
 import { WorkspaceTypeDialog } from "@/components/workspace/WorkspaceTypeDialog";
 import { OnboardingTour, type OnboardingStep } from "@/components/onboarding";
 import { useSessionStore } from "@/stores/session";
+import { useSessionListStore } from "@/stores/session-list-store";
+import { useAuthStore } from "@/stores/auth-store";
+import { mqttConnect, mqttSubscribe, listenForEnvelopes } from "@/lib/mqtt-bridge";
+import { initTeamclawRpc, disposeTeamclawRpc } from "@/lib/teamclaw-rpc";
+import { decodeLiveEvent, sessionIdFromTopic } from "@/lib/teamclaw-events";
+import { initRuntimeStateStore, disposeRuntimeStateStore } from "@/stores/runtime-state-store";
+import { supabase } from "@/lib/supabase-client";
+import { create as createMessage } from "@bufbuild/protobuf";
+import { MessageSchema, MessageKind } from "@/lib/proto/teamclaw_pb";
 import { useUIStore } from "@/stores/ui";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useTabsStore, selectActiveTab, selectHasHiddenTabs } from "@/stores/tabs";
@@ -530,18 +539,16 @@ function ResizeHandle({
 function AppContent() {
   const { t } = useTranslation();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  // Session store - individual selectors
-  // @ts-expect-error Phase 1E removal
-  const getActiveSession = useSessionStore((s) => s.getActiveSession);
-  // @ts-expect-error Phase 1E removal
+  // Session store - individual selectors. Note: we subscribe to the
+  // *result* of getActiveSession() so re-renders fire when currentSessionId
+  // / sessions change. Subscribing to the function ref alone never
+  // re-renders since the ref is stable.
+  const activeSession = useSessionStore((s) => s.getActiveSession());
   const sessionDiff = useSessionStore((s) => s.sessionDiff);
-  // @ts-expect-error Phase 1E removal
   const sessions = useSessionStore((s) => s.sessions);
   const reloadActiveSessionMessages = useSessionStore(
-    // @ts-expect-error Phase 1E removal
     (s) => s.reloadActiveSessionMessages,
   );
-  const activeSession = getActiveSession();
 
   // Workspace store - individual selectors
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
@@ -560,7 +567,6 @@ function AppContent() {
   const fileModeRightTab = useUIStore((s) => s.fileModeRightTab);
   const setFileModeRightTab = useUIStore((s) => s.setFileModeRightTab);
   const mainContentLayout = useUIStore((s) => s.mainContentLayout);
-  const toggleMainContentLayout = useUIStore((s) => s.toggleMainContentLayout);
   const openSettings = useUIStore((s) => s.openSettings);
   const embeddedSettingsSection = useUIStore((s) => s.embeddedSettingsSection);
   const closeEmbeddedSettingsSection = useUIStore(
@@ -572,11 +578,12 @@ function AppContent() {
   const hasActiveFileTab = !!useTabsStore(selectActiveTab);
   const hasHiddenTabs = useTabsStore(selectHasHiddenTabs);
   const workspaceUIVariant = isWorkspaceUIVariant();
-  /** Shortcuts/knowledge open in the left dock for both shells.
-   * Only the workspace shell temporarily replaces the sidebar with that dock. */
+  /** Shortcuts open in the left dock for both shells.
+   * Only the workspace shell temporarily replaces the sidebar with that dock.
+   * Knowledge pops out from the right (via the top-right Knowledge icon). */
   const leftDockActive =
     isPanelOpen &&
-    (activeTab === "shortcuts" || activeTab === "knowledge");
+    activeTab === "shortcuts";
   const showRightWorkspacePanel = isPanelOpen && !leftDockActive;
   const isCollapsed = state === "collapsed";
   /** Native traffic lights sit over the left column; spare inset header when left dock owns that strip. */
@@ -669,6 +676,137 @@ function AppContent() {
   useFileTabSync();
   const { rightPanelWidth, handleRightPanelResize } = useResizablePanels();
 
+  // v2 Phase 1: load session list from Supabase once AppContent mounts
+  // (i.e. after auth is verified). Phase 2 will replace with realtime sub.
+  useEffect(() => {
+    void useSessionListStore.getState().load();
+  }, []);
+
+  // v2 Phase 1 — Task 1D.4: connect MQTT after auth, subscribe to all teams'
+  // session live topics, decode incoming LiveEventEnvelope and append to
+  // useSessionStore so ActorMessageList re-renders. The orphan
+  // session-event-bus.ts is bypassed: we write straight to the store the UI
+  // reads from.
+  const userId = useAuthStore((s) => s.session?.user.id ?? null);
+  // Wait for session list to populate so we have a real team_id for LWT —
+  // the broker's ACL is keyed on team_id and rejects placeholders.
+  const firstTeamId = useSessionListStore((s) => s.rows[0]?.team_id ?? null);
+  useEffect(() => {
+    if (!userId || !firstTeamId) return;
+    const accessToken = useAuthStore.getState().session?.access_token ?? null;
+    if (!accessToken) return;
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      try {
+        // amuxd convention: MQTT username = actor_id, password = JWT
+        // (see amux/daemon/src/mqtt/client.rs + daemon/server.rs).
+        // EMQX validates the JWT and uses actor_id for topic ACL.
+        const { data: actorRows, error: actorErr } = await supabase
+          .from("actors")
+          .select("id, team_id")
+          .eq("user_id", userId);
+        if (actorErr) throw actorErr;
+        const matching = (actorRows ?? []).find((a) => a.team_id === firstTeamId);
+        if (!matching) {
+          console.warn("[MQTT] no actor for user in team", firstTeamId, "— skipping connect");
+          return;
+        }
+        if (cancelled) return;
+        const actorId = matching.id as string;
+
+        await mqttConnect({
+          brokerHost: import.meta.env.VITE_MQTT_HOST as string,
+          brokerPort: Number(import.meta.env.VITE_MQTT_PORT ?? 1883),
+          username: actorId,
+          password: accessToken,
+          clientId: `teamclaw-${actorId.slice(0, 8)}-${crypto.randomUUID().slice(0, 8)}`,
+          teamId: firstTeamId,
+        });
+        if (cancelled) return;
+
+        unlisten = await listenForEnvelopes((env) => {
+          const sid = sessionIdFromTopic(env.topic);
+          if (!sid) return;
+          const decoded = decodeLiveEvent(new Uint8Array(env.bytes));
+          if (!decoded?.message) return;
+          useSessionStore.getState().appendMessage(sid, decoded.message);
+        });
+        if (cancelled) {
+          unlisten?.();
+          return;
+        }
+
+        // Wildcard subscribe across all teams' sessions live topics.
+        await mqttSubscribe(`amux/+/session/+/live`);
+        console.log("[MQTT] receiver wired: subscribed to amux/+/session/+/live");
+
+        // RPC client: subscribe to the team's rpc/res topic and start correlating.
+        await initTeamclawRpc(firstTeamId);
+        console.log('[teamclaw-rpc] initialized for team', firstTeamId);
+
+        // Runtime state store: subscribe to daemon-published RuntimeInfo retains.
+        await initRuntimeStateStore(firstTeamId);
+        console.log('[runtime-state] initialized for team', firstTeamId);
+      } catch (err) {
+        console.error("[MQTT] receiver wiring failed:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      disposeTeamclawRpc();
+      disposeRuntimeStateStore();
+    };
+  }, [userId, firstTeamId]);
+
+  // v2 Phase 1: load message history from Supabase whenever the active
+  // session changes. Single-window scope: no realtime sub here, we just
+  // pull on session-select. New outgoing messages append locally via
+  // ActorChatInput; new MQTT messages append via the receiver wired above.
+  const currentSessionId = useSessionStore((s) => s.currentSessionId);
+  useEffect(() => {
+    if (!currentSessionId) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("id, session_id, sender_actor_id, kind, content, created_at")
+        .eq("session_id", currentSessionId)
+        .order("created_at", { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        console.warn("[history] load failed:", error.message);
+        return;
+      }
+      const kindMap: Record<string, MessageKind> = {
+        text: MessageKind.TEXT,
+        system: MessageKind.SYSTEM,
+        agent_thinking: MessageKind.AGENT_THINKING,
+        agent_tool_call: MessageKind.AGENT_TOOL_CALL,
+        agent_tool_result: MessageKind.AGENT_TOOL_RESULT,
+        agent_reply: MessageKind.AGENT_REPLY,
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const msgs = (data ?? []).map((r: any) =>
+        createMessage(MessageSchema, {
+          messageId: r.id,
+          sessionId: r.session_id,
+          senderActorId: r.sender_actor_id,
+          kind: kindMap[r.kind] ?? MessageKind.TEXT,
+          content: r.content ?? "",
+          createdAt: BigInt(Math.floor(new Date(r.created_at).getTime() / 1000)),
+        }),
+      );
+      useSessionStore.getState().setMessages(currentSessionId, msgs);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSessionId]);
+
   /** When left dock opens, hide the main sidebar; restore prior expansion when it closes. */
   const restoreSidebarAfterLeftDockRef = useRef<boolean | null>(null);
   useEffect(() => {
@@ -690,16 +828,6 @@ function AppContent() {
       }
     }
   }, [leftDockActive, workspaceUIVariant, sidebarOpen, setSidebarOpen, closePanel]);
-
-  // Remove HTML skeleton once OpenCode server is bootstrapped (sessions can load)
-  // Also remove when workspace resolution completes with no workspace — otherwise
-  // the skeleton (z-index:9999) covers the WorkspacePrompt indefinitely.
-  const openCodeBootstrapped = useWorkspaceStore((s) => s.openCodeBootstrapped);
-  useEffect(() => {
-    if (openCodeBootstrapped || !isTauri() || (initialWorkspaceResolved && !workspacePath)) {
-      document.getElementById('skeleton')?.remove();
-    }
-  }, [openCodeBootstrapped, initialWorkspaceResolved, workspacePath]);
 
   // If settings is open, show settings page (check first so it works regardless of workspace state)
   if (currentView === "settings") {
@@ -1064,9 +1192,7 @@ function AppContent() {
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
                   <span className="min-w-0 truncate text-sm font-medium">
-                    {activeTab === "knowledge"
-                      ? t("navigation.knowledge", "Knowledge")
-                      : t("navigation.shortcuts", "Shortcuts")}
+                    {t("navigation.shortcuts", "Shortcuts")}
                   </span>
                   <div className="min-w-0 flex-1" data-tauri-drag-region />
                 </div>
@@ -1164,24 +1290,18 @@ function AppContent() {
                 </button>
               )}
               <HeaderPanelTab
+                icon={BookOpen}
+                label={t("navigation.knowledge", "Knowledge")}
+                isActive={isPanelOpen && activeTab === "knowledge"}
+                onClick={() => isPanelOpen && activeTab === "knowledge" ? closePanel() : openPanel("knowledge")}
+              />
+              <HeaderPanelTab
                 icon={FolderGit}
                 label={t("navigation.changes", "Changes")}
                 count={sessionDiff.length}
                 isActive={isPanelOpen && activeTab === "diff"}
                 onClick={() => isPanelOpen && activeTab === "diff" ? closePanel() : openPanel("diff")}
               />
-              {!workspaceUIVariant && (
-                <button
-                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  onClick={toggleMainContentLayout}
-                  title={mainContentLayout === "stacked"
-                    ? t("app.switchToSplitLayout", "Switch to split layout")
-                    : t("app.switchToStackedLayout", "Switch to stacked layout")
-                  }
-                >
-                  <Columns2 className="h-4 w-4" />
-                </button>
-              )}
               {showRightWorkspacePanel && (
                 <button
                   className="ml-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

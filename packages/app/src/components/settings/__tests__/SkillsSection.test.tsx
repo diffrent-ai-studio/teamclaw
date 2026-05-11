@@ -631,6 +631,40 @@ describe('SkillsSection', () => {
     expect(screen.getByText('OpenCode will restart after the current task finishes.')).toBeTruthy()
   })
 
+  it('shows restart error after successful ZIP import when reload request fails', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    mockRequestOpenCodeRuntimeReload.mockRejectedValueOnce(new Error('restart failed'))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    try {
+      render(<SkillsSection />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Add Skill' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Import Skill from ZIP' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Choose ZIP…' }))
+
+      expect(await screen.findByText('example-skill.zip')).toBeTruthy()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('import_skill_from_zip', {
+          workspacePath: '/workspace/project',
+          zipPath: '/tmp/example-skill.zip',
+          isGlobal: false,
+        })
+      })
+      await waitFor(() => {
+        expect(screen.queryByText('Import Skill from ZIP')).toBeNull()
+      })
+      expect(await screen.findByText('Detected Skill Changes')).toBeTruthy()
+      expect(screen.getByText('Error: restart failed')).toBeTruthy()
+      expect(screen.queryByText('Failed to import skill')).toBeNull()
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('keeps permission-change prompt after an immediate ZIP import skills restart', async () => {
     workspaceState.workspacePath = '/workspace/project'
 

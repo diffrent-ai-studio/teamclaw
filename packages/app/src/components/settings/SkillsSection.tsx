@@ -581,19 +581,28 @@ export const SkillsSection = React.memo(function SkillsSection({
       })
       await loadSkills()
       onDataChange?.()
-      const result = await restartOpenCodeInstance({ reason: 'skills-file-change' })
-      if (result?.status === 'deferred') {
-        markSkillRuntimeChanges(result.workspacePath)
-        markRestartPending(result.workspacePath)
-      } else if (result?.status === 'restarted' && workspacePath) {
-        clearSkillRuntimeChangesForWorkspace(workspacePath)
-        clearRestartPendingForWorkspace(workspacePath)
-      }
+      const changedWorkspacePath = workspacePath
+      markSkillRuntimeChanges(changedWorkspacePath)
       setDialogOpen(false)
       setSkillDialogMode('create')
       setImportZipPath(null)
       setImportZipLabel(null)
       setInstallLocation('workspace')
+      try {
+        const result = await restartOpenCodeInstance({ reason: 'skills-file-change' })
+        if (result?.status === 'deferred') {
+          markSkillRuntimeChanges(result.workspacePath)
+          markRestartPending(result.workspacePath)
+        } else if (result?.status === 'restarted') {
+          clearSkillRuntimeChangesForWorkspace(changedWorkspacePath)
+          clearRestartPendingForWorkspace(changedWorkspacePath)
+        }
+      } catch (restartErr) {
+        console.error('[SkillsSection] Failed to restart OpenCode after ZIP import:', restartErr)
+        clearRestartPendingForWorkspace(changedWorkspacePath)
+        markSkillRuntimeChanges(changedWorkspacePath)
+        setRestartError(restartErr instanceof Error ? restartErr.message : String(restartErr))
+      }
     } catch (err) {
       console.error('Failed to import skill zip:', err)
       setError(err instanceof Error ? err.message : 'Failed to import skill')

@@ -200,8 +200,8 @@ vi.mock('@/stores/auth-store', () => ({
 
 vi.mock('@/stores/session-list-store', () => ({
   useSessionListStore: Object.assign(
-    (selector: (s: unknown) => unknown) => selector({ sessions: [], loadSessions: vi.fn() }),
-    { getState: () => ({ sessions: [], loadSessions: vi.fn() }) },
+    (selector: (s: unknown) => unknown) => selector({ sessions: [], rows: [], loadSessions: vi.fn() }),
+    { getState: () => ({ sessions: [], rows: [], loadSessions: vi.fn() }) },
   ),
 }));
 

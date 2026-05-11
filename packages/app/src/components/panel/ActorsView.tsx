@@ -90,12 +90,13 @@ export function ActorsView() {
     setError(false)
     void (async () => {
       const { data, error: fetchError } = await supabase
-        .from('actors')
+        .from('actor_directory')
         .select('id, actor_type, display_name, member_status, agent_status, last_active_at')
         .eq('team_id', teamId)
         .order('display_name', { ascending: true })
       if (cancelled) return
       if (fetchError) {
+        console.error('[ActorsView] fetch failed', fetchError)
         setError(true)
       } else {
         setActors((data ?? []) as ActorRow[])

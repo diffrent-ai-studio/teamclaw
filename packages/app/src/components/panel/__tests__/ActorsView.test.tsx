@@ -24,7 +24,7 @@ beforeEach(() => {
 
 function mockActorsRows(rows: any[]) {
   supabaseFrom.mockImplementation((table: string) => {
-    if (table === 'actors') {
+    if (table === 'actor_directory') {
       return {
         select: () => ({
           eq: () => ({

@@ -119,6 +119,10 @@ const PERMISSION_RELOAD_REASONS = new Set<OpenCodeReloadReason>([
   'manual',
 ])
 
+const shouldClearSkillPermissionChanges = (reason: OpenCodeReloadReason) => (
+  PERMISSION_RELOAD_REASONS.has(reason)
+)
+
 function getSkillListKey(skill: Pick<Skill, 'filename' | 'dirPath' | 'source' | 'isRoleSkill'>): string {
   return `${skill.dirPath ?? ''}::${skill.filename}::${skill.source ?? 'unknown'}::${skill.isRoleSkill ? 'role' : 'normal'}`
 }
@@ -392,12 +396,17 @@ export const SkillsSection = React.memo(function SkillsSection({
   const restartOpenCodeInstance = React.useCallback(
     async (options?: RestartOptions): Promise<OpenCodeReloadRequestResult | undefined> => {
       if (!workspacePath) return
+      const reason = options?.reason ?? 'manual'
       const result = await requestOpenCodeRuntimeReload(
         workspacePath,
-        options?.reason ?? 'manual',
+        reason,
         { mode: 'defer-if-busy' },
       )
-      if (result.status === 'restarted' && !options?.preserveChangeFlag) {
+      if (
+        result.status === 'restarted' &&
+        !options?.preserveChangeFlag &&
+        shouldClearSkillPermissionChanges(reason)
+      ) {
         setHasChanges(false)
       }
       return result
@@ -504,7 +513,7 @@ export const SkillsSection = React.memo(function SkillsSection({
       if (!isMatchingSkillsReload(detail)) return
       clearRestartPendingForWorkspace(detail.workspacePath)
       clearSkillRuntimeChangesForWorkspace(detail.workspacePath)
-      if (detail.workspacePath === workspacePath && PERMISSION_RELOAD_REASONS.has(detail.reason)) {
+      if (detail.workspacePath === workspacePath && shouldClearSkillPermissionChanges(detail.reason)) {
         setHasChanges(false)
       }
       setRestartError(null)

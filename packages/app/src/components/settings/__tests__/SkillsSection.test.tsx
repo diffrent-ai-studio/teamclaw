@@ -589,6 +589,36 @@ describe('SkillsSection', () => {
     expect(screen.getByText('OpenCode will restart after the current task finishes.')).toBeTruthy()
   })
 
+  it('keeps permission-change prompt after an immediate ZIP import skills restart', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+
+    render(<SkillsSection />)
+
+    await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
+
+    await waitFor(() => {
+      expect(mockWriteSkillPermission).toHaveBeenCalledWith('/workspace/project', '*', 'ask')
+    })
+    expect(await screen.findByText('Skill Permission Changed')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Skill' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Import Skill from ZIP' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose ZIP…' }))
+
+    expect(await screen.findByText('example-skill.zip')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Import Skill from ZIP')).toBeNull()
+    })
+    expect(screen.getByText('Skill Permission Changed')).toBeTruthy()
+  })
+
   it('does not show a deferred restart prompt for a different workspace', async () => {
     workspaceState.workspacePath = '/workspace/project-a'
     autoRestartState.enabled = true

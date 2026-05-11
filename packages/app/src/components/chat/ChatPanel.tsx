@@ -252,6 +252,11 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const [attachedAgents, setAttachedAgents] = React.useState<AttachedAgent[]>([]);
   const [actorSheetOpen, setActorSheetOpen] = React.useState(false);
   const sessionRow = useSessionListStore(s => s.rows.find(r => r.id === activeSessionId));
+  // Team is workspace-scoped: every session in `rows` shares the same team_id.
+  // When activeSessionId is null (brand-new chat), fall back to any row's
+  // team_id so SessionActorSheet still has a team context for the add flow.
+  const fallbackTeamId = useSessionListStore(s => s.rows[0]?.team_id ?? null);
+  const sheetTeamId = sessionRow?.team_id ?? fallbackTeamId;
   const [imageFiles, setImageFiles] = React.useState<File[]>([]);
   const [hasSkillRestartPrompt, setHasSkillRestartPrompt] = React.useState(false);
   const [isRestartingSkillsRuntime, setIsRestartingSkillsRuntime] = React.useState(false);
@@ -993,7 +998,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         open={actorSheetOpen}
         onOpenChange={setActorSheetOpen}
         sessionId={activeSessionId}
-        teamId={sessionRow?.team_id ?? null}
+        teamId={sheetTeamId}
       />
 
       {/* Inactivity warning - task still running but no events */}

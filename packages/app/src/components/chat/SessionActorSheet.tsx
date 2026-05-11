@@ -168,12 +168,40 @@ export function SessionActorSheet({ open, onOpenChange, sessionId, teamId }: Ses
     setError(false)
     setCandidateAgents([])
     setAddingAgent(false)
-    if (!open || !sessionId) {
+    if (!open) {
       setLoading(false)
       return
     }
     let cancelled = false
     setLoading(true)
+
+    // When there's no active session yet (brand-new chat) but we have a team
+    // context, still query candidate agents so the + button can render. The
+    // "+" handler itself guards against null sessionId.
+    if (!sessionId) {
+      if (teamId) {
+        void (async () => {
+          const { data: teamAgentRows, error: teamAgentsErr } = await supabase
+            .from('actors')
+            .select('id, display_name, actor_type')
+            .eq('team_id', teamId)
+            .eq('actor_type', 'agent')
+          if (cancelled) return
+          if (teamAgentsErr) {
+            console.error('[SessionActorSheet] team agents fetch failed (non-fatal)', teamAgentsErr)
+          } else {
+            setCandidateAgents(
+              (teamAgentRows ?? []) as Array<{ id: string; display_name: string }>,
+            )
+          }
+          setLoading(false)
+        })()
+      } else {
+        setLoading(false)
+      }
+      return () => { cancelled = true }
+    }
+
     void (async () => {
       // Step 1: get actor_id list for the session
       const { data: participantData, error: participantError } = await supabase
@@ -427,8 +455,11 @@ export function SessionActorSheet({ open, onOpenChange, sessionId, teamId }: Ses
                           size="icon"
                           className="h-6 w-6"
                           onClick={() => void handleAddAgent()}
-                          disabled={addingAgent}
+                          disabled={addingAgent || !sessionId}
                           aria-label={t('chat.actorSheet.addAgentAria', 'Add agent')}
+                          title={!sessionId
+                            ? t('chat.actorSheet.addNeedsSession', 'Send a message first to create the session')
+                            : t('chat.actorSheet.addAgentAria', 'Add agent')}
                         >
                           {addingAgent
                             ? <Loader2 className="h-3.5 w-3.5 animate-spin" />

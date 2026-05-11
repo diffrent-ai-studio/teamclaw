@@ -286,7 +286,8 @@
       "removeConfirm": "Remove",
       "removeError": "Failed to remove from session",
       "addAgentAria": "Add agent",
-      "addError": "Failed to add agent"
+      "addError": "Failed to add agent",
+      "addNeedsSession": "Send a message first to create the session"
     }
   },
   "onboarding": {

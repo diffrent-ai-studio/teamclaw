@@ -286,7 +286,8 @@
       "removeConfirm": "移除",
       "removeError": "移除失败",
       "addAgentAria": "添加 Agent",
-      "addError": "添加 Agent 失败"
+      "addError": "添加 Agent 失败",
+      "addNeedsSession": "请先发一条消息以创建会话"
     }
   },
   "onboarding": {

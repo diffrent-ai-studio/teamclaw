@@ -20,6 +20,7 @@ import {
   requestOpenCodeRuntimeReload,
   type OpenCodeRuntimeReloadEventDetail,
 } from "@/lib/opencode/restart";
+import { getAutoRestartOpencodeOnSkillsChange } from "@/lib/opencode/runtime-settings";
 import { resolveSessionActivityOwner } from "@/lib/session-list-activity";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { SendMessageFilePart } from "@/lib/opencode/sdk-types";
@@ -245,6 +246,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const [isRestartingSkillsRuntime, setIsRestartingSkillsRuntime] = React.useState(false);
   const [isRestoringArchived, setIsRestoringArchived] = React.useState(false);
   const isRestoringArchivedRef = React.useRef(false);
+  const skillsRuntimeChangeRequestRef = React.useRef(0);
 
   const isImagePath = React.useCallback((path: string) => {
     return /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(path);
@@ -432,10 +434,63 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     hasSkillRestartPrompt && skillRestartPromptWorkspacePath === workspacePath;
 
   React.useEffect(() => {
+    let cancelled = false;
     const onSkillsChanged = () => {
       if (!workspacePath) return;
-      setSkillRestartPromptWorkspacePath(workspacePath);
-      setHasSkillRestartPrompt(true);
+      const changedWorkspacePath = workspacePath;
+      const requestId = skillsRuntimeChangeRequestRef.current + 1;
+      skillsRuntimeChangeRequestRef.current = requestId;
+
+      const showManualPrompt = () => {
+        if (cancelled) return;
+        setSkillRestartPromptWorkspacePath(changedWorkspacePath);
+        setHasSkillRestartPrompt(true);
+      };
+
+      void (async () => {
+        try {
+          const autoRestartEnabled = await getAutoRestartOpencodeOnSkillsChange();
+          if (cancelled || skillsRuntimeChangeRequestRef.current !== requestId) return;
+
+          if (!autoRestartEnabled) {
+            console.info("[SkillsAutoRestart] chat prompt shown because auto restart is disabled", {
+              workspacePath: changedWorkspacePath,
+              reason: "skills-file-change",
+            });
+            showManualPrompt();
+            return;
+          }
+
+          console.info("[SkillsAutoRestart] chat panel requesting OpenCode reload", {
+            workspacePath: changedWorkspacePath,
+            reason: "skills-file-change",
+          });
+          setIsRestartingSkillsRuntime(true);
+          const result = await requestOpenCodeRuntimeReload(changedWorkspacePath, "skills-file-change", {
+            mode: "defer-if-busy",
+          });
+          if (cancelled || skillsRuntimeChangeRequestRef.current !== requestId) return;
+
+          if (result.status === "deferred") {
+            console.info("[SkillsAutoRestart] chat panel reload deferred", {
+              workspacePath: result.workspacePath,
+              reason: result.reason,
+            });
+            showManualPrompt();
+            return;
+          }
+
+          setHasSkillRestartPrompt(false);
+          setSkillRestartPromptWorkspacePath(null);
+        } catch (error) {
+          console.error("[ChatPanel] Failed to auto-restart OpenCode for skills:", error);
+          showManualPrompt();
+        } finally {
+          if (!cancelled && skillsRuntimeChangeRequestRef.current === requestId) {
+            setIsRestartingSkillsRuntime(false);
+          }
+        }
+      })();
     };
     const onOpenCodeRuntimeReloaded = (event: Event) => {
       const detail = (event as CustomEvent<OpenCodeRuntimeReloadEventDetail>).detail;
@@ -463,6 +518,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     window.addEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged);
     window.addEventListener(OPENCODE_RUNTIME_RELOADED_EVENT, onOpenCodeRuntimeReloaded);
     return () => {
+      cancelled = true;
       window.removeEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged);
       window.removeEventListener(OPENCODE_RUNTIME_RELOADED_EVENT, onOpenCodeRuntimeReloaded);
     };

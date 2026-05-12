@@ -15,6 +15,7 @@ const mockSetDraftInput = vi.fn();
 const mockSetSelectedModel = vi.fn();
 const mockAnswerQuestion = vi.fn(() => Promise.resolve());
 const mockSkipQuestion = vi.fn(() => Promise.resolve());
+const mockGetAutoRestartOpencodeOnSkillsChange = vi.fn(async () => false);
 const workspaceState = {
   workspacePath: '/test',
   openCodeBootstrapped: true,
@@ -127,6 +128,10 @@ vi.mock('@/hooks/useAppInit', () => ({
 vi.mock('@/lib/opencode/restart', () => ({
   OPENCODE_RUNTIME_RELOADED_EVENT: 'opencode-runtime-reloaded',
   requestOpenCodeRuntimeReload: vi.fn(async () => ({ status: 'restarted', url: 'http://localhost:4096' })),
+}));
+
+vi.mock('@/lib/opencode/runtime-settings', () => ({
+  getAutoRestartOpencodeOnSkillsChange: mockGetAutoRestartOpencodeOnSkillsChange,
 }));
 
 vi.mock('@/stores/shortcuts', () => ({
@@ -277,6 +282,7 @@ describe('ChatPanel submission flow', () => {
     mockSessionState.pendingPermissions = [];
     mockSessionState.pendingQuestions = [];
     mockSessionState.todos = [];
+    mockGetAutoRestartOpencodeOnSkillsChange.mockResolvedValue(false);
     mockSkipQuestion.mockClear();
     mockSessionState.sessions = [
       {
@@ -417,6 +423,25 @@ describe('ChatPanel submission flow', () => {
   });
 
   describe('skills runtime restart prompt', () => {
+    it('auto-restarts without showing the prompt when the global setting is enabled', async () => {
+      mockGetAutoRestartOpencodeOnSkillsChange.mockResolvedValue(true);
+      const { requestOpenCodeRuntimeReload } = await import('@/lib/opencode/restart');
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('skills-files-changed'));
+      });
+
+      await waitFor(() => {
+        expect(requestOpenCodeRuntimeReload).toHaveBeenCalledWith('/test', 'skills-file-change', {
+          mode: 'defer-if-busy',
+        });
+      });
+      expect(screen.queryByText('Detected new skills')).toBeNull();
+    });
+
     it('keeps the prompt visible when a manual restart is deferred', async () => {
       const { requestOpenCodeRuntimeReload } = await import('@/lib/opencode/restart');
       vi.mocked(requestOpenCodeRuntimeReload).mockResolvedValueOnce({

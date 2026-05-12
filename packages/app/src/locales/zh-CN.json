@@ -7,6 +7,8 @@
     "yes": "是",
     "no": "否",
     "ok": "确定",
+    "search": "搜索",
+    "comingSoon": "即将上线",
     "loading": "加载中...",
     "error": "错误",
     "success": "成功",
@@ -428,6 +430,8 @@
     "unknown": "未知状态"
   },
   "sidebar": {
+    "invite": "邀请成员",
+    "newIdea": "新建想法",
     "searchSessions": "搜索会话",
     "searchDescription": "搜索并导航到会话",
     "searchPlaceholder": "搜索会话...",

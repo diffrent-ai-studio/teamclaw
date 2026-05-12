@@ -7,6 +7,8 @@
     "yes": "Yes",
     "no": "No",
     "ok": "OK",
+    "search": "Search",
+    "comingSoon": "Coming soon",
     "loading": "Loading...",
     "error": "Error",
     "success": "Success",
@@ -428,6 +430,8 @@
     "unknown": "Unknown"
   },
   "sidebar": {
+    "invite": "Invite member",
+    "newIdea": "New idea",
     "searchSessions": "Search Sessions",
     "searchDescription": "Search and navigate to a session",
     "searchPlaceholder": "Search sessions...",

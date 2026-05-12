@@ -206,7 +206,6 @@ export function useOpenCodeInit() {
     let watchedDirs: string[] = [];
     let skillDirs: string[] = [];
     let lastSkillSignature = "";
-    let hasObservedSkillChange = false;
     let changeVersion = 0;
 
     const QUIET_WINDOW_MS = 3000;
@@ -243,15 +242,18 @@ export function useOpenCodeInit() {
       if (versionAtSchedule !== changeVersion || cancelled) return;
 
       const secondSignature = await buildSkillSignature();
-      if (firstSignature !== secondSignature) return;
+      if (firstSignature !== secondSignature) {
+        console.info("[SkillsWatch] Skill signature still changing; waiting for another file event", {
+          workspacePath,
+        });
+        return;
+      }
 
       if (secondSignature !== lastSkillSignature) {
-        const isFirstObservedChange = !hasObservedSkillChange;
-        hasObservedSkillChange = true;
         lastSkillSignature = secondSignature;
-        // Suppress restart prompts caused by startup-time churn while the
-        // initial watcher baseline is stabilizing.
-        if (isFirstObservedChange) return;
+        console.info("[SkillsWatch] Stable skill change detected; dispatching runtime change event", {
+          workspacePath,
+        });
         window.dispatchEvent(new CustomEvent(SKILLS_CHANGED_EVENT));
       }
     };
@@ -281,6 +283,11 @@ export function useOpenCodeInit() {
         }
 
         watchedDirs = Array.from(watchableDirs);
+        console.info("[SkillsWatch] Initializing skill watchers", {
+          workspacePath,
+          skillDirs,
+          watchedDirs,
+        });
         await Promise.all(
           watchedDirs.map((path) =>
             invoke("watch_directory", { path }).catch((error) => {
@@ -293,6 +300,11 @@ export function useOpenCodeInit() {
 
         unlisten = await listen<{ path: string; kind: string }>("file-change", (event) => {
           if (!isSkillFileChange(event.payload.path)) return;
+          console.info("[SkillsWatch] Skill file event observed", {
+            workspacePath,
+            path: event.payload.path,
+            kind: event.payload.kind,
+          });
 
           changeVersion += 1;
           const versionAtSchedule = changeVersion;

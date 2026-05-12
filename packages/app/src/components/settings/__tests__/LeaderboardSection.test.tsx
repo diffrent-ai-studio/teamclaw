@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeTopSkills } from '../LeaderboardSection'
+import { computeTopSkills, resolveLeaderboardMemberName } from '../LeaderboardSection'
 import type { TeamLeaderboard } from '../LeaderboardSection'
 
 describe('computeTopSkills', () => {
@@ -66,5 +66,16 @@ describe('computeTopSkills', () => {
     }))
     const top = computeTopSkills({ members }, 10)
     expect(top).toHaveLength(10)
+  })
+})
+
+describe('resolveLeaderboardMemberName', () => {
+  it('prefers the team member display name over stale leaderboard memberName', () => {
+    expect(
+      resolveLeaderboardMemberName(
+        { memberId: 'node-1', memberName: 'alice-macbook' },
+        [{ nodeId: 'node-1', name: 'Alice' }],
+      ),
+    ).toBe('Alice')
   })
 })

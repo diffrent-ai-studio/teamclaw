@@ -15,6 +15,7 @@ const mockSetDraftInput = vi.fn();
 const mockSetSelectedModel = vi.fn();
 const mockAnswerQuestion = vi.fn(() => Promise.resolve());
 const mockSkipQuestion = vi.fn(() => Promise.resolve());
+const mockGetAutoRestartOpencodeOnSkillsChange = vi.fn(async () => false);
 const workspaceState = {
   workspacePath: '/test',
   openCodeBootstrapped: true,
@@ -122,6 +123,15 @@ vi.mock('@/stores/suggestions', () => ({
 
 vi.mock('@/hooks/useAppInit', () => ({
   SKILLS_CHANGED_EVENT: 'skills-files-changed',
+}));
+
+vi.mock('@/lib/opencode/restart', () => ({
+  OPENCODE_RUNTIME_RELOADED_EVENT: 'opencode-runtime-reloaded',
+  requestOpenCodeRuntimeReload: vi.fn(async () => ({ status: 'restarted', url: 'http://localhost:4096' })),
+}));
+
+vi.mock('@/lib/opencode/runtime-settings', () => ({
+  getAutoRestartOpencodeOnSkillsChange: mockGetAutoRestartOpencodeOnSkillsChange,
 }));
 
 vi.mock('@/stores/shortcuts', () => ({
@@ -272,6 +282,7 @@ describe('ChatPanel submission flow', () => {
     mockSessionState.pendingPermissions = [];
     mockSessionState.pendingQuestions = [];
     mockSessionState.todos = [];
+    mockGetAutoRestartOpencodeOnSkillsChange.mockResolvedValue(false);
     mockSkipQuestion.mockClear();
     mockSessionState.sessions = [
       {
@@ -408,6 +419,122 @@ describe('ChatPanel submission flow', () => {
       render(React.createElement(ChatPanel));
 
       expect(screen.queryByText('Connecting...')).toBeNull();
+    });
+  });
+
+  describe('skills runtime restart prompt', () => {
+    it('auto-restarts without showing the prompt when the global setting is enabled', async () => {
+      mockGetAutoRestartOpencodeOnSkillsChange.mockResolvedValue(true);
+      const { requestOpenCodeRuntimeReload } = await import('@/lib/opencode/restart');
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('skills-files-changed'));
+      });
+
+      await waitFor(() => {
+        expect(requestOpenCodeRuntimeReload).toHaveBeenCalledWith('/test', 'skills-file-change', {
+          mode: 'defer-if-busy',
+        });
+      });
+      expect(screen.queryByText('Detected new skills')).toBeNull();
+    });
+
+    it('keeps the prompt visible when auto-restart is deferred because the runtime is busy', async () => {
+      mockGetAutoRestartOpencodeOnSkillsChange.mockResolvedValue(true);
+      const { requestOpenCodeRuntimeReload } = await import('@/lib/opencode/restart');
+      vi.mocked(requestOpenCodeRuntimeReload).mockResolvedValueOnce({
+        status: 'deferred',
+        workspacePath: '/test',
+        reason: 'skills-file-change',
+      });
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('skills-files-changed'));
+      });
+
+      await waitFor(() => {
+        expect(requestOpenCodeRuntimeReload).toHaveBeenCalledWith('/test', 'skills-file-change', {
+          mode: 'defer-if-busy',
+        });
+      });
+      expect(await screen.findByText('Detected new skills')).toBeTruthy();
+    });
+
+    it('keeps the prompt visible when a manual restart is deferred', async () => {
+      const { requestOpenCodeRuntimeReload } = await import('@/lib/opencode/restart');
+      vi.mocked(requestOpenCodeRuntimeReload).mockResolvedValueOnce({
+        status: 'deferred',
+        workspacePath: '/test',
+        reason: 'manual',
+      });
+
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('skills-files-changed'));
+      });
+
+      expect(await screen.findByText('Detected new skills')).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /restart/i }));
+      });
+
+      expect(requestOpenCodeRuntimeReload).toHaveBeenCalledWith('/test', 'manual', {
+        mode: 'defer-if-busy',
+      });
+      expect(screen.getByText('Detected new skills')).toBeTruthy();
+    });
+
+    it('clears the prompt when the OpenCode reload event matches the workspace and skills reason', async () => {
+      const { ChatPanel } = await import('../ChatPanel');
+      render(React.createElement(ChatPanel));
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('skills-files-changed'));
+      });
+
+      expect(await screen.findByText('Detected new skills')).toBeTruthy();
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('opencode-runtime-reloaded', {
+          detail: {
+            workspacePath: '/test',
+            reason: 'skills-file-change',
+            url: 'http://localhost:4096',
+          },
+        }));
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByText('Detected new skills')).toBeNull();
+      });
+    });
+
+    it('does not show a prompt from another workspace after switching workspaces', async () => {
+      workspaceState.workspacePath = '/workspace/project';
+      const { ChatPanel } = await import('../ChatPanel');
+      const { rerender } = render(React.createElement(ChatPanel));
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('skills-files-changed'));
+      });
+
+      expect(await screen.findByText('Detected new skills')).toBeTruthy();
+
+      workspaceState.workspacePath = '/workspace/other';
+      rerender(React.createElement(ChatPanel));
+
+      await waitFor(() => {
+        expect(screen.queryByText('Detected new skills')).toBeNull();
+      });
     });
   });
 

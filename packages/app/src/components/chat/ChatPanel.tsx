@@ -15,6 +15,12 @@ import { useSuggestionsStore } from "@/stores/suggestions";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
 import { ensureRoleSkillPlugin } from "../../lib/opencode/role-plugin-installer";
+import {
+  OPENCODE_RUNTIME_RELOADED_EVENT,
+  requestOpenCodeRuntimeReload,
+  type OpenCodeRuntimeReloadEventDetail,
+} from "@/lib/opencode/restart";
+import { getAutoRestartOpencodeOnSkillsChange } from "@/lib/opencode/runtime-settings";
 import { resolveSessionActivityOwner } from "@/lib/session-list-activity";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { SendMessageFilePart } from "@/lib/opencode/sdk-types";
@@ -236,9 +242,11 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const [attachedFiles, setAttachedFiles] = React.useState<string[]>([]);
   const [imageFiles, setImageFiles] = React.useState<File[]>([]);
   const [hasSkillRestartPrompt, setHasSkillRestartPrompt] = React.useState(false);
+  const [skillRestartPromptWorkspacePath, setSkillRestartPromptWorkspacePath] = React.useState<string | null>(null);
   const [isRestartingSkillsRuntime, setIsRestartingSkillsRuntime] = React.useState(false);
   const [isRestoringArchived, setIsRestoringArchived] = React.useState(false);
   const isRestoringArchivedRef = React.useRef(false);
+  const skillsRuntimeChangeRequestRef = React.useRef(0);
 
   const isImagePath = React.useCallback((path: string) => {
     return /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(path);
@@ -422,11 +430,99 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     };
   }, [openCodeReady, workspacePath]);
 
+  const showSkillRestartPrompt =
+    hasSkillRestartPrompt && skillRestartPromptWorkspacePath === workspacePath;
+
   React.useEffect(() => {
-    const onSkillsChanged = () => setHasSkillRestartPrompt(true);
+    let cancelled = false;
+    const onSkillsChanged = () => {
+      if (!workspacePath) return;
+      const changedWorkspacePath = workspacePath;
+      const requestId = skillsRuntimeChangeRequestRef.current + 1;
+      skillsRuntimeChangeRequestRef.current = requestId;
+
+      const showManualPrompt = () => {
+        if (cancelled) return;
+        setSkillRestartPromptWorkspacePath(changedWorkspacePath);
+        setHasSkillRestartPrompt(true);
+      };
+
+      void (async () => {
+        try {
+          const autoRestartEnabled = await getAutoRestartOpencodeOnSkillsChange();
+          if (cancelled || skillsRuntimeChangeRequestRef.current !== requestId) return;
+
+          if (!autoRestartEnabled) {
+            console.info("[SkillsAutoRestart] chat prompt shown because auto restart is disabled", {
+              workspacePath: changedWorkspacePath,
+              reason: "skills-file-change",
+            });
+            showManualPrompt();
+            return;
+          }
+
+          console.info("[SkillsAutoRestart] chat panel requesting OpenCode reload", {
+            workspacePath: changedWorkspacePath,
+            reason: "skills-file-change",
+          });
+          setIsRestartingSkillsRuntime(true);
+          const result = await requestOpenCodeRuntimeReload(changedWorkspacePath, "skills-file-change", {
+            mode: "defer-if-busy",
+          });
+          if (cancelled || skillsRuntimeChangeRequestRef.current !== requestId) return;
+
+          if (result.status === "deferred") {
+            console.info("[SkillsAutoRestart] chat panel reload deferred", {
+              workspacePath: result.workspacePath,
+              reason: result.reason,
+            });
+            showManualPrompt();
+            return;
+          }
+
+          setHasSkillRestartPrompt(false);
+          setSkillRestartPromptWorkspacePath(null);
+        } catch (error) {
+          console.error("[ChatPanel] Failed to auto-restart OpenCode for skills:", error);
+          showManualPrompt();
+        } finally {
+          if (!cancelled && skillsRuntimeChangeRequestRef.current === requestId) {
+            setIsRestartingSkillsRuntime(false);
+          }
+        }
+      })();
+    };
+    const onOpenCodeRuntimeReloaded = (event: Event) => {
+      const detail = (event as CustomEvent<OpenCodeRuntimeReloadEventDetail>).detail;
+      if (
+        !detail ||
+        (
+          detail.workspacePath !== skillRestartPromptWorkspacePath &&
+          detail.workspacePath !== workspacePath
+        )
+      ) {
+        return;
+      }
+      if (
+        detail.reason !== 'skills-file-change' &&
+        detail.reason !== 'skills-permission-change' &&
+        detail.reason !== 'team-skills-sync' &&
+        detail.reason !== 'manual'
+      ) {
+        return;
+      }
+      setHasSkillRestartPrompt(false);
+      setSkillRestartPromptWorkspacePath(null);
+      setIsRestartingSkillsRuntime(false);
+    };
     window.addEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged);
-    return () => window.removeEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged);
-  }, []);
+    window.addEventListener(OPENCODE_RUNTIME_RELOADED_EVENT, onOpenCodeRuntimeReloaded);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(SKILLS_CHANGED_EVENT, onSkillsChanged);
+      window.removeEventListener(OPENCODE_RUNTIME_RELOADED_EVENT, onOpenCodeRuntimeReloaded);
+    };
+  }, [skillRestartPromptWorkspacePath, workspacePath]);
 
   // ── Team shortcuts hot reload via file watcher ─────────────────────────
   React.useEffect(() => {
@@ -744,9 +840,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     if (!workspacePath) return;
     setIsRestartingSkillsRuntime(true);
     try {
-      const { restartOpencode } = await import("@/lib/opencode/restart");
-      await restartOpencode(workspacePath);
-      setHasSkillRestartPrompt(false);
+      const result = await requestOpenCodeRuntimeReload(workspacePath, 'manual', {
+        mode: 'defer-if-busy',
+      });
+      if (result.status === 'deferred') return;
     } catch (error) {
       console.error("[ChatPanel] Failed to restart OpenCode for skills:", error);
       setOpenCodeBootstrapped(false);
@@ -845,7 +942,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         compact ? "h-full w-full relative" : "absolute inset-0",
       )}
     >
-      {hasSkillRestartPrompt && (
+      {showSkillRestartPrompt && (
         <div className="absolute top-2 left-1/2 z-20 flex w-[min(92vw,640px)] -translate-x-1/2 items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 shadow-sm">
           <AlertCircle className="h-4 w-4 shrink-0 text-sky-600" />
           <div className="min-w-0 flex-1">
@@ -874,7 +971,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           </Button>
           <button
             type="button"
-            onClick={() => setHasSkillRestartPrompt(false)}
+            onClick={() => {
+              setHasSkillRestartPrompt(false);
+              setSkillRestartPromptWorkspacePath(null);
+            }}
             className="rounded p-1 text-sky-700 hover:bg-sky-100"
             aria-label={t("common.close", "Close")}
           >

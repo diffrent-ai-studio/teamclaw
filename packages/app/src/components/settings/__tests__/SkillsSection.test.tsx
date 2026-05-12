@@ -1,14 +1,36 @@
 import * as React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 const t = (k: string, d?: string) => d ?? k
 
-const { workspaceState, mockLoadAllSkills, mockInvoke } = vi.hoisted(() => ({
+const { workspaceState, mockLoadAllSkills, mockInvoke, mockWriteTextFile, mockRemove, mockOpenDialog } = vi.hoisted(() => ({
   workspaceState: { workspacePath: null as string | null },
   mockLoadAllSkills: vi.fn(async () => ({ skills: [], overrides: [] })),
   mockInvoke: vi.fn(),
+  mockWriteTextFile: vi.fn(async () => undefined),
+  mockRemove: vi.fn(async () => undefined),
+  mockOpenDialog: vi.fn(async () => '/tmp/example-skill.zip'),
 }))
+const {
+  autoRestartState,
+  mockGetAutoRestartOpencodeOnSkillsChange,
+  mockSetAutoRestartOpencodeOnSkillsChange,
+  mockRestartOpencode,
+  mockRequestOpenCodeRuntimeReload,
+} = vi.hoisted(() => {
+  const autoRestartState = { enabled: false }
+  return {
+    autoRestartState,
+    mockGetAutoRestartOpencodeOnSkillsChange: vi.fn(async () => autoRestartState.enabled),
+    mockSetAutoRestartOpencodeOnSkillsChange: vi.fn(async (enabled: boolean) => {
+      autoRestartState.enabled = enabled
+      return enabled
+    }),
+    mockRestartOpencode: vi.fn(async () => ({ url: 'http://localhost:4096' })),
+    mockRequestOpenCodeRuntimeReload: vi.fn(async () => ({ status: 'restarted', url: 'http://localhost:4096' })),
+  }
+})
 const { mockLoadRolesSkillsWorkspaceState } = vi.hoisted(() => ({
   mockLoadRolesSkillsWorkspaceState: vi.fn(async () => ({
     roles: [],
@@ -22,6 +44,10 @@ const { mockLoadRolesSkillsWorkspaceState } = vi.hoisted(() => ({
       unlinkedSkillsCount: 0,
     },
   })),
+}))
+const { mockWriteSkillPermission, mockRemoveSkillPermission } = vi.hoisted(() => ({
+  mockWriteSkillPermission: vi.fn(async () => undefined),
+  mockRemoveSkillPermission: vi.fn(async () => undefined),
 }))
 
 vi.mock('react-i18next', () => ({
@@ -38,11 +64,19 @@ vi.mock('@/lib/utils', () => ({ cn: (...a: string[]) => a.join(' '), isTauri: ()
 vi.mock('@tauri-apps/plugin-fs', () => ({
   exists: vi.fn(async () => true),
   mkdir: vi.fn(async () => undefined),
+  writeTextFile: mockWriteTextFile,
+  remove: mockRemove,
+}))
+vi.mock('@tauri-apps/api/path', () => ({
+  homeDir: vi.fn(async () => '/home/tester'),
+}))
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  open: mockOpenDialog,
 }))
 vi.mock('@/lib/opencode/config', () => ({
   readSkillPermissions: vi.fn(async () => ({})),
-  writeSkillPermission: vi.fn(),
-  removeSkillPermission: vi.fn(),
+  writeSkillPermission: mockWriteSkillPermission,
+  removeSkillPermission: mockRemoveSkillPermission,
   resolveSkillPermission: vi.fn(() => ({ permission: 'allow', isExact: false })),
 }))
 vi.mock('@/lib/git/skill-loader', () => ({
@@ -54,12 +88,41 @@ vi.mock('@/lib/roles/loader', () => ({
 vi.mock('@/lib/git/types', () => ({
   INHERENT_SKILL_NAMES: new Set(),
 }))
+vi.mock('@/lib/opencode/runtime-settings', () => ({
+  getAutoRestartOpencodeOnSkillsChange: mockGetAutoRestartOpencodeOnSkillsChange,
+  setAutoRestartOpencodeOnSkillsChange: mockSetAutoRestartOpencodeOnSkillsChange,
+}))
+vi.mock('@/lib/opencode/restart', () => ({
+  OPENCODE_RUNTIME_RELOAD_FAILED_EVENT: 'opencode-runtime-reload-failed',
+  OPENCODE_RUNTIME_RELOADED_EVENT: 'opencode-runtime-reloaded',
+  restartOpencode: mockRestartOpencode,
+  requestOpenCodeRuntimeReload: mockRequestOpenCodeRuntimeReload,
+}))
 vi.mock('../shared', () => ({
   SettingCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   SectionHeader: ({ title }: { title: string }) => <h2>{title}</h2>,
+  ToggleSwitch: ({
+    enabled,
+    onChange,
+    disabled,
+    ...buttonProps
+  }: {
+    enabled: boolean
+    onChange: (enabled: boolean) => void
+    disabled?: boolean
+  } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button
+      {...buttonProps}
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      disabled={disabled}
+      onClick={() => !disabled && onChange(!enabled)}
+    />
+  ),
 }))
 vi.mock('../SkillsMarketplace', () => ({
-  SkillsMarketplace: () => {
+  SkillsMarketplace: ({ onInstalled }: { onInstalled?: () => Promise<void> | void }) => {
     const [ready, setReady] = React.useState(false)
 
     React.useEffect(() => {
@@ -68,19 +131,45 @@ vi.mock('../SkillsMarketplace', () => ({
     }, [])
 
     return ready ? (
-      <div data-testid="marketplace-content">Marketplace content</div>
+      <div data-testid="marketplace-content">
+        Marketplace content
+        <button type="button" onClick={() => void onInstalled?.()}>Mock install skill</button>
+      </div>
     ) : (
       <div data-slot="skeleton">Marketplace loading</div>
     )
   },
 }))
 import { SkillsSection } from '../SkillsSection'
+import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
 
 describe('SkillsSection', () => {
   beforeEach(() => {
     workspaceState.workspacePath = null
+    autoRestartState.enabled = false
     mockLoadAllSkills.mockReset()
     mockLoadAllSkills.mockResolvedValue({ skills: [], overrides: [] })
+    mockWriteTextFile.mockReset()
+    mockWriteTextFile.mockResolvedValue(undefined)
+    mockRemove.mockReset()
+    mockRemove.mockResolvedValue(undefined)
+    mockOpenDialog.mockReset()
+    mockOpenDialog.mockResolvedValue('/tmp/example-skill.zip')
+    mockWriteSkillPermission.mockReset()
+    mockWriteSkillPermission.mockResolvedValue(undefined)
+    mockRemoveSkillPermission.mockReset()
+    mockRemoveSkillPermission.mockResolvedValue(undefined)
+    mockGetAutoRestartOpencodeOnSkillsChange.mockReset()
+    mockGetAutoRestartOpencodeOnSkillsChange.mockImplementation(async () => autoRestartState.enabled)
+    mockSetAutoRestartOpencodeOnSkillsChange.mockReset()
+    mockSetAutoRestartOpencodeOnSkillsChange.mockImplementation(async (enabled: boolean) => {
+      autoRestartState.enabled = enabled
+      return enabled
+    })
+    mockRestartOpencode.mockReset()
+    mockRestartOpencode.mockResolvedValue({ url: 'http://localhost:4096' })
+    mockRequestOpenCodeRuntimeReload.mockReset()
+    mockRequestOpenCodeRuntimeReload.mockResolvedValue({ status: 'restarted', url: 'http://localhost:4096' })
     mockLoadRolesSkillsWorkspaceState.mockReset()
     mockLoadRolesSkillsWorkspaceState.mockResolvedValue({
       roles: [],
@@ -181,6 +270,460 @@ describe('SkillsSection', () => {
   it('shows workspace selection prompt when no workspace', () => {
     render(<SkillsSection />)
     expect(screen.getByText('Please select a workspace directory first')).toBeTruthy()
+  })
+
+  it('renders the auto-restart toggle off by default in standalone mode', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+
+    render(<SkillsSection />)
+
+    const label = await screen.findByText('Auto restart after Skills changes')
+    const toggle = screen.getByRole('switch', { name: 'Auto restart after Skills changes' })
+
+    expect(label).toBeTruthy()
+    expect(screen.getByText('Automatically restart OpenCode after skills are installed, edited, deleted, or synced. Disabled by default.')).toBeTruthy()
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('persists enabling the auto-restart toggle', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(mockSetAutoRestartOpencodeOnSkillsChange).toHaveBeenCalledWith(true)
+    })
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('shows the manual restart prompt on Skills changes when auto-restart is off', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.hasAttribute('disabled')).toBe(false)
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('skills-files-changed'))
+    })
+
+    expect(await screen.findByText('Detected Skill Changes')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Restart' })).toBeTruthy()
+    expect(mockRequestOpenCodeRuntimeReload).not.toHaveBeenCalled()
+  })
+
+  it('shows the manual restart prompt on team sync when auto-restart is off', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.hasAttribute('disabled')).toBe(false)
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(TEAM_SYNCED_EVENT))
+    })
+
+    expect(await screen.findByText('Detected Skill Changes')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Restart' })).toBeTruthy()
+    expect(mockRequestOpenCodeRuntimeReload).not.toHaveBeenCalled()
+  })
+
+  it('auto-restarts on Skills changes when enabled and hides the prompt on success', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('skills-files-changed'))
+    })
+
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+    })
+  })
+
+  it('auto-restarts after team sync when enabled', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(TEAM_SYNCED_EVENT))
+    })
+
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'team-skills-sync', { mode: 'defer-if-busy' })
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+    })
+  })
+
+  it('auto-restarts after creating a skill when enabled', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Skill' }))
+    fireEvent.change(await screen.findByPlaceholderText('e.g., Git Workflow Guide'), {
+      target: { value: 'Direct Save Skill' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Skill' }))
+
+    await waitFor(() => {
+      expect(mockWriteTextFile).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
+    })
+    expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+  })
+
+  it('auto-restarts after marketplace install when enabled', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Marketplace' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Mock install skill' }))
+
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
+    })
+    expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+  })
+
+  it('auto-restarts after embedded marketplace install when the global setting is enabled', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+
+    render(<SkillsSection embeddedConsole />)
+
+    expect(screen.queryByText('Auto restart after Skills changes')).toBeNull()
+    await waitFor(() => {
+      expect(mockGetAutoRestartOpencodeOnSkillsChange).toHaveBeenCalled()
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Marketplace' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Mock install skill' }))
+
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
+    })
+    expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+  })
+
+  it('auto-restarts when Skills change arrives before enabled setting finishes loading', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    let resolveSetting!: (enabled: boolean) => void
+    mockGetAutoRestartOpencodeOnSkillsChange.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveSetting = resolve
+      }),
+    )
+
+    render(<SkillsSection />)
+
+    await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('skills-files-changed'))
+    })
+
+    expect(await screen.findByText('Detected Skill Changes')).toBeTruthy()
+    expect(mockRequestOpenCodeRuntimeReload).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveSetting(true)
+    })
+
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+    })
+  })
+
+  it('keeps the manual restart prompt and shows an error when auto-restart fails', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+    mockRequestOpenCodeRuntimeReload.mockRejectedValueOnce(new Error('reload failed'))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    try {
+      render(<SkillsSection />)
+
+      const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+      await waitFor(() => {
+        expect(toggle.getAttribute('aria-checked')).toBe('true')
+      })
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('skills-files-changed'))
+      })
+
+      await waitFor(() => {
+        expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
+      })
+
+      expect(consoleError).toHaveBeenCalled()
+      expect(await screen.findByText('Detected Skill Changes')).toBeTruthy()
+      expect(screen.getByText('Error: reload failed')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Restart' })).toBeTruthy()
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('keeps the prompt with pending text when auto-restart is deferred', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+    mockRequestOpenCodeRuntimeReload.mockResolvedValueOnce({
+      status: 'deferred',
+      workspacePath: '/workspace/project',
+      reason: 'skills-file-change',
+    })
+
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('skills-files-changed'))
+    })
+
+    expect(await screen.findByText('Detected Skill Changes')).toBeTruthy()
+    expect(screen.getByText('OpenCode will restart after the current task finishes.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Restart' })).toHaveProperty('disabled', true)
+  })
+
+  it('clears the prompt when a deferred skills restart completes', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    autoRestartState.enabled = true
+    mockRequestOpenCodeRuntimeReload.mockResolvedValueOnce({
+      status: 'deferred',
+      workspacePath: '/workspace/project',
+      reason: 'skills-file-change',
+    })
+
+    render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('skills-files-changed'))
+    })
+
+    expect(await screen.findByText('OpenCode will restart after the current task finishes.')).toBeTruthy()
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('opencode-runtime-reloaded', {
+        detail: {
+          workspacePath: '/workspace/project',
+          reason: 'skills-file-change',
+          url: 'http://localhost:4096',
+        },
+      }))
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+    })
+  })
+
+  it('does not clear permission-change prompt when a skills file reload completes', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+
+    render(<SkillsSection />)
+
+    await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
+
+    await waitFor(() => {
+      expect(mockWriteSkillPermission).toHaveBeenCalledWith('/workspace/project', '*', 'ask')
+    })
+    expect(await screen.findByText('Skill Permission Changed')).toBeTruthy()
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('opencode-runtime-reloaded', {
+        detail: {
+          workspacePath: '/workspace/project',
+          reason: 'skills-file-change',
+          url: 'http://localhost:4096',
+        },
+      }))
+    })
+
+    expect(screen.getByText('Skill Permission Changed')).toBeTruthy()
+  })
+
+  it('shows pending restart state after a deferred ZIP import restart', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    mockRequestOpenCodeRuntimeReload.mockResolvedValueOnce({
+      status: 'deferred',
+      workspacePath: '/workspace/project',
+      reason: 'skills-file-change',
+    })
+
+    render(<SkillsSection />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Skill' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Import Skill from ZIP' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose ZIP…' }))
+
+    expect(await screen.findByText('example-skill.zip')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('import_skill_from_zip', {
+        workspacePath: '/workspace/project',
+        zipPath: '/tmp/example-skill.zip',
+        isGlobal: false,
+      })
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Import Skill from ZIP')).toBeNull()
+    })
+    expect(await screen.findByText('Detected Skill Changes')).toBeTruthy()
+    expect(screen.getByText('OpenCode will restart after the current task finishes.')).toBeTruthy()
+  })
+
+  it('shows restart error after successful ZIP import when reload request fails', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+    mockRequestOpenCodeRuntimeReload.mockRejectedValueOnce(new Error('restart failed'))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    try {
+      render(<SkillsSection />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Add Skill' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Import Skill from ZIP' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Choose ZIP…' }))
+
+      expect(await screen.findByText('example-skill.zip')).toBeTruthy()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('import_skill_from_zip', {
+          workspacePath: '/workspace/project',
+          zipPath: '/tmp/example-skill.zip',
+          isGlobal: false,
+        })
+      })
+      await waitFor(() => {
+        expect(screen.queryByText('Import Skill from ZIP')).toBeNull()
+      })
+      expect(await screen.findByText('Detected Skill Changes')).toBeTruthy()
+      expect(screen.getByText('Error: restart failed')).toBeTruthy()
+      expect(screen.queryByText('Failed to import skill')).toBeNull()
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('keeps permission-change prompt after an immediate ZIP import skills restart', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+
+    render(<SkillsSection />)
+
+    await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
+
+    await waitFor(() => {
+      expect(mockWriteSkillPermission).toHaveBeenCalledWith('/workspace/project', '*', 'ask')
+    })
+    expect(await screen.findByText('Skill Permission Changed')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Skill' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Import Skill from ZIP' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose ZIP…' }))
+
+    expect(await screen.findByText('example-skill.zip')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+
+    await waitFor(() => {
+      expect(mockRequestOpenCodeRuntimeReload).toHaveBeenCalledWith('/workspace/project', 'skills-file-change', { mode: 'defer-if-busy' })
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Import Skill from ZIP')).toBeNull()
+    })
+    expect(screen.getByText('Skill Permission Changed')).toBeTruthy()
+  })
+
+  it('does not show a deferred restart prompt for a different workspace', async () => {
+    workspaceState.workspacePath = '/workspace/project-a'
+    autoRestartState.enabled = true
+    mockRequestOpenCodeRuntimeReload.mockResolvedValueOnce({
+      status: 'deferred',
+      workspacePath: '/workspace/project-a',
+      reason: 'skills-file-change',
+    })
+
+    const { rerender } = render(<SkillsSection />)
+
+    const toggle = await screen.findByRole('switch', { name: 'Auto restart after Skills changes' })
+    await waitFor(() => {
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('skills-files-changed'))
+    })
+
+    expect(await screen.findByText('OpenCode will restart after the current task finishes.')).toBeTruthy()
+
+    workspaceState.workspacePath = '/workspace/project-b'
+    rerender(<SkillsSection onDataChange={() => undefined} />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Detected Skill Changes')).toBeNull()
+    })
+    expect(screen.queryByText('OpenCode will restart after the current task finishes.')).toBeNull()
   })
 
   it('opens the create skill flow from Add Skill', async () => {

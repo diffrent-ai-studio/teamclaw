@@ -103,6 +103,10 @@ import { WebViewToolbar } from "@/components/tab-bar/WebViewToolbar";
 import { FindInPageBar } from "@/components/tab-bar/FindInPageBar";
 import { urlToLabel } from "@/lib/webview-utils";
 import { create } from "zustand";
+import {
+  insertAgentRuntimeEvent,
+  loadAgentRuntimeEvents,
+} from "@/lib/agent-runtime-event";
 import { initOpenCodeClient } from "@/lib/opencode/sdk-client";
 import {
   startOpenCode,
@@ -778,6 +782,34 @@ function AppContent() {
             } else {
               useSessionStore.getState().appendMessage(sid, decoded.message);
             }
+            // Cache non-canonical kinds locally so they survive session reload.
+            const m = decoded.message;
+            if (
+              m.kind === MessageKind.AGENT_TOOL_CALL ||
+              m.kind === MessageKind.AGENT_TOOL_RESULT ||
+              m.kind === MessageKind.AGENT_THINKING
+            ) {
+              const kindStr =
+                m.kind === MessageKind.AGENT_TOOL_CALL
+                  ? "agent_tool_call"
+                  : m.kind === MessageKind.AGENT_TOOL_RESULT
+                    ? "agent_tool_result"
+                    : "agent_thinking";
+              insertAgentRuntimeEvent({
+                id: m.messageId,
+                sessionId: m.sessionId,
+                // TODO(daemon-turn-id): read m.turnId once daemon ships the proto field
+                turnId: null,
+                senderActorId: m.senderActorId || null,
+                kind: kindStr,
+                content: m.content,
+                metadataJson: null,
+                model: m.model || null,
+                createdAt: new Date(Number(m.createdAt) * 1000).toISOString(),
+              }).catch((e) => {
+                console.warn("[agent-events] insert failed:", e);
+              });
+            }
             return;
           }
 
@@ -940,14 +972,17 @@ function AppContent() {
     if (!currentSessionId) return;
     let cancelled = false;
     void (async () => {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("id, session_id, sender_actor_id, kind, content, model, created_at")
-        .eq("session_id", currentSessionId)
-        .order("created_at", { ascending: true });
+      const [supabaseResult, cachedEvents] = await Promise.all([
+        supabase
+          .from("messages")
+          .select("id, session_id, sender_actor_id, kind, content, model, created_at")
+          .eq("session_id", currentSessionId)
+          .order("created_at", { ascending: true }),
+        loadAgentRuntimeEvents(currentSessionId),
+      ]);
       if (cancelled) return;
-      if (error) {
-        console.warn("[history] load failed:", error.message);
+      if (supabaseResult.error) {
+        console.warn("[history] load failed:", supabaseResult.error.message);
         return;
       }
       const kindMap: Record<string, MessageKind> = {
@@ -959,7 +994,7 @@ function AppContent() {
         agent_reply: MessageKind.AGENT_REPLY,
       };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const msgs = (data ?? []).map((r: any) =>
+      const supabaseMsgs = (supabaseResult.data ?? []).map((r: any) =>
         createMessage(MessageSchema, {
           messageId: r.id,
           sessionId: r.session_id,
@@ -970,7 +1005,27 @@ function AppContent() {
           createdAt: BigInt(Math.floor(new Date(r.created_at).getTime() / 1000)),
         }),
       );
-      useSessionStore.getState().setMessages(currentSessionId, msgs);
+      const cachedMsgs = cachedEvents.map((r) =>
+        createMessage(MessageSchema, {
+          messageId: r.id,
+          sessionId: r.sessionId,
+          senderActorId: r.senderActorId ?? "",
+          kind: kindMap[r.kind] ?? MessageKind.TEXT,
+          content: r.content,
+          model: r.model ?? "",
+          createdAt: BigInt(Math.floor(new Date(r.createdAt).getTime() / 1000)),
+        }),
+      );
+      // Merge by created_at ASC. Dedup by messageId (supabase rows take priority).
+      const seen = new Set<string>();
+      const merged = [...supabaseMsgs, ...cachedMsgs]
+        .filter((m) => {
+          if (seen.has(m.messageId)) return false;
+          seen.add(m.messageId);
+          return true;
+        })
+        .sort((a, b) => Number(a.createdAt - b.createdAt));
+      useSessionStore.getState().setMessages(currentSessionId, merged);
     })();
     return () => {
       cancelled = true;

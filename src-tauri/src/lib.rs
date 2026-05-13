@@ -37,6 +37,7 @@ use tauri::Manager;
 use tauri_plugin_aptabase::EventTracker;
 use tauri_plugin_global_shortcut::ShortcutState;
 
+mod agent_events;
 mod commands;
 pub mod mqtt;
 pub mod process_util;
@@ -287,6 +288,7 @@ pub fn run() {
         .manage(commands::gateway::GatewayState::default())
         .manage(commands::cron::CronState::default())
         .manage(rag_state)
+        .manage(agent_events::commands::AgentEventState::default())
         .manage(telemetry::commands::TelemetryState::default())
         .manage(telemetry::commands::IdentityState::default())
         .manage(teamclaw_stt::SttState::default())
@@ -549,6 +551,9 @@ pub fn run() {
             commands::local_stats::write_local_stats,
             commands::local_stats::update_local_stats,
             commands::local_stats::reset_local_stats,
+            agent_events::commands::agent_runtime_event_insert,
+            agent_events::commands::agent_runtime_event_load,
+            agent_events::commands::agent_runtime_event_prune,
             telemetry::commands::telemetry_get_consent,
             telemetry::commands::telemetry_set_consent,
             telemetry::commands::telemetry_set_feedback,

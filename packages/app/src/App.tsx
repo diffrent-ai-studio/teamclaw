@@ -106,7 +106,7 @@ import { create } from "zustand";
 import {
   insertAgentRuntimeEvent,
   loadAgentRuntimeEvents,
-} from "@/lib/agent-runtime-event";
+} from "@/lib/local-cache";
 import { initOpenCodeClient } from "@/lib/opencode/sdk-client";
 import {
   startOpenCode,

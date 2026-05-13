@@ -37,7 +37,7 @@ use tauri::Manager;
 use tauri_plugin_aptabase::EventTracker;
 use tauri_plugin_global_shortcut::ShortcutState;
 
-mod agent_events;
+mod local_cache;
 mod commands;
 pub mod mqtt;
 pub mod process_util;
@@ -288,7 +288,7 @@ pub fn run() {
         .manage(commands::gateway::GatewayState::default())
         .manage(commands::cron::CronState::default())
         .manage(rag_state)
-        .manage(agent_events::commands::AgentEventState::default())
+        .manage(local_cache::commands::LocalCacheState::default())
         .manage(telemetry::commands::TelemetryState::default())
         .manage(telemetry::commands::IdentityState::default())
         .manage(teamclaw_stt::SttState::default())
@@ -551,9 +551,33 @@ pub fn run() {
             commands::local_stats::write_local_stats,
             commands::local_stats::update_local_stats,
             commands::local_stats::reset_local_stats,
-            agent_events::commands::agent_runtime_event_insert,
-            agent_events::commands::agent_runtime_event_load,
-            agent_events::commands::agent_runtime_event_prune,
+            local_cache::commands::local_cache_actor_upsert_batch,
+            local_cache::commands::local_cache_actor_load_team,
+            local_cache::commands::local_cache_actor_soft_delete,
+            local_cache::commands::local_cache_session_upsert_batch,
+            local_cache::commands::local_cache_session_load_team,
+            local_cache::commands::local_cache_session_soft_delete,
+            local_cache::commands::local_cache_session_participant_upsert_batch,
+            local_cache::commands::local_cache_session_participant_load_session,
+            local_cache::commands::local_cache_session_participant_soft_delete,
+            local_cache::commands::local_cache_message_upsert_batch,
+            local_cache::commands::local_cache_message_load_session,
+            local_cache::commands::local_cache_message_soft_delete,
+            local_cache::commands::local_cache_idea_upsert_batch,
+            local_cache::commands::local_cache_idea_load_team,
+            local_cache::commands::local_cache_idea_soft_delete,
+            local_cache::commands::local_cache_claim_upsert_batch,
+            local_cache::commands::local_cache_claim_load_idea,
+            local_cache::commands::local_cache_claim_soft_delete,
+            local_cache::commands::local_cache_submission_upsert_batch,
+            local_cache::commands::local_cache_submission_load_idea,
+            local_cache::commands::local_cache_submission_soft_delete,
+            local_cache::commands::local_cache_agent_runtime_event_insert,
+            local_cache::commands::local_cache_agent_runtime_event_load,
+            local_cache::commands::local_cache_agent_runtime_event_prune,
+            local_cache::commands::local_cache_watermark_get,
+            local_cache::commands::local_cache_watermark_set,
+            local_cache::commands::local_cache_clear_team,
             telemetry::commands::telemetry_get_consent,
             telemetry::commands::telemetry_set_consent,
             telemetry::commands::telemetry_set_feedback,

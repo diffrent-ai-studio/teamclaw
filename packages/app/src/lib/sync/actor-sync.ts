@@ -12,13 +12,14 @@ import { supabase } from "@/lib/supabase-client";
 import * as cache from "@/lib/local-cache";
 import { isTauri } from "@/lib/utils";
 
-// The Supabase row shape from actor_directory
+// The Supabase row shape from actor_directory.
+// NOTE: actor_directory has no avatar_url column — that lives on a separate
+// member/agent extension table not surfaced by the view.
 interface ActorDirectoryRow {
   id: string;
   team_id: string;
   actor_type: string;
   display_name: string;
-  avatar_url?: string | null;
   member_status?: string | null;
   agent_status?: string | null;
   created_at: string;
@@ -26,7 +27,7 @@ interface ActorDirectoryRow {
 }
 
 const COLUMNS =
-  "id, team_id, actor_type, display_name, avatar_url, member_status, agent_status, created_at, updated_at";
+  "id, team_id, actor_type, display_name, member_status, agent_status, created_at, updated_at";
 
 function mapRow(r: ActorDirectoryRow): cache.ActorRow {
   return {
@@ -34,7 +35,7 @@ function mapRow(r: ActorDirectoryRow): cache.ActorRow {
     teamId: r.team_id,
     actorType: r.actor_type,
     displayName: r.display_name,
-    avatarUrl: r.avatar_url ?? null,
+    avatarUrl: null,
     memberStatus: r.member_status ?? null,
     agentStatus: r.agent_status ?? null,
     metadataJson: null,

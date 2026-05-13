@@ -13,6 +13,8 @@ import { syncTableForSession } from "@/lib/cache-sync";
 import * as cache from "@/lib/local-cache";
 import { isTauri } from "@/lib/utils";
 
+// Supabase column on public.messages is `metadata` (jsonb), not `metadata_json`.
+// We stringify it into local libsql's metadata_json TEXT column.
 interface SupabaseMessageRow {
   id: string;
   team_id: string;
@@ -22,17 +24,22 @@ interface SupabaseMessageRow {
   reply_to_message_id?: string | null;
   kind: string;
   content: string;
-  metadata_json?: string | null;
+  metadata?: unknown | null;
   model?: string | null;
-  mentions_json?: string | null;
   created_at: string;
   updated_at: string;
 }
 
 const COLUMNS =
-  "id, team_id, session_id, turn_id, sender_actor_id, reply_to_message_id, kind, content, metadata_json, model, created_at, updated_at";
+  "id, team_id, session_id, turn_id, sender_actor_id, reply_to_message_id, kind, content, metadata, model, created_at, updated_at";
 
 function mapRow(r: SupabaseMessageRow): cache.MessageRow {
+  const metadataJson =
+    r.metadata == null
+      ? null
+      : typeof r.metadata === "string"
+        ? r.metadata
+        : JSON.stringify(r.metadata);
   return {
     id: r.id,
     teamId: r.team_id,
@@ -42,7 +49,7 @@ function mapRow(r: SupabaseMessageRow): cache.MessageRow {
     replyToMessageId: r.reply_to_message_id ?? null,
     kind: r.kind,
     content: r.content ?? "",
-    metadataJson: r.metadata_json ?? null,
+    metadataJson,
     model: r.model ?? null,
     mentionsJson: null,
     origin: "supabase",

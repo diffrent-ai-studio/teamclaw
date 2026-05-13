@@ -81,6 +81,11 @@ message Message {
   // payload, etc.). Empty for plain text/agent reply messages. Renderers
   // should be defensive — schema may evolve.
   string metadata_json = 10;
+  // Daemon-assigned correlation id stamped on every emit within one ACP
+  // turn (Idle→Active→…→Idle). Clients group consecutive same-turn_id
+  // AgentReply messages into one bubble. Empty for legacy/historical
+  // messages and for non-agent kinds — renderers fall back to message_id.
+  string turn_id = 11;
 }
 
 message Idea {

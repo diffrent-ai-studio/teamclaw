@@ -208,7 +208,10 @@ export function AgentSelectorDock({ engagedAgent, onEngageAgent }: AgentSelector
               <DropdownMenuItem
                 key={a.id}
                 onClick={() => onEngageAgent({ id: a.id, displayName: a.display_name })}
-                className={cn(engagedAgent?.id === a.id && 'bg-muted')}
+                className={cn(
+                  'text-xs py-1.5',
+                  engagedAgent?.id === a.id && 'bg-muted',
+                )}
               >
                 <span className="truncate">{a.display_name}</span>
               </DropdownMenuItem>
@@ -256,7 +259,10 @@ export function AgentSelectorDock({ engagedAgent, onEngageAgent }: AgentSelector
                 <DropdownMenuItem
                   key={m.id}
                   onClick={() => void handlePickModel(m.id)}
-                  className={cn(m.id === currentModel && 'bg-muted')}
+                  className={cn(
+                    'text-xs py-1.5',
+                    m.id === currentModel && 'bg-muted',
+                  )}
                 >
                   <span className="truncate">{m.displayName || m.id}</span>
                 </DropdownMenuItem>

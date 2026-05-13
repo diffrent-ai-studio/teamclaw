@@ -1,11 +1,10 @@
-import * as React from "react";
-import { AlertCircle, CheckCircle2, Circle, Clock3, Loader2, ShieldQuestion, Sparkles } from "lucide-react";
+import { AlertCircle, CheckCircle2, Circle, Clock3, ShieldQuestion } from "lucide-react";
 import type { AgentStreamEntry, StreamingTodoItem } from "@/stores/v2-streaming-store";
 import { cn } from "@/lib/utils";
 import { Message, MessageContent, MessageResponse } from "@/packages/ai/message";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolCallCard } from "./ToolCallCard";
-import { useActorDisplayName, useAgentModelByActor } from "@/hooks/useActorDisplayName";
+import { ActorLabel } from "./ActorLabel";
 
 function TodoStatusIcon({ status }: { status: StreamingTodoItem["status"] }) {
   const cls = "h-3.5 w-3.5 shrink-0";
@@ -69,8 +68,6 @@ function ErrorCard({ message, details }: { message: string; details: string }) {
 }
 
 export function StreamingAgentBubble({ entry }: { entry: AgentStreamEntry }) {
-  const displayName = useActorDisplayName(entry.actorId);
-  const currentModel = useAgentModelByActor(entry.actorId);
   const hasOutput = entry.outputText.length > 0;
   const hasThinking = entry.thinkingText.length > 0;
   const hasToolCalls = entry.toolCalls.length > 0;
@@ -80,20 +77,10 @@ export function StreamingAgentBubble({ entry }: { entry: AgentStreamEntry }) {
   const isStreaming = entry.active;
 
   return (
-    <Message from="assistant" className="px-4 py-3">
-      <div className="flex w-full items-start gap-2">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-          <Sparkles className="h-4 w-4" />
-        </div>
+    <div className="mb-1.5">
+      <ActorLabel senderActorId={entry.actorId} isUser={false} />
+      <Message from="assistant">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-sm font-medium">{displayName}</span>
-            {currentModel && (
-              <span className="text-[11px] text-muted-foreground/70">· {currentModel}</span>
-            )}
-            {isStreaming && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-          </div>
-
           {hasThinking && (
             <ThinkingBlock content={entry.thinkingText} isStreaming={isStreaming} />
           )}
@@ -124,7 +111,7 @@ export function StreamingAgentBubble({ entry }: { entry: AgentStreamEntry }) {
             <div className="text-sm text-muted-foreground italic">Working...</div>
           )}
         </div>
-      </div>
-    </Message>
+      </Message>
+    </div>
   );
 }

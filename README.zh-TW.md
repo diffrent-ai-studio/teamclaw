@@ -1,6 +1,6 @@
 # TeamClaw
 
-基於 OpenCode 打造的本地智慧體，你的 AI 搭檔
+本地智慧體，你的 AI 搭檔
 
 > **你的搭檔，並肩同行。**
 
@@ -14,7 +14,7 @@
 ## 功能特性
 
 - **三欄佈局** — 側邊欄、聊天區、詳情面板
-- **OpenCode 整合** — 完整的 Agent 能力支援
+- **本地 Agent 執行時** — 完整的 Agent 能力支援
 - **MCP 支援** — Model Context Protocol，連接企業系統
 - **Skills / 外掛擴充** — 可擴充的技能系統
 - **本地檔案操作** — 帶權限管理的檔案讀寫
@@ -39,7 +39,6 @@
 - **前端**：React 19 + TypeScript
 - **樣式**：Tailwind CSS 4
 - **狀態**：Zustand
-- **Agent**：OpenCode
 - **編輯器**：Tiptap (Markdown/HTML)、CodeMirror 6 (程式碼)
 - **Diff**：自訂 Diff 渲染器，Shiki 語法高亮
 
@@ -64,17 +63,6 @@ xattr -cr /Applications/TeamClaw.app
 - Node.js >= 20
 - pnpm >= 10
 - Rust >= 1.70
-- OpenCode CLI
-
-### 安裝 OpenCode CLI
-
-```bash
-# macOS / Linux
-curl -fsSL https://opencode.ai/install | bash
-
-# 或透過 npm 安裝
-npm install -g opencode
-```
 
 ### 快速開始
 
@@ -82,31 +70,11 @@ npm install -g opencode
 # 1. 安裝依賴
 pnpm install
 
-# 2. 下載 OpenCode sidecar 二進位檔（必需，不在 git 中）
-./src-tauri/binaries/download-opencode.sh
-
-# 3. 啟動 Tauri 開發模式
+# 2. 啟動 Tauri 開發模式
 pnpm tauri dev
 ```
 
 啟動後，在 TeamClaw 介面中選擇一個 Workspace 目錄即可。
-
-### 更新 OpenCode
-
-OpenCode 發版頻繁，可隨時以一條指令更新至最新版：
-
-```bash
-pnpm update-opencode
-```
-
-若已是最新版會自動略過。也可指定版本：`pnpm update-opencode -- v1.2.1`
-
-> **開發模式（可選）**：也可不下載 sidecar，改為單獨執行 OpenCode Server：
->
-> ```bash
-> cd /path/to/your/workspace && opencode serve --port 13141
-> OPENCODE_DEV_MODE=true pnpm tauri dev
-> ```
 
 ## 團隊協作
 

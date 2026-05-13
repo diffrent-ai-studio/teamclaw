@@ -1,16 +1,9 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Brain,
   Settings2,
-  MessageSquareText,
   MessageSquare,
-  Plug,
-  Sparkles,
-  UserRound,
   Users,
-  Package,
-  Clock,
   KeyRound,
   Coins,
   Shield,
@@ -50,7 +43,6 @@ const primarySections: Section[] = [
   { id: 'general', label: 'General', labelKey: 'settings.nav.general', icon: Settings2, color: 'text-blue-500' },
   { id: 'shortcuts', label: 'Shortcuts', labelKey: 'settings.nav.shortcuts', icon: Bookmark, color: 'text-amber-500' },
   { id: 'channels', label: 'Channels', labelKey: 'settings.nav.channels', icon: MessageSquare, color: 'text-indigo-500' },
-  { id: 'automation', label: 'Automation', labelKey: 'settings.nav.automation', icon: Clock, color: 'text-amber-500' },
   { id: 'team', label: 'Team', labelKey: 'settings.nav.team', icon: Users, color: 'text-violet-500' },
   { id: 'tokenUsage', label: 'Token Usage', labelKey: 'settings.nav.tokenUsage', icon: Coins, color: 'text-rose-500' },
 ]
@@ -58,15 +50,8 @@ const primarySections: Section[] = [
 // Advanced sections shown as tabs inside the Advanced view
 const advancedSections: Section[] = [
   { id: 'voice', label: 'Voice', labelKey: 'settings.nav.voice', icon: Mic, color: 'text-pink-500' },
-  { id: 'llm', label: 'LLM Model', labelKey: 'settings.nav.llm', icon: Brain, color: 'text-purple-500' },
-  { id: 'prompt', label: 'Prompt', labelKey: 'settings.nav.prompt', icon: MessageSquareText, color: 'text-green-500' },
-  { id: 'permissions', label: 'Permissions', labelKey: 'settings.nav.permissions', icon: Shield, color: 'text-emerald-500' },
-  { id: 'mcp', label: 'MCP', labelKey: 'settings.nav.mcp', icon: Plug, color: 'text-orange-500' },
   { id: 'envVars', label: 'Env Variables', labelKey: 'settings.nav.envVars', icon: KeyRound, color: 'text-emerald-500' },
-  { id: 'roles', label: 'Roles', labelKey: 'settings.nav.roles', icon: UserRound, color: 'text-sky-500' },
-  { id: 'skills', label: 'Skills', labelKey: 'settings.nav.skills', icon: Sparkles, color: 'text-yellow-500' },
   { id: 'knowledge', label: 'Knowledge Base', labelKey: 'settings.nav.knowledge', icon: BookOpen, color: 'text-cyan-500' },
-  { id: 'deps', label: 'Dependencies', labelKey: 'settings.nav.deps', icon: Package, color: 'text-teal-500' },
   { id: 'privacy', label: 'Privacy & Telemetry', labelKey: 'settings.nav.privacy', icon: Shield, color: 'text-slate-500' },
   { id: 'cache', label: 'Local Cache', labelKey: 'settings.nav.cache', icon: Database, color: 'text-teal-500' },
 ]

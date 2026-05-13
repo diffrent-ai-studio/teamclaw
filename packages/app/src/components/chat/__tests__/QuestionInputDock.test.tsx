@@ -60,7 +60,7 @@ describe('QuestionInputDock', () => {
               options: [{ label: 'No additional note', value: '' }],
             },
           ],
-          source: 'opencode',
+          source: 'agent',
         }}
       />,
     );
@@ -94,7 +94,7 @@ describe('QuestionInputDock', () => {
               options: [{ label: '继续测试', value: 'continue' }],
             },
           ],
-          source: 'opencode',
+          source: 'agent',
         }}
       />,
     );
@@ -122,7 +122,7 @@ describe('QuestionInputDock', () => {
               options: [{ label: 'adopt', value: 'adopt' }],
             },
           ],
-          source: 'opencode',
+          source: 'agent',
         }}
       />,
     );

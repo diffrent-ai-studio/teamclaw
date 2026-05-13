@@ -18,17 +18,14 @@ const uiStoreState = vi.hoisted(() => ({
   setFileModeRightTab: vi.fn(),
   spotlightMode: false,
   toggleLayoutMode: vi.fn(),
-  embeddedSettingsSection: null as string | null,
-  closeEmbeddedSettingsSection: vi.fn(),
-  openEmbeddedSettingsSection: vi.fn(),
   advancedMode: false,
   openSettings: vi.fn(),
 }))
 
 const workspaceStoreState = vi.hoisted(() => ({
   workspacePath: null as string | null,
-  openCodeBootstrapped: false,
-  openCodeReady: false,
+  workspaceBootstrapped: false,
+  workspaceReady: false,
   isPanelOpen: false,
   activeTab: 'shortcuts',
   openPanel: vi.fn(),
@@ -39,8 +36,6 @@ const workspaceStoreState = vi.hoisted(() => ({
   isLoadingFile: false,
   clearSelection: vi.fn(),
   selectFile: vi.fn(),
-  setOpenCodeBootstrapped: vi.fn(),
-  setOpenCodeReady: vi.fn(),
   isNewWorkspace: false,
   setIsNewWorkspace: vi.fn(),
 }))
@@ -82,11 +77,10 @@ vi.mock('@/lib/build-config', () => ({
     features: { advancedMode: true },
   },
 }))
-vi.mock('@/components/SSEProvider', () => ({ SSEProvider: () => null }))
 vi.mock('@/components/FileEditor', () => ({ FileContentViewer: () => <div data-testid="file-content-viewer" /> }))
 vi.mock('@/hooks/useTrafficLightSpacer', () => ({ useNeedsTrafficLightSpacer: () => false }))
 vi.mock('@/hooks/useAppInit', () => ({
-  useOpenCodeInit: () => ({ openCodeError: null, setOpenCodeError: vi.fn(), initialWorkspaceResolved: true }),
+  useWorkspaceInit: () => ({ initialWorkspaceResolved: true }),
   useChannelGatewayInit: vi.fn(),
   useGitReposInit: vi.fn(),
   useCronInit: vi.fn(),
@@ -96,7 +90,6 @@ vi.mock('@/hooks/useAppInit', () => ({
   useTauriBodyClass: vi.fn(),
   useSetupGuide: () => ({ showSetupGuide: false, dependencies: [], handleRecheck: vi.fn(), handleSetupContinue: vi.fn() }),
   useTelemetryConsent: () => ({ showConsentDialog: false, setShowConsentDialog: vi.fn() }),
-  useOpenCodePreload: vi.fn(),
   useLayoutModeShortcut: vi.fn(),
 }))
 vi.mock('@/hooks/useMCPFileWatcher', () => ({ useMCPFileWatcher: vi.fn() }))
@@ -186,11 +179,9 @@ vi.mock('@/components/tab-bar/TabContentRenderer', () => ({ TabContentRenderer: 
 vi.mock('@/components/tab-bar/WebViewToolbar', () => ({ WebViewToolbar: () => null }))
 vi.mock('@/components/tab-bar/FindInPageBar', () => ({ FindInPageBar: () => null }))
 vi.mock('@/lib/webview-utils', () => ({ urlToLabel: (u: string) => u }))
-vi.mock('@/lib/opencode/sdk-client', () => ({ initOpenCodeClient: vi.fn() }))
 vi.mock('@/stores/team-mode', () => ({
   useTeamModeStore: vi.fn((sel: (s: any) => any) => sel(teamModeState)),
 }))
-vi.mock('@/lib/opencode/preloader', () => ({ startOpenCode: vi.fn(), waitForOpenCodeBootstrapped: vi.fn(), clearPreload: vi.fn() }))
 vi.mock('@/components/ui/sidebar', () => ({
   SidebarInset: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   SidebarProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -219,7 +210,6 @@ describe('App', () => {
     uiStoreState.layoutMode = 'task'
     uiStoreState.mainContentLayout = 'stacked'
     uiStoreState.fileModeRightTab = 'agent'
-    uiStoreState.embeddedSettingsSection = null
     uiStoreState.spotlightMode = false
     workspaceStoreState.workspacePath = null
     workspaceStoreState.isPanelOpen = false
@@ -246,23 +236,24 @@ describe('App', () => {
     expect(document.body.textContent).toContain('workspace-prompt')
   })
 
-  it('keeps the sidebar open and shows the left dock for default layout knowledge panels', () => {
+  it('opens knowledge in the right panel (not the left dock) in default layout', () => {
     workspaceStoreState.workspacePath = '/workspace'
     workspaceStoreState.isPanelOpen = true
     workspaceStoreState.activeTab = 'knowledge'
 
     render(<App />)
 
-    expect(sidebarState.setOpen).not.toHaveBeenCalledWith(false)
-    expect(screen.getByTitle('Back to sidebar')).toBeTruthy()
+    // Knowledge no longer triggers the left dock — the "Back to sidebar"
+    // chrome only appears for shortcuts.
+    expect(screen.queryByTitle('Back to sidebar')).toBeNull()
   })
 
-  it('does not show the header Knowledge icon in default layout', () => {
+  it('shows a header Knowledge icon in default layout', () => {
     workspaceStoreState.workspacePath = '/workspace'
 
     const { container } = render(<App />)
 
-    expect(container.querySelector('.lucide-book-open')).toBeNull()
+    expect(container.querySelector('.lucide-book-open')).toBeTruthy()
   })
 
   it('does not show the DEV badge even when devUnlocked is true', () => {
@@ -271,24 +262,6 @@ describe('App', () => {
     render(<App />)
 
     expect(screen.queryByText('DEV')).toBeNull()
-  })
-
-  it('shows a main content layout toggle in the header', () => {
-    workspaceStoreState.workspacePath = '/workspace'
-
-    render(<App />)
-
-    expect(screen.getByTitle('Switch to split layout')).toBeTruthy()
-  })
-
-  it('does not show the main content layout toggle in workspace ui variant', () => {
-    workspaceStoreState.workspacePath = '/workspace'
-    uiVariantState.workspace = true
-
-    render(<App />)
-
-    expect(screen.queryByTitle('Switch to split layout')).toBeNull()
-    expect(screen.queryByTitle('Switch to stacked layout')).toBeNull()
   })
 
   it('only shows the hide files button in stacked layout', () => {
@@ -313,16 +286,6 @@ describe('App', () => {
     render(<App />)
 
     expect(screen.queryByText('Select a file or web tab')).toBeNull()
-  })
-
-  it('does not show the main content layout toggle in settings view', () => {
-    workspaceStoreState.workspacePath = '/workspace'
-    uiStoreState.currentView = 'settings'
-
-    render(<App />)
-
-    expect(screen.queryByTitle('Switch to split layout')).toBeNull()
-    expect(screen.queryByTitle('Switch to stacked layout')).toBeNull()
   })
 
   it('renders split main content with file area on the left and chat on the right', () => {

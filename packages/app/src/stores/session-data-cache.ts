@@ -1,4 +1,4 @@
-import type { Todo, FileDiff } from "@/lib/opencode/sdk-types";
+import type { Todo, FileDiff } from "./session-types";
 import type { PendingQuestionState, QueuedMessage } from "./session-types";
 
 // Pending questions cached per session

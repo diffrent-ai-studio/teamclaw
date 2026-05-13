@@ -187,7 +187,7 @@ export type SkillSource =
   | 'team' 
   | 'builtin'
   | 'plugin'
-  | 'global-opencode'
+  | 'global-teamclaw'
   | 'global-claude'
   | 'global-agent'
 
@@ -214,7 +214,7 @@ export function getActiveDesktopControlSkillSlug(): 'macos-control' | 'windows-c
   return null
 }
 
-/** Hide the non-native desktop control inherent skill in UI / merged lists (OpenCode dir is cleaned in Rust). */
+/** Hide the non-native desktop control inherent skill in UI / merged lists (legacy skill dir is cleaned in Rust). */
 export function shouldIncludeDesktopControlSkill(filename: string): boolean {
   if (!DESKTOP_CONTROL_INHERENT_SLUGS.has(filename)) return true
   const active = getActiveDesktopControlSkillSlug()

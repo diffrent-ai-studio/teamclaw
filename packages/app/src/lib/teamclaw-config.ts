@@ -1,9 +1,8 @@
 /**
- * Utility for reading/writing opencode.json provider configuration.
- * Used to add/remove custom OpenAI-compatible providers.
+ * Reader/writer for teamclaw.json — workspace-level config for custom LLM
+ * providers and skill permissions.
  */
 
-// Model configuration for custom provider
 export interface CustomModelConfig {
   modelId: string
   modelName?: string
@@ -17,7 +16,6 @@ export interface CustomModelConfig {
   }
 }
 
-// Shape of a custom provider entry in opencode.json
 export interface CustomProviderConfig {
   name: string
   baseURL: string
@@ -25,12 +23,11 @@ export interface CustomProviderConfig {
   models: CustomModelConfig[]
 }
 
-// Provider entry as stored in opencode.json
-interface OpenCodeProviderEntry {
+interface ProviderEntry {
   npm: string
   name?: string
   options?: { baseURL?: string; [key: string]: unknown }
-  models?: Record<string, { 
+  models?: Record<string, {
     name: string
     limit?: { context?: number; output?: number }
     modalities?: { input: string[]; output: string[] }
@@ -47,20 +44,15 @@ export interface ResolvedPermission {
   isExact: boolean
 }
 
-// The relevant subset of opencode.json we work with
-interface OpenCodeConfig {
+interface TeamclawConfig {
   [key: string]: unknown
-  provider?: Record<string, OpenCodeProviderEntry>
+  provider?: Record<string, ProviderEntry>
   permission?: {
     skill?: SkillPermissionMap
     [key: string]: unknown
   }
 }
 
-/**
- * Slugify a provider name into a valid ID.
- * e.g. "My Custom Provider" -> "my-custom-provider"
- */
 export function slugifyProviderId(name: string): string {
   return name
     .toLowerCase()
@@ -69,43 +61,33 @@ export function slugifyProviderId(name: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
-/**
- * Read and parse opencode.json from the workspace root.
- */
-async function readOpenCodeConfig(workspacePath: string): Promise<OpenCodeConfig> {
+async function readTeamclawConfig(workspacePath: string): Promise<TeamclawConfig> {
   const { readTextFile, exists } = await import('@tauri-apps/plugin-fs')
-  const configPath = `${workspacePath}/opencode.json`
+  const configPath = `${workspacePath}/teamclaw.json`
 
   if (!(await exists(configPath))) {
     return {}
   }
 
   const content = await readTextFile(configPath)
-  return JSON.parse(content) as OpenCodeConfig
+  return JSON.parse(content) as TeamclawConfig
 }
 
-/**
- * Write opencode.json back to the workspace root.
- */
-async function writeOpenCodeConfig(workspacePath: string, config: OpenCodeConfig): Promise<void> {
+async function writeTeamclawConfig(workspacePath: string, config: TeamclawConfig): Promise<void> {
   const { writeTextFile } = await import('@tauri-apps/plugin-fs')
-  const configPath = `${workspacePath}/opencode.json`
+  const configPath = `${workspacePath}/teamclaw.json`
   await writeTextFile(configPath, JSON.stringify(config, null, 2))
 }
 
-/**
- * Generate the keychain key name for a provider's API key.
- */
 export function providerApiKeyName(providerId: string): string {
   return `${providerId}_api_key`
 }
 
 /**
- * Add a custom OpenAI-compatible provider to opencode.json.
- * Returns the generated provider ID.
+ * Add a custom OpenAI-compatible provider. Returns the generated provider ID.
  *
  * NOTE: The actual API key value is NOT written here — only a `${ref}`
- * placeholder.  The caller must store the real value in the keychain
+ * placeholder. The caller must store the real value in the keychain
  * via `env_var_set` using the key name from `providerApiKeyName()`.
  */
 export async function addCustomProviderToConfig(
@@ -113,14 +95,12 @@ export async function addCustomProviderToConfig(
   config: CustomProviderConfig
 ): Promise<string> {
   const providerId = slugifyProviderId(config.name)
-  const openCodeConfig = await readOpenCodeConfig(workspacePath)
+  const teamclawConfig = await readTeamclawConfig(workspacePath)
 
-  // Ensure provider section exists
-  if (!openCodeConfig.provider) {
-    openCodeConfig.provider = {}
+  if (!teamclawConfig.provider) {
+    teamclawConfig.provider = {}
   }
 
-  // Build models object from the models array
   const modelsObj: Record<string, {
     name: string
     limit?: { context?: number; output?: number }
@@ -135,7 +115,6 @@ export async function addCustomProviderToConfig(
       name: model.modelName || model.modelId,
     }
 
-    // Add limit if any values are specified
     if (model.limit && (model.limit.context !== undefined || model.limit.output !== undefined)) {
       modelEntry.limit = {}
       if (model.limit.context !== undefined) {
@@ -146,7 +125,6 @@ export async function addCustomProviderToConfig(
       }
     }
 
-    // Add modalities if specified (no default)
     if (model.modalities) {
       modelEntry.modalities = model.modalities
     }
@@ -159,38 +137,33 @@ export async function addCustomProviderToConfig(
   }
   if (config.apiKey) {
     if (/^\$\{.+\}$/.test(config.apiKey) || /^\$.+/.test(config.apiKey)) {
-      // Already a ${ref} or $ref — write as-is
       providerOptions.apiKey = config.apiKey
     } else {
-      // Raw key value — write a placeholder, caller stores actual value in keychain
       const keyName = providerApiKeyName(providerId)
       providerOptions.apiKey = `\${${keyName}}`
     }
   }
 
-  openCodeConfig.provider[providerId] = {
+  teamclawConfig.provider[providerId] = {
     npm: '@ai-sdk/openai-compatible',
     name: config.name,
     options: providerOptions,
     models: modelsObj,
   }
 
-  await writeOpenCodeConfig(workspacePath, openCodeConfig)
+  await writeTeamclawConfig(workspacePath, teamclawConfig)
   return providerId
 }
 
-/**
- * Get a custom provider configuration from opencode.json.
- */
 export async function getCustomProviderConfig(
   workspacePath: string,
   providerId: string
 ): Promise<CustomProviderConfig | null> {
-  const openCodeConfig = await readOpenCodeConfig(workspacePath)
-  
-  const providerEntry = openCodeConfig.provider?.[providerId]
+  const teamclawConfig = await readTeamclawConfig(workspacePath)
+
+  const providerEntry = teamclawConfig.provider?.[providerId]
   if (!providerEntry) return null
-  
+
   const models: CustomModelConfig[] = []
   if (providerEntry.models) {
     for (const [modelId, modelData] of Object.entries(providerEntry.models)) {
@@ -202,7 +175,7 @@ export async function getCustomProviderConfig(
       })
     }
   }
-  
+
   return {
     name: providerEntry.name || providerId,
     baseURL: providerEntry.options?.baseURL || '',
@@ -210,37 +183,31 @@ export async function getCustomProviderConfig(
   }
 }
 
-/**
- * Update an existing custom provider in opencode.json.
- * Returns true if successful.
- */
 export async function updateCustomProviderConfig(
   workspacePath: string,
   providerId: string,
   config: CustomProviderConfig
 ): Promise<boolean> {
-  const openCodeConfig = await readOpenCodeConfig(workspacePath)
+  const teamclawConfig = await readTeamclawConfig(workspacePath)
 
-  if (!openCodeConfig.provider?.[providerId]) {
+  if (!teamclawConfig.provider?.[providerId]) {
     return false
   }
 
-  // Build models object from the models array
-  const modelsObj: Record<string, { 
+  const modelsObj: Record<string, {
     name: string
     limit?: { context?: number; output?: number }
     modalities?: { input: string[]; output: string[] }
   }> = {}
   for (const model of config.models) {
-    const modelEntry: { 
+    const modelEntry: {
       name: string
       limit?: { context?: number; output?: number }
       modalities?: { input: string[]; output: string[] }
     } = {
       name: model.modelName || model.modelId,
     }
-    
-    // Add limit if any values are specified
+
     if (model.limit && (model.limit.context !== undefined || model.limit.output !== undefined)) {
       modelEntry.limit = {}
       if (model.limit.context !== undefined) {
@@ -250,12 +217,11 @@ export async function updateCustomProviderConfig(
         modelEntry.limit.output = model.limit.output
       }
     }
-    
-    // Add modalities if specified (no default)
+
     if (model.modalities) {
       modelEntry.modalities = model.modalities
     }
-    
+
     modelsObj[model.modelId] = modelEntry
   }
 
@@ -264,55 +230,46 @@ export async function updateCustomProviderConfig(
   }
   if (config.apiKey) {
     if (/^\$\{.+\}$/.test(config.apiKey) || /^\$.+/.test(config.apiKey)) {
-      // Already a ${ref} or $ref — write as-is
       providerOptions.apiKey = config.apiKey
     } else {
-      // Raw key value — write a placeholder, caller stores actual value in keychain
       const keyName = providerApiKeyName(providerId)
       providerOptions.apiKey = `\${${keyName}}`
     }
   }
 
-  openCodeConfig.provider[providerId] = {
+  teamclawConfig.provider[providerId] = {
     npm: '@ai-sdk/openai-compatible',
     name: config.name,
     options: providerOptions,
     models: modelsObj,
   }
 
-  await writeOpenCodeConfig(workspacePath, openCodeConfig)
+  await writeTeamclawConfig(workspacePath, teamclawConfig)
   return true
 }
 
-/**
- * Remove a custom provider from opencode.json.
- */
 export async function removeCustomProviderFromConfig(
   workspacePath: string,
   providerId: string
 ): Promise<void> {
-  const openCodeConfig = await readOpenCodeConfig(workspacePath)
+  const teamclawConfig = await readTeamclawConfig(workspacePath)
 
-  if (openCodeConfig.provider && openCodeConfig.provider[providerId]) {
-    delete openCodeConfig.provider[providerId]
+  if (teamclawConfig.provider && teamclawConfig.provider[providerId]) {
+    delete teamclawConfig.provider[providerId]
 
-    // Clean up empty provider section
-    if (Object.keys(openCodeConfig.provider).length === 0) {
-      delete openCodeConfig.provider
+    if (Object.keys(teamclawConfig.provider).length === 0) {
+      delete teamclawConfig.provider
     }
 
-    await writeOpenCodeConfig(workspacePath, openCodeConfig)
+    await writeTeamclawConfig(workspacePath, teamclawConfig)
   }
 }
 
-/**
- * Get the list of custom provider IDs from opencode.json.
- */
 export async function getCustomProviderIds(workspacePath: string): Promise<string[]> {
   try {
-    const openCodeConfig = await readOpenCodeConfig(workspacePath)
-    if (!openCodeConfig.provider) return []
-    return Object.keys(openCodeConfig.provider)
+    const teamclawConfig = await readTeamclawConfig(workspacePath)
+    if (!teamclawConfig.provider) return []
+    return Object.keys(teamclawConfig.provider)
   } catch {
     return []
   }
@@ -329,7 +286,7 @@ function matchesPattern(skillName: string, pattern: string): boolean {
 
 /**
  * Resolve the effective permission for a skill name against a permission map.
- * Priority: exact match > prefix wildcard (longer prefix wins) > global wildcard "*"
+ * Priority: exact match > prefix wildcard (longer prefix wins) > global "*"
  */
 export function resolveSkillPermission(
   skillName: string,
@@ -363,7 +320,7 @@ export function resolveSkillPermission(
 
 export async function readSkillPermissions(workspacePath: string): Promise<SkillPermissionMap> {
   try {
-    const config = await readOpenCodeConfig(workspacePath)
+    const config = await readTeamclawConfig(workspacePath)
     return config.permission?.skill ?? {}
   } catch {
     return {}
@@ -375,18 +332,18 @@ export async function writeSkillPermission(
   pattern: string,
   permission: SkillPermission
 ): Promise<void> {
-  const config = await readOpenCodeConfig(workspacePath)
+  const config = await readTeamclawConfig(workspacePath)
   if (!config.permission) config.permission = {}
   if (!config.permission.skill) config.permission.skill = {}
   config.permission.skill[pattern] = permission
-  await writeOpenCodeConfig(workspacePath, config)
+  await writeTeamclawConfig(workspacePath, config)
 }
 
 export async function removeSkillPermission(
   workspacePath: string,
   pattern: string
 ): Promise<void> {
-  const config = await readOpenCodeConfig(workspacePath)
+  const config = await readTeamclawConfig(workspacePath)
   if (!config.permission?.skill) return
   delete config.permission.skill[pattern]
   if (Object.keys(config.permission.skill).length === 0) {
@@ -395,5 +352,5 @@ export async function removeSkillPermission(
   if (Object.keys(config.permission).length === 0) {
     delete config.permission
   }
-  await writeOpenCodeConfig(workspacePath, config)
+  await writeTeamclawConfig(workspacePath, config)
 }

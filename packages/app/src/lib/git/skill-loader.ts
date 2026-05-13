@@ -127,10 +127,10 @@ async function readClawHubLockfile(workspacePath: string): Promise<Set<string>> 
 
 // ─── Multi-Source Loader ────────────────────────────────────────────────────
 
-/** Read skills.paths from opencode.json, resolving ~ and relative paths */
+/** Read skills.paths from teamclaw.json, resolving ~ and relative paths */
 export async function readConfigSkillPaths(workspacePath: string): Promise<string[]> {
   try {
-    const configPath = `${workspacePath}/opencode.json`
+    const configPath = `${workspacePath}/teamclaw.json`
     if (!(await exists(configPath))) return []
     const content = await readTextFile(configPath)
     const config = JSON.parse(content)
@@ -155,13 +155,13 @@ export async function readConfigSkillPaths(workspacePath: string): Promise<strin
 export async function getSkillDirectories(workspacePath: string | null): Promise<string[]> {
   const home = trimTrailingPathSeparators(await homeDir())
   const dirs = new Set<string>([
-    `${home}/.config/opencode/skills`,
+    `${home}/.config/teamclaw/skills`,
     `${home}/.claude/skills`,
     `${home}/.agents/skills`,
   ])
 
   if (workspacePath) {
-    dirs.add(`${workspacePath}/.opencode/skills`)
+    dirs.add(`${workspacePath}/.teamclaw/skills`)
     dirs.add(`${workspacePath}/.claude/skills`)
     dirs.add(`${workspacePath}/.agents/skills`)
 
@@ -178,16 +178,16 @@ export async function getSkillDirectories(workspacePath: string | null): Promise
  * Load skills from all sources with priority-based merging.
  *
  * Workspace paths (project-level):
- * 1. `.opencode/skills/`   → source: 'local' / 'builtin' / 'clawhub'
+ * 1. `.teamclaw/skills/`   → source: 'local' / 'builtin' / 'clawhub'
  * 2. `.claude/skills/`     → source: 'claude'
  * 3. `.agents/skills/`     → source: 'shared'
  *
  * Global paths (user-level):
- * 4. `~/.config/opencode/skills/` → source: 'global-opencode'
+ * 4. `~/.config/teamclaw/skills/` → source: 'global-teamclaw'
  * 5. `~/.claude/skills/`          → source: 'global-claude'
  * 6. `~/.agents/skills/`          → source: 'global-agent'
  *
- * Dynamic paths (from opencode.json `skills.paths`):
+ * Dynamic paths (from teamclaw.json `skills.paths`):
  * 7+. Each configured path → source: 'team'
  *
  * Same-name skills are resolved by priority — workspace > global.
@@ -209,7 +209,7 @@ export async function loadAllSkills(
   // Get user home directory
   const home = await homeDir()
 
-  // Read ClawHub lockfile to identify which .opencode/skills were installed from ClawHub
+  // Read ClawHub lockfile to identify which .teamclaw/skills were installed from ClawHub
   let clawhubSlugs = new Set<string>()
   if (workspacePath) {
     clawhubSlugs = await readClawHubLockfile(workspacePath)
@@ -217,11 +217,11 @@ export async function loadAllSkills(
 
   // ============ Workspace Skills (Project-level) ============
 
-  // 1. Load workspace .opencode/skills (highest priority — user local)
+  // 1. Load workspace .teamclaw/skills (highest priority — user local)
   //    Skills whose dirname matches INHERENT_SKILL_NAMES are marked as 'builtin'.
   //    Skills whose dirname matches a ClawHub lockfile entry are marked as 'clawhub'.
   if (workspacePath) {
-    const localDir = `${workspacePath}/.opencode/skills`
+    const localDir = `${workspacePath}/.teamclaw/skills`
     const localSkills = await loadSkillsFromDir(localDir, 'local')
     for (const skill of localSkills) {
       if (INHERENT_SKILL_NAMES.has(skill.filename)) {
@@ -250,10 +250,10 @@ export async function loadAllSkills(
 
   // ============ Global Skills (User-level) ============
 
-  // 4. Load global ~/.config/opencode/skills
-  const globalOpencodeDir = `${home.replace(/\/$/, '')}/.config/opencode/skills`
-  const globalOpencodeSkills = await loadSkillsFromDir(globalOpencodeDir, 'global-opencode')
-  for (const s of globalOpencodeSkills) pushSkill({ ...s, isGlobal: true })
+  // 4. Load global ~/.config/teamclaw/skills
+  const globalTeamclawDir = `${home.replace(/\/$/, '')}/.config/teamclaw/skills`
+  const globalTeamclawSkills = await loadSkillsFromDir(globalTeamclawDir, 'global-teamclaw')
+  for (const s of globalTeamclawSkills) pushSkill({ ...s, isGlobal: true })
 
   // 5. Load global ~/.claude/skills
   const globalClaudeDir = `${home.replace(/\/$/, '')}/.claude/skills`
@@ -265,11 +265,11 @@ export async function loadAllSkills(
   const globalAgentSkills = await loadSkillsFromDir(globalAgentDir, 'global-agent')
   for (const s of globalAgentSkills) pushSkill({ ...s, isGlobal: true })
 
-  // ============ OpenCode Plugin Skills ============
+  // ============ Plugin Skills ============
 
-  // 7. Scan plugin cache for skills installed via opencode.json "plugin" array
+  // 7. Scan plugin cache for skills installed via teamclaw.json "plugin" array
   if (workspacePath) {
-    const pluginCacheDir = `${workspacePath}/.opencode/cache/opencode/node_modules`
+    const pluginCacheDir = `${workspacePath}/.teamclaw/cache/agent/node_modules`
     try {
       if (await exists(pluginCacheDir)) {
         const pluginEntries = await readDir(pluginCacheDir)
@@ -292,9 +292,9 @@ export async function loadAllSkills(
     }
   }
 
-  // ============ Dynamic paths from opencode.json ============
+  // ============ Dynamic paths from teamclaw.json ============
 
-  // 8+. Load dynamic paths from opencode.json skills.paths
+  // 8+. Load dynamic paths from teamclaw.json skills.paths
   if (workspacePath) {
     const configPaths = await readConfigSkillPaths(workspacePath)
     for (const dirPath of configPaths) {
@@ -304,7 +304,7 @@ export async function loadAllSkills(
       const normalizedHome = home.replace(/\\/g, '/')
       const isGlobalPath =
         normalizedDirPath.startsWith(normalizedHome) ||
-        normalizedDirPath.includes('.config/opencode') ||
+        normalizedDirPath.includes('.config/teamclaw') ||
         normalizedDirPath.includes('.claude') ||
         normalizedDirPath.includes('.agents')
       for (const s of skills) pushSkill({ ...s, isGlobal: isGlobalPath })
@@ -314,7 +314,7 @@ export async function loadAllSkills(
   // Deduplicate by filename with priority:
   // Workspace (project) > Global (user)
   // Within workspace: local > claude > clawhub > shared > team > builtin
-  // Within global: global-opencode > global-claude > global-agent
+  // Within global: global-teamclaw > global-claude > global-agent
   const priorityOrder: Record<SkillSource, number> = {
     local: 0,
     claude: 1,
@@ -323,7 +323,7 @@ export async function loadAllSkills(
     team: 4,
     builtin: 5,
     plugin: 6,
-    'global-opencode': 7,
+    'global-teamclaw': 7,
     'global-claude': 8,
     'global-agent': 9,
     personal: 10,
@@ -379,7 +379,7 @@ export function getSourceLabel(source: SkillSource): string {
       return 'Plugin'
     case 'personal':
       return 'Personal'
-    case 'global-opencode':
+    case 'global-teamclaw':
       return 'Global'
     case 'global-claude':
       return 'Global Claude'
@@ -394,23 +394,23 @@ export function getSourceLabel(source: SkillSource): string {
 export function getSourceDirHint(source: SkillSource): string {
   switch (source) {
     case 'local':
-      return '.opencode/skills/'
+      return '.teamclaw/skills/'
     case 'claude':
       return '.claude/skills/'
     case 'clawhub':
-      return '.opencode/skills/ (ClawHub)'
+      return '.teamclaw/skills/ (ClawHub)'
     case 'shared':
       return '.agents/skills/'
     case 'team':
-      return 'opencode.json → skills.paths'
+      return 'teamclaw.json → skills.paths'
     case 'builtin':
-      return `.opencode/skills/ (${buildConfig.app.name} 内置)`
+      return `.teamclaw/skills/ (${buildConfig.app.name} 内置)`
     case 'plugin':
-      return 'opencode.json → plugin'
+      return 'teamclaw.json → plugin'
     case 'personal':
       return ''
-    case 'global-opencode':
-      return '~/.config/opencode/skills/'
+    case 'global-teamclaw':
+      return '~/.config/teamclaw/skills/'
     case 'global-claude':
       return '~/.claude/skills/'
     case 'global-agent':
@@ -439,7 +439,7 @@ export function getSourceBadgeClass(source: SkillSource): string {
       return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300'
     case 'personal':
       return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
-    case 'global-opencode':
+    case 'global-teamclaw':
       return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-300'
     case 'global-claude':
       return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300'

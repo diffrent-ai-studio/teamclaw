@@ -80,13 +80,6 @@ interface WorkspaceState {
   workspaceName: string | null;
   isLoadingWorkspace: boolean;
 
-  // OpenCode server state
-  openCodeBootstrapped: boolean;
-  openCodeReady: boolean;
-  openCodeUrl: string | null;
-  setOpenCodeBootstrapped: (bootstrapped: boolean, url?: string) => void;
-  setOpenCodeReady: (ready: boolean, url?: string) => void;
-
   // Right panel state
   isPanelOpen: boolean;
   activeTab: RightPanelTab;
@@ -213,21 +206,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspacePath: null,
   workspaceName: null,
   isLoadingWorkspace: false,
-  openCodeBootstrapped: false,
-  openCodeReady: false,
-  openCodeUrl: null,
-  setOpenCodeBootstrapped: (bootstrapped: boolean, url?: string) =>
-    set(
-      bootstrapped
-        ? { openCodeBootstrapped: true, ...(url ? { openCodeUrl: url } : {}) }
-        : { openCodeBootstrapped: false, openCodeReady: false, openCodeUrl: null },
-    ),
-  setOpenCodeReady: (ready: boolean, url?: string) =>
-    set({
-      openCodeReady: ready,
-      ...(ready ? { openCodeBootstrapped: true } : {}),
-      ...(url ? { openCodeUrl: url } : {}),
-    }),
   isPanelOpen: false,
   activeTab: "shortcuts",
   fileTree: [],
@@ -289,7 +267,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const expandedPath = await expandPath(path);
     console.log("[Workspace] Setting workspace:", path, "->", expandedPath);
 
-    // If selecting the same workspace, just refresh the file tree — don't reset OpenCode
+    // If selecting the same workspace, just refresh the file tree — don't reset agent state
     const currentPath = get().workspacePath;
     if (currentPath === expandedPath) {
       console.log("[Workspace] Same workspace selected, skipping reset");
@@ -303,7 +281,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
 
     // Pre-cache Tauri fs modules so the .teamclaw check after set() runs
-    // without extra async import delay (avoids race with OpenCode preloader)
+    // without extra async import delay
     let cachedJoin: typeof import("@tauri-apps/api/path")["join"] | null = null;
     let cachedExists: typeof import("@tauri-apps/plugin-fs")["exists"] | null = null;
     if (isTauri()) {
@@ -319,9 +297,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     set({
       isLoadingWorkspace: true,
-      openCodeBootstrapped: false,
-      openCodeReady: false,
-      openCodeUrl: null,
       workspacePath: expandedPath,
       workspaceName: getFolderName(expandedPath),
       fileTree: [],
@@ -349,7 +324,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     // Check if this is a new workspace (no .teamclaw directory yet)
     // Runs right after set() using pre-cached imports to minimize delay
-    // before OpenCode server creates .teamclaw
     if (cachedJoin && cachedExists) {
       try {
         const teamclawDir = await cachedJoin(expandedPath, TEAMCLAW_DIR);
@@ -368,7 +342,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         currentView: 'chat',
         layoutMode: 'task',
         settingsInitialSection: null,
-        embeddedSettingsSection: null,
       });
     } catch { /* ignore */ }
     try {
@@ -524,9 +497,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({
       workspacePath: null,
       workspaceName: null,
-      openCodeBootstrapped: false,
-      openCodeReady: false,
-      openCodeUrl: null,
       fileTree: [],
       expandedPaths: new Set<string>(),
       loadingPaths: new Set<string>(),

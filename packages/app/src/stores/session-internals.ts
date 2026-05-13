@@ -1,4 +1,4 @@
-import type { PermissionAskedEvent } from '@/lib/opencode/sdk-types';
+import type { PermissionAskedEvent } from './session-types';
 import type { SessionState } from './session-types';
 import type { StreamingState } from './streaming';
 import { sessionLookupCache, getSessionById, updateSessionCache } from './session-cache';
@@ -123,7 +123,7 @@ export const debouncedReloadMessages = (sessionId: string) => {
 // --- Message timeout tracking ---
 
 let messageTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
-export const MESSAGE_TIMEOUT_MS = 300000; // 5 minutes timeout for OpenCode to start responding (supports long-running tasks)
+export const MESSAGE_TIMEOUT_MS = 300000; // 5 minutes timeout for the agent to start responding (supports long-running tasks)
 
 export const clearMessageTimeout = () => {
   if (messageTimeoutTimer) {
@@ -140,7 +140,7 @@ export const setMessageTimeout = (pendingMessageId: string, sessionId: string) =
     const { activeSessionId } = sessionStoreRef!.getState();
     // Only clear if this is still the streaming message and no response received
     if (streamingMessageId === pendingMessageId && activeSessionId === sessionId) {
-      console.warn("[Session] Message timeout - no response from OpenCode");
+      console.warn("[Session] Message timeout - no response from agent");
       busySessions.delete(sessionId);
       streamingStoreRef!.getState().clearStreaming();
       sessionStoreRef!.setState((state) => {
@@ -157,7 +157,7 @@ export const setMessageTimeout = (pendingMessageId: string, sessionId: string) =
         updateSessionCache(newSessions);
         return {
           sessions: newSessions,
-          error: "Message timeout - OpenCode server did not respond. Please check if the server is running.",
+          error: "Message timeout - agent did not respond. Please check if the agent is running.",
         };
       });
     }

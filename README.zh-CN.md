@@ -1,6 +1,6 @@
 # TeamClaw
 
-基于 OpenCode 打造的本地智能体，你的 AI 搭档
+本地智能体，你的 AI 搭档
 
 > **你的搭档，并肩同行。**
 
@@ -14,7 +14,7 @@
 ## 功能特性
 
 - **三栏布局** — 侧边栏、聊天区、详情面板
-- **OpenCode 集成** — 完整的 Agent 能力支持
+- **本地 Agent 运行时** — 完整的 Agent 能力支持
 - **渠道网关** — 支持 Discord、Feishu、Email、Kook、WeCom、WeChat
 - **自动化任务** — 支持定时任务（Cron）
 - **团队协作模式** — 支持 P2P 与 S3/OSS
@@ -43,7 +43,6 @@
 - **前端**：React 19 + TypeScript
 - **样式**：Tailwind CSS 4
 - **状态**：Zustand
-- **Agent**：OpenCode
 - **编辑器**：Tiptap (Markdown/HTML)、CodeMirror 6 (代码)
 - **Diff**：自定义 Diff 渲染器，Shiki 语法高亮
 
@@ -70,17 +69,6 @@ xattr -cr /Applications/TeamClaw.app
 - Node.js >= 20
 - pnpm >= 10
 - Rust >= 1.70
-- OpenCode CLI
-
-### 安装 OpenCode CLI
-
-```bash
-# macOS / Linux
-curl -fsSL https://opencode.ai/install | bash
-
-# 或者通过 npm 安装
-npm install -g opencode
-```
 
 ### 快速开始
 
@@ -88,10 +76,7 @@ npm install -g opencode
 # 1. 安装依赖
 pnpm install
 
-# 2. 下载 OpenCode sidecar 二进制（必需，不在 git 中）
-./src-tauri/binaries/download-opencode.sh
-
-# 3. 启动 Tauri 开发模式
+# 2. 启动 Tauri 开发模式
 pnpm tauri dev
 ```
 
@@ -113,23 +98,6 @@ pnpm rust:build
 - `pnpm tauri:dev` 和 `pnpm tauri:build` 也会使用同一套共享 Rust 构建环境。
 - `.cargo-target/` 只用于本地缓存，已被 git 忽略。
 - 如果希望额外获得编译缓存命中，请先安装 `sccache`。
-
-### 更新 OpenCode
-
-OpenCode 发版频繁，随时可以一条命令更新到最新版：
-
-```bash
-pnpm update-opencode
-```
-
-如果已是最新版会自动跳过。也可以指定版本：`pnpm update-opencode -- v1.2.1`
-
-> **开发模式（可选）**：也可以不下载 sidecar，而是单独运行 OpenCode Server：
->
-> ```bash
-> cd /path/to/your/workspace && opencode serve --port 13141
-> OPENCODE_DEV_MODE=true pnpm tauri dev
-> ```
 
 ## 团队协作
 

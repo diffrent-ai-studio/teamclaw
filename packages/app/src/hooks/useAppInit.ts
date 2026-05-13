@@ -3,7 +3,7 @@
  *
  * Handles:
  *  - Tauri body class injection
- *  - OpenCode server startup (preloader + workspace restore)
+ *  - Workspace restore
  *  - Channel gateway auto-start / keep-alive
  *  - Git repos auto-sync
  *  - External-link interception (Tauri only)
@@ -25,19 +25,13 @@ import { useTeamOssStore } from "@/stores/team-oss";
 import { useTeamMembersStore } from "@/stores/team-members";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { useCronStore } from "@/stores/cron";
-import { initOpenCodeClient } from "@/lib/opencode/sdk-client";
-import {
-  startOpenCode,
-  hasPreloadFor,
-  waitForOpenCodeBootstrapped,
-} from "@/lib/opencode/preloader";
 import { getSkillDirectories, loadAllSkills } from "@/lib/git/skill-loader";
 import { appShortName, TEAMCLAW_DIR, TEAM_REPO_DIR } from "@/lib/build-config";
 
 export const SKILLS_CHANGED_EVENT = "skills-files-changed";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OpenCode server start / workspace restore
+// Workspace restore
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -57,12 +51,9 @@ function readWindowParams(): { workspace: string; port: number } | null {
 
 const windowParams = readWindowParams();
 
-export function useOpenCodeInit() {
+export function useWorkspaceInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
   const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
-  const setOpenCodeBootstrapped = useWorkspaceStore((s) => s.setOpenCodeBootstrapped);
-  const setOpenCodeReady = useWorkspaceStore((s) => s.setOpenCodeReady);
-  const [openCodeError, setOpenCodeError] = useState<string | null>(null);
   const [initialWorkspaceResolved, setInitialWorkspaceResolved] = useState(false);
 
   // Auto-restore last workspace on launch (runs once on mount).
@@ -119,82 +110,6 @@ export function useOpenCodeInit() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Start OpenCode server when workspace is selected.
-  // Uses the shared preloader so that if `start_opencode` was already fired
-  // during the splash screen for this same workspace, we reuse the in-flight
-  // promise instead of spawning a duplicate sidecar.
-  useEffect(() => {
-    if (!workspacePath) return;
-
-    setOpenCodeError(null);
-
-    // In web mode, skip Tauri invoke — assume OpenCode server is running externally
-    if (!isTauri()) {
-      console.log(
-        "[Web Mode] Skipping Tauri invoke, OpenCode server should be running externally",
-      );
-      const url = "http://127.0.0.1:4096";
-      initOpenCodeClient({ baseUrl: url, workspacePath });
-      setOpenCodeBootstrapped(true, url);
-      setOpenCodeReady(true, url);
-      return;
-    }
-
-    const alreadyPreloading = hasPreloadFor(workspacePath);
-    if (!alreadyPreloading) {
-      setOpenCodeBootstrapped(false);
-    }
-
-    let cancelled = false;
-
-    console.log(
-      alreadyPreloading
-        ? "[OpenCode] Awaiting preloaded server for:"
-        : "[OpenCode] Starting server for:",
-      workspacePath,
-    );
-    const explicitPort =
-      windowParams && windowParams.workspace === workspacePath ? windowParams.port : undefined;
-
-    waitForOpenCodeBootstrapped(workspacePath, explicitPort)
-      .then((status) => {
-        if (cancelled) return;
-        console.log("[OpenCode] Server bootstrapped:", status);
-        initOpenCodeClient({ baseUrl: status.url, workspacePath });
-        setOpenCodeError(null);
-        setOpenCodeBootstrapped(true, status.url);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.warn("[OpenCode] Failed waiting for bootstrap event:", error);
-      });
-    startOpenCode(workspacePath, explicitPort)
-      .then((status) => {
-        if (cancelled) return;
-        console.log("[OpenCode] Server started:", status);
-        initOpenCodeClient({ baseUrl: status.url, workspacePath });
-        setOpenCodeError(null);
-        setOpenCodeBootstrapped(true, status.url);
-        setOpenCodeReady(true, status.url);
-        performance.mark('opencode-ready');
-        if (performance.getEntriesByName('react-mount').length) {
-          performance.measure('startup-total', 'react-mount', 'opencode-ready');
-          const total = performance.getEntriesByName('startup-total')[0];
-          console.log(`[Startup] react→ready: ${Math.round(total.duration)}ms`);
-        }
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.error("[OpenCode] Failed to start server:", error);
-        setOpenCodeBootstrapped(false);
-        setOpenCodeError(String(error));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [workspacePath, setOpenCodeBootstrapped, setOpenCodeReady]);
 
   useEffect(() => {
     if (!workspacePath || !isTauri()) return;
@@ -328,7 +243,7 @@ export function useOpenCodeInit() {
     };
   }, [workspacePath]);
 
-  return { openCodeError, setOpenCodeError, initialWorkspaceResolved };
+  return { initialWorkspaceResolved };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -337,7 +252,7 @@ export function useOpenCodeInit() {
 
 export function useChannelGatewayInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
+  const workspaceReady = !!workspacePath;
   const {
     autoStartEnabledGateways,
     loadConfig: loadChannelsConfig,
@@ -370,11 +285,11 @@ export function useChannelGatewayInit() {
     }
   }, [workspacePath, stopAllAndReset]);
 
-  // When OpenCode becomes ready: load channel configs and auto-start enabled gateways
+  // When workspace becomes ready: load channel configs and auto-start enabled gateways
   useEffect(() => {
-    if (openCodeReady && !hasAutoStarted.current) {
+    if (workspaceReady && !hasAutoStarted.current) {
       hasAutoStarted.current = true;
-      console.log("[App] OpenCode ready, loading channel configs and auto-starting...");
+      console.log("[App] Workspace ready, loading channel configs and auto-starting...");
       loadChannelsConfig()
         .then(() => {
           autoStartEnabledGateways();
@@ -383,18 +298,18 @@ export function useChannelGatewayInit() {
           console.error("[App] Failed to load channel configs for auto-start:", err);
         });
     }
-  }, [openCodeReady, autoStartEnabledGateways, loadChannelsConfig]);
+  }, [workspaceReady, autoStartEnabledGateways, loadChannelsConfig]);
 
   // Keep-alive: periodically check enabled channels and restart if disconnected/errored
   useEffect(() => {
-    if (!openCodeReady) return;
+    if (!workspaceReady) return;
     const keepAliveInterval = setInterval(() => {
       keepAliveCheck().catch((err: unknown) => {
         console.warn("[App] Keep-alive check failed:", err);
       });
     }, 30_000);
     return () => clearInterval(keepAliveInterval);
-  }, [openCodeReady, keepAliveCheck]);
+  }, [workspaceReady, keepAliveCheck]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -403,7 +318,7 @@ export function useChannelGatewayInit() {
 
 export function useGitReposInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
+  const workspaceReady = !!workspacePath;
   const { initialize: initGitRepos, syncAll: syncGitRepos } = useGitReposStore();
   const prevWorkspaceRef = useRef<string | null>(null);
   const teamSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -432,7 +347,7 @@ export function useGitReposInit() {
 
   // Team sync — deferred until sidecar is ready to avoid I/O contention
   useEffect(() => {
-    if (!workspacePath || !openCodeReady || !isTauri()) return;
+    if (!workspacePath || !workspaceReady || !isTauri()) return;
 
     import("@tauri-apps/api/core")
       .then(({ invoke }) => {
@@ -528,7 +443,7 @@ export function useGitReposInit() {
         teamSyncIntervalRef.current = null;
       }
     };
-  }, [workspacePath, openCodeReady]);
+  }, [workspacePath, workspaceReady]);
 
   // Real-time: refresh team-git file status and member roles when team files change
   useEffect(() => {
@@ -615,13 +530,13 @@ export function useGitReposInit() {
 
 export function useP2pAutoReconnect() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
+  const workspaceReady = !!workspacePath;
   const teamMode = useTeamModeStore((s) => s.teamMode);
   const teamModeType = useTeamModeStore((s) => s.teamModeType);
 
   useEffect(() => {
     // Only auto-reconnect for P2P teams, not S3/OSS/Git
-    if (!workspacePath || !openCodeReady || !teamMode || !isTauri()) return;
+    if (!workspacePath || !workspaceReady || !teamMode || !isTauri()) return;
     if (teamModeType && teamModeType !== 'p2p') return;
 
     let cancelled = false;
@@ -668,15 +583,15 @@ export function useP2pAutoReconnect() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [workspacePath, openCodeReady, teamMode, teamModeType]);
+  }, [workspacePath, workspaceReady, teamMode, teamModeType]);
 }
 
 export function useCronInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
+  const workspaceReady = !!workspacePath;
 
   useEffect(() => {
-    if (!isTauri() || !workspacePath || !openCodeReady) return;
+    if (!isTauri() || !workspacePath || !workspaceReady) return;
 
     let unlisten: (() => void) | undefined;
     let cancelled = false;
@@ -701,7 +616,7 @@ export function useCronInit() {
       cancelled = true;
       unlisten?.();
     };
-  }, [workspacePath, openCodeReady]);
+  }, [workspacePath, workspaceReady]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -710,12 +625,12 @@ export function useCronInit() {
 
 export function useOssSyncInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
+  const workspaceReady = !!workspacePath;
   const initialize = useTeamOssStore((s) => s.initialize);
   const cleanup = useTeamOssStore((s) => s.cleanup);
 
   useEffect(() => {
-    if (!workspacePath || !openCodeReady || !isTauri()) return;
+    if (!workspacePath || !workspaceReady || !isTauri()) return;
 
     // Clean up previous workspace listener, reset state, then re-initialize
     cleanup();
@@ -726,7 +641,7 @@ export function useOssSyncInit() {
     return () => {
       cleanup();
     };
-  }, [workspacePath, openCodeReady, initialize, cleanup]);
+  }, [workspacePath, workspaceReady, initialize, cleanup]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -774,7 +689,7 @@ export function useTauriBodyClass() {
 // Dependency check / setup guide
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function useSetupGuide(openCodeReady: boolean) {
+export function useSetupGuide(workspaceReady: boolean) {
   const [showSetupGuide, setShowSetupGuide] = useState(false);
   const {
     dependencies,
@@ -786,7 +701,7 @@ export function useSetupGuide(openCodeReady: boolean) {
   });
   const setupDecisionRef = useRef(getSetupDecision());
 
-  // Dependency check — deferred until OpenCode is ready to avoid CPU contention
+  // Dependency check — deferred until workspace is ready to avoid CPU contention
   useEffect(() => {
     const debugForceSetup = (() => {
       try {
@@ -805,8 +720,8 @@ export function useSetupGuide(openCodeReady: boolean) {
       return;
     }
 
-    // Wait for OpenCode to be ready before checking deps (reduces startup CPU contention)
-    if (!openCodeReady && isTauri()) return;
+    // Wait for workspace to be ready before checking deps (reduces startup CPU contention)
+    if (!workspaceReady && isTauri()) return;
 
     console.log("[Setup] Checking dependencies (decision:", decision, ")");
     checkDependencies().then((result) => {
@@ -816,7 +731,7 @@ export function useSetupGuide(openCodeReady: boolean) {
         setShowSetupGuide(true);
       }
     });
-  }, [openCodeReady, checkDependencies]);
+  }, [workspaceReady, checkDependencies]);
 
   const handleRecheck = useCallback(async () => {
     return checkDependencies();
@@ -853,23 +768,6 @@ export function useTelemetryConsent(showSetupGuide: boolean) {
   }, [showSetupGuide, telemetryInitialized, telemetryConsent]);
 
   return { showConsentDialog, setShowConsentDialog };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// OpenCode preload (fires start_opencode early during mount)
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function useOpenCodePreload() {
-  useEffect(() => {
-    if (!isTauri()) return;
-    const savedPath = localStorage.getItem(`${appShortName}-workspace-path`);
-    if (savedPath) {
-      console.log("[Preload] Starting OpenCode for:", savedPath);
-      startOpenCode(savedPath).catch((err) =>
-        console.warn("[Preload] OpenCode pre-start failed (will retry later):", err),
-      );
-    }
-  }, []);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

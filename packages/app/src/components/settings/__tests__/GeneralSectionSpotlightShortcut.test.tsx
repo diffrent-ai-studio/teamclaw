@@ -71,10 +71,6 @@ vi.mock('@/stores/workspace', () => ({
     }),
 }))
 
-vi.mock('../PermissionBatchSection', () => ({
-  PermissionBatchSection: () => <div>Permission Batch Section</div>,
-}))
-
 vi.mock('../shared', () => ({
   SettingCard: ({ children }: { children: React.ReactNode }) => <section>{children}</section>,
   SectionHeader: ({ title }: { title: string }) => <h2>{title}</h2>,

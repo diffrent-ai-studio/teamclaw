@@ -10,9 +10,6 @@ const uiStoreMocks = vi.hoisted(() => ({
   switchToSession: vi.fn(() => Promise.resolve()),
   openSettings: vi.fn(),
   closeSettings: vi.fn(),
-  embeddedSettingsSection: null as string | null,
-  openEmbeddedSettingsSection: vi.fn(),
-  closeEmbeddedSettingsSection: vi.fn(),
 }))
 
 const workspaceStoreMocks = vi.hoisted(() => ({
@@ -241,11 +238,8 @@ describe('AppSidebar', () => {
     uiVariantMocks.workspaceShell = false
     uiStoreMocks.defaultNavTab = 'session'
     uiStoreMocks.switchToSession = vi.fn(() => Promise.resolve())
-    uiStoreMocks.embeddedSettingsSection = null
     uiStoreMocks.openSettings = vi.fn()
     uiStoreMocks.closeSettings = vi.fn()
-    uiStoreMocks.openEmbeddedSettingsSection = vi.fn()
-    uiStoreMocks.closeEmbeddedSettingsSection = vi.fn()
     workspaceStoreMocks.isPanelOpen = false
     workspaceStoreMocks.activeTab = 'shortcuts'
     workspaceStoreMocks.openPanel = vi.fn()
@@ -320,20 +314,16 @@ describe('AppSidebar', () => {
     expect(buttons.length).toBeGreaterThan(2)
   })
 
-  it('with workspace UI variant shows Shortcuts above Automation and Roles & Skills', () => {
+  it('with workspace UI variant shows Shortcuts in the quick access list', () => {
     uiVariantMocks.workspaceShell = true
     render(<AppSidebar />)
     expect(screen.getByText('Shortcuts')).toBeDefined()
-    expect(screen.getByText('Automation')).toBeDefined()
-    expect(screen.getByText('Roles & Skills')).toBeDefined()
   })
 
   it('default mode renders the default bottom navigation instead of the mixed quick access list', () => {
     uiVariantMocks.workspaceShell = false
     render(<AppSidebar />)
     expect(screen.getByTestId('default-bottom-nav')).toBeDefined()
-    expect(screen.queryByText('Automation')).toBeNull()
-    expect(screen.queryByText('Roles & Skills')).toBeNull()
   })
 
   it('default mode replaces the session list with the shortcuts content', () => {
@@ -341,14 +331,6 @@ describe('AppSidebar', () => {
     uiStoreMocks.defaultNavTab = 'shortcuts'
     render(<AppSidebar />)
     expect(screen.getByTestId('shortcuts-panel')).toBeDefined()
-    expect(screen.queryByText('Session One')).toBeNull()
-  })
-
-  it('default mode replaces the session list with the knowledge content', () => {
-    uiVariantMocks.workspaceShell = false
-    uiStoreMocks.defaultNavTab = 'knowledge'
-    render(<AppSidebar />)
-    expect(screen.getByTestId('right-panel').textContent).toBe('knowledge')
     expect(screen.queryByText('Session One')).toBeNull()
   })
 
@@ -495,34 +477,6 @@ describe('AppSidebar', () => {
     expect(uiStoreMocks.switchToSession).not.toHaveBeenCalledWith("archived-1")
   })
 
-  it('default mode uses the knowledge header controls for the knowledge tab', () => {
-    uiVariantMocks.workspaceShell = false
-    uiStoreMocks.defaultNavTab = 'knowledge'
-
-    const { container } = render(<AppSidebar />)
-
-    expect(screen.getByTitle('Collapse sidebar')).toBeDefined()
-    expect(screen.getByTitle('Filter files...')).toBeDefined()
-    expect(screen.getByTitle('Show git changed files only')).toBeDefined()
-    expect(screen.getByTitle('Collapse All')).toBeDefined()
-    expect(screen.queryByTitle('New Chat')).toBeNull()
-    expect(screen.queryByTitle('Search (⌘K)')).toBeNull()
-    expect(container.querySelector('.border-t.border-border\\/60')).toBeNull()
-  })
-
-  it('default mode knowledge search opens a floating search bar below the topbar', () => {
-    uiVariantMocks.workspaceShell = false
-    uiStoreMocks.defaultNavTab = 'knowledge'
-
-    render(<AppSidebar />)
-
-    expect(screen.queryByPlaceholderText('Filter files...')).toBeNull()
-    fireEvent.click(screen.getByTitle('Filter files...'))
-    expect(screen.getByPlaceholderText('Filter files...')).toBeDefined()
-    expect(screen.getByTitle('Show git changed files only')).toBeDefined()
-    expect(screen.getByTitle('Collapse All')).toBeDefined()
-  })
-
   it('default mode uses only the collapse control for the shortcuts tab', () => {
     uiVariantMocks.workspaceShell = false
     uiStoreMocks.defaultNavTab = 'shortcuts'
@@ -574,8 +528,6 @@ describe('AppSidebar', () => {
     expect(sessionScrollRegion!.textContent).toContain('Session One')
     expect(sessionScrollRegion!.textContent).toContain('Session Two')
     expect(sessionScrollRegion!.textContent).not.toContain('Shortcuts')
-    expect(sessionScrollRegion!.textContent).not.toContain('Automation')
-    expect(sessionScrollRegion!.textContent).not.toContain('Roles & Skills')
     expect(sessionScrollRegion!.textContent).not.toContain('New Chat')
   })
 

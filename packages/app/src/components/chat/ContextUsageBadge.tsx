@@ -73,16 +73,13 @@ function formatTokenCount(tokens: number): string {
 }
 
 export function ContextUsageBadge() {
-  // @ts-expect-error Phase 1E removal
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
-  // @ts-expect-error Phase 1E removal
   const sessions = useSessionStore((s) => s.sessions);
   const currentModelKey = useProviderStore((s) => s.currentModelKey);
 
   const { percentage, totalTokens, contextSize } = React.useMemo(() => {
     if (!activeSessionId) return { percentage: 0, totalTokens: 0, contextSize: DEFAULT_CONTEXT_SIZE };
 
-    // @ts-expect-error Phase 1E removal
     const session = sessions.find((s) => s.id === activeSessionId);
     if (!session) return { percentage: 0, totalTokens: 0, contextSize: DEFAULT_CONTEXT_SIZE };
 

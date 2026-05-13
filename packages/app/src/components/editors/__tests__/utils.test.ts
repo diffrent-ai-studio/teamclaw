@@ -59,8 +59,8 @@ describe('getEditorType', () => {
   });
 
   it('returns "code" for skill SKILL.md files when filePath is provided', () => {
-    expect(getEditorType('SKILL.md', '/home/user/.opencode/skills/my-skill/SKILL.md')).toBe('code');
-    expect(getEditorType('SKILL.md', '/home/user/.config/opencode/skills/test/SKILL.md')).toBe('code');
+    expect(getEditorType('SKILL.md', '/home/user/.teamclaw/skills/my-skill/SKILL.md')).toBe('code');
+    expect(getEditorType('SKILL.md', '/home/user/.config/teamclaw/skills/test/SKILL.md')).toBe('code');
     expect(getEditorType('SKILL.md', '/home/user/.claude/skills/debug/SKILL.md')).toBe('code');
     expect(getEditorType('SKILL.md', '/home/user/.agents/skills/build/SKILL.md')).toBe('code');
   });
@@ -89,8 +89,8 @@ describe('getEditorType', () => {
 
 describe('isSkillFile', () => {
   it('matches skill files in skills directories', () => {
-    expect(isSkillFile('/home/user/.opencode/skills/my-skill/SKILL.md')).toBe(true);
-    expect(isSkillFile('/home/user/.config/opencode/skills/test/SKILL.md')).toBe(true);
+    expect(isSkillFile('/home/user/.teamclaw/skills/my-skill/SKILL.md')).toBe(true);
+    expect(isSkillFile('/home/user/.config/teamclaw/skills/test/SKILL.md')).toBe(true);
     expect(isSkillFile('/project/.claude/skills/debug/SKILL.md')).toBe(true);
   });
 

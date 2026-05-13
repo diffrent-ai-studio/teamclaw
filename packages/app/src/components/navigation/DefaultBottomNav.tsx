@@ -1,17 +1,14 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  BookOpen,
   Bookmark,
   ChevronsUpDown,
-  Clock,
   Ellipsis,
   FolderOpen,
   Lightbulb,
   Loader2,
   MessageSquare,
   Settings,
-  Shapes,
   SquarePlus,
   Users,
 } from 'lucide-react'
@@ -24,15 +21,12 @@ import { useWorkspaceStore } from '@/stores/workspace'
 
 const PRIMARY_TABS = [
   { id: 'session', labelKey: 'navigation.session', fallback: 'Session', icon: MessageSquare },
-  { id: 'knowledge', labelKey: 'navigation.knowledge', fallback: 'Knowledge', icon: BookOpen },
   { id: 'actors', labelKey: 'navigation.actors', fallback: 'Actors', icon: Users },
   { id: 'ideas', labelKey: 'navigation.ideas', fallback: 'Ideas', icon: Lightbulb },
+  { id: 'shortcuts', labelKey: 'navigation.shortcuts', fallback: 'Shortcuts', icon: Bookmark },
 ] as const
 
 const MORE_ITEMS = [
-  { id: 'shortcuts', labelKey: 'navigation.shortcuts', fallback: 'Shortcuts', icon: Bookmark },
-  { id: 'automation', labelKey: 'settings.nav.automation', fallback: 'Automation', icon: Clock },
-  { id: 'rolesSkills', labelKey: 'settings.nav.rolesSkills', fallback: 'Roles & Skills', icon: Shapes },
   { id: 'settings', labelKey: 'common.settings', fallback: 'Settings', icon: Settings },
 ] as const
 

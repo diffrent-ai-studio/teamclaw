@@ -11,7 +11,7 @@ vi.mock('@/lib/utils', () => ({
   isTauri: () => true,
 }))
 
-vi.mock('@/lib/opencode/config', () => ({
+vi.mock('@/lib/teamclaw-config', () => ({
   getCustomProviderConfig: vi.fn().mockResolvedValue(null),
   removeCustomProviderFromConfig: vi.fn().mockResolvedValue(undefined),
 }))
@@ -31,20 +31,9 @@ vi.mock('@/stores/provider', () => ({
   },
 }))
 
-vi.mock('@/lib/opencode/sdk-client', () => ({
-  initOpenCodeClient: vi.fn(),
-}))
-
-vi.mock('@/lib/opencode/restart', () => ({
-  restartOpencode: vi.fn().mockResolvedValue({ url: 'http://test' }),
-}))
-
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: {
-    getState: () => ({
-      setOpenCodeBootstrapped: vi.fn(),
-      setOpenCodeReady: vi.fn(),
-    }),
+    getState: () => ({}),
   },
 }))
 
@@ -138,7 +127,7 @@ describe('loadTeamGitFileSyncStatus', () => {
       teamModelOptions: [],
     })
 
-    await useTeamModeStore.getState().applyTeamModelToOpenCode('/ws')
+    await useTeamModeStore.getState().applyTeamModel('/ws')
 
     expect(mockLoadTeamProviderFile).toHaveBeenCalledWith('/ws')
     expect(useTeamModeStore.getState().teamModelConfig).toEqual({

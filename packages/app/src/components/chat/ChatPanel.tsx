@@ -14,7 +14,6 @@ import { useTeamModeStore } from "@/stores/team-mode";
 import { useSuggestionsStore } from "@/stores/suggestions";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
-import { ensureRoleSkillPlugin } from "../../lib/opencode/role-plugin-installer";
 import { adaptTeamclawMessages } from "@/lib/v2-message-adapter";
 import { useAuthStore } from "@/stores/auth-store";
 import { useSessionListStore } from "@/stores/session-list-store";
@@ -31,7 +30,7 @@ import {
 import { resolveSessionActivityOwner } from "@/lib/session-list-activity";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { AttachedAgent } from "@/packages/ai/prompt-input-insert-hooks";
-import type { SendMessageFilePart } from "@/lib/opencode/sdk-types";
+type SendMessageFilePart = Record<string, unknown>;
 import { Suggestions, Suggestion } from "@/packages/ai/suggestion";
 import { Button } from "@/components/ui/button";
 
@@ -258,9 +257,11 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // ── Workspace store ───────────────────────────────────────────────────
   const workspacePath = useWorkspaceStore(s => s.workspacePath);
-  const openCodeBootstrapped = useWorkspaceStore(s => s.openCodeBootstrapped);
-  const openCodeReady = useWorkspaceStore(s => s.openCodeReady);
-  const setOpenCodeBootstrapped = useWorkspaceStore(s => s.setOpenCodeBootstrapped);
+  // Keep local semaphores that simply mirror "workspace is set"; the legacy
+  // separate bootstrapped vs ready flags collapsed into one signal.
+  const workspaceBootstrapped = !!workspacePath;
+  const workspaceReady = !!workspacePath;
+  const setWorkspaceBootstrapped = React.useCallback((_v: boolean) => {}, []);
 
   // ── Local state ───────────────────────────────────────────────────────
   const inputValue = draftInput;
@@ -410,10 +411,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const isStreaming = !!streamingMessageId;
 
   // ── Provider & Team mode init ──────────────────────────────────────
-  // Merged to avoid race condition: team mode restarts OpenCode, which
+  // Merged to avoid race condition: team mode restarts the agent, which
   // would break a concurrent initProviderStore call.
   React.useEffect(() => {
-    if (!openCodeReady) return;
+    if (!workspaceReady) return;
 
     if (!workspacePath) {
       // No workspace yet, just init providers directly
@@ -421,20 +422,20 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       return;
     }
 
-    const { loadTeamConfig, applyTeamModelToOpenCode } = useTeamModeStore.getState();
+    const { loadTeamConfig, applyTeamModel } = useTeamModeStore.getState();
     loadTeamConfig(workspacePath).then(async () => {
       if (useTeamModeStore.getState().teamMode) {
-        // Team mode: apply team config (restarts OpenCode), then init providers.
-        // applyTeamModelToOpenCode is idempotent — skips if config key unchanged.
-        await applyTeamModelToOpenCode(workspacePath);
+        // Team mode: apply team config (restarts the agent), then init providers.
+        // applyTeamModel is idempotent — skips if config key unchanged.
+        await applyTeamModel(workspacePath);
       }
       initProviderStore();
     });
-  }, [openCodeReady, workspacePath]);
+  }, [workspaceReady, workspacePath]);
 
   // ── Team config hot reload via file watcher ─────────────────────────
   React.useEffect(() => {
-    if (!openCodeBootstrapped || !workspacePath) return;
+    if (!workspaceBootstrapped || !workspacePath) return;
     const isTauriEnv = isTauri();
     if (!isTauriEnv) return;
 
@@ -456,7 +457,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           const isTeamMode = useTeamModeStore.getState().teamMode;
           
           if (isTeamMode) {
-            await store.applyTeamModelToOpenCode(workspacePath);
+            await store.applyTeamModel(workspacePath);
           } else if (wasTeamMode && !isTeamMode) {
             // Ensure provider store is refreshed if team mode was cleared
             await useProviderStore.getState().initAll();
@@ -471,7 +472,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       if (unlisten) unlisten();
       if (debounceTimer) clearTimeout(debounceTimer);
     };
-  }, [openCodeReady, workspacePath]);
+  }, [workspaceReady, workspacePath]);
 
   React.useEffect(() => {
     const onSkillsChanged = () => setHasSkillRestartPrompt(true);
@@ -481,7 +482,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // ── Team shortcuts hot reload via file watcher ─────────────────────────
   React.useEffect(() => {
-    if (!openCodeBootstrapped || !workspacePath) return;
+    if (!workspaceBootstrapped || !workspacePath) return;
     const isTauriEnv = isTauri();
     if (!isTauriEnv) return;
 
@@ -506,7 +507,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       if (unlisten) unlisten();
       if (debounceTimer) clearTimeout(debounceTimer);
     };
-  }, [openCodeReady, workspacePath]);
+  }, [workspaceReady, workspacePath]);
 
   // Sync selected model to session store
   React.useEffect(() => {
@@ -586,7 +587,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const prevWorkspaceRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
-    if (!openCodeBootstrapped || !workspacePath) return;
+    if (!workspaceBootstrapped || !workspacePath) return;
 
     const isWorkspaceChange =
       prevWorkspaceRef.current !== null &&
@@ -597,27 +598,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       resetSessions();
       }
 
-    console.log("[ChatPanel] OpenCode bootstrapped, loading sessions for:", workspacePath);
+    console.log("[ChatPanel] Workspace bootstrapped, loading sessions for:", workspacePath);
         loadSessions(workspacePath)
       .then(() => setError(null))
       .catch((err: unknown) =>
         console.error("[ChatPanel] Failed to load sessions:", err),
       );
-  }, [openCodeBootstrapped, workspacePath, loadSessions, resetSessions]);
-
-  React.useEffect(() => {
-    if (!openCodeReady || !workspacePath || !isTauri()) return;
-
-    void ensureRoleSkillPlugin(workspacePath).then((result) => {
-      console.log("[RolePlugin] Startup ensure result:", {
-        workspacePath,
-        ...result,
-      });
-      if (result.status === "conflict" || result.status === "failed") {
-        console.warn("[RolePlugin] Failed to ensure role plugin config:", result);
-      }
-    });
-  }, [openCodeReady, workspacePath]);
+  }, [workspaceBootstrapped, workspacePath, loadSessions, resetSessions]);
 
   // NOTE: No polling fallback needed.
   // SSE /event endpoint streams ALL events (Bus.subscribeAll) including
@@ -694,8 +681,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     message: PromptInputMessage,
     extraMentionAgents: AttachedAgent[] = [],
   ) => {
-    // v2: OpenCode-ready gate removed — that flag tracked a sidecar that's
-    // gone now. Single-window scope sends via MQTT + Supabase regardless.
+    // v2: workspace-ready gate removed — the legacy sidecar flag is gone.
+    // Single-window scope sends via MQTT + Supabase regardless.
     const text = message.text?.trim() || "";
     const mentions = message.mentions || [];
     // Combine engaged agent + picker-supplied agents, dedup by id.
@@ -1005,20 +992,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   );
 
   const handleRestartSkillsRuntime = React.useCallback(async () => {
-    if (!workspacePath) return;
-    setIsRestartingSkillsRuntime(true);
-    try {
-      const { restartOpencode } = await import("@/lib/opencode/restart");
-      await restartOpencode(workspacePath);
-      setHasSkillRestartPrompt(false);
-    } catch (error) {
-      console.error("[ChatPanel] Failed to restart OpenCode for skills:", error);
-      setOpenCodeBootstrapped(false);
-      setError(error instanceof Error ? error.message : "Failed to restart OpenCode");
-    } finally {
-      setIsRestartingSkillsRuntime(false);
-    }
-  }, [workspacePath, setOpenCodeBootstrapped, setError]);
+    // Agent restart is handled by the amuxd daemon now; no-op for the legacy path.
+    setIsRestartingSkillsRuntime(false);
+    setHasSkillRestartPrompt(false);
+  }, []);
 
   const handleCloseArchivedSession = React.useCallback(() => {
     closeArchivedSession();
@@ -1120,7 +1097,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           <div className="min-w-0 flex-1">
             <p className="font-medium">{t("chat.skillRestartTitle", "Detected new skills")}</p>
             <p className="text-xs text-sky-700">
-              {t("chat.skillRestartBody", "New or updated skills were detected. Restart OpenCode now to load them in the current runtime.")}
+              {t("chat.skillRestartBody", "New or updated skills were detected. Restart the agent now to load them in the current runtime.")}
             </p>
           </div>
           <Button
@@ -1223,7 +1200,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         </div>
       )}
 
-      {openCodeBootstrapped && !openCodeReady && (
+      {workspaceBootstrapped && !workspaceReady && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-3 px-4 text-center">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />

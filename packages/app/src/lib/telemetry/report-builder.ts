@@ -13,14 +13,11 @@ export function buildSessionReport(
   const state = useSessionStore.getState()
 
   // Find the session
-  // @ts-expect-error Phase 1E removal
   const session = state.sessions.find((s) => s.id === sessionId)
   if (!session) return null
 
   // Get session messages from cache
-  // @ts-expect-error Phase 1E removal
   const messages: Message[] = state.getSessionMessages
-    // @ts-expect-error Phase 1E removal
     ? state.getSessionMessages(sessionId)
     : []
 

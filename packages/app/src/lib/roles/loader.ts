@@ -11,9 +11,9 @@ import type {
 } from "./types"
 import { loadAllSkills } from "@/lib/git/skill-loader"
 
-const ROLE_ROOT = ".opencode/roles"
-const ROLE_SKILL_DIR = ".opencode/roles/skills"
-const ROLE_CONFIG_PATH = ".opencode/roles/config.json"
+const ROLE_ROOT = ".teamclaw/roles"
+const ROLE_SKILL_DIR = ".teamclaw/roles/skills"
+const ROLE_CONFIG_PATH = ".teamclaw/roles/config.json"
 const ROLE_SKILL_DIR_NAME = "skills"
 
 const SECTION_NAMES = {
@@ -316,7 +316,7 @@ export async function loadRolesSkillsWorkspaceState(workspacePath: string | null
       content: skill.content,
       description: extractSkillDescription(skill.content, skill.name),
       source: skill.source,
-      dirPath: skill.dirPath ?? `${workspacePath}/.opencode/skills`,
+      dirPath: skill.dirPath ?? `${workspacePath}/.teamclaw/skills`,
       linkedRoles: roleUsageBySkill[skill.filename] ?? [],
       isRoleSkill: false,
     })
@@ -394,7 +394,7 @@ export async function deleteRole(workspacePath: string, roleSlug: string, roleFi
 
 export async function loadAttachableSkills(workspacePath: string): Promise<AttachableSkill[]> {
   const { skills } = await loadAllSkills(workspacePath)
-  const workspaceSkillRoot = `${workspacePath}/.opencode/skills`
+  const workspaceSkillRoot = `${workspacePath}/.teamclaw/skills`
   return skills
     .filter((skill) => skill.source === "local" && skill.dirPath === workspaceSkillRoot)
     .map((skill) => ({
@@ -456,7 +456,7 @@ export async function attachSkillToRole(input: AttachSkillToRoleInput): Promise<
     throw new Error(`Role "${roleSlug}" does not exist`)
   }
 
-  const sourceDir = `${workspacePath}/.opencode/skills/${skillSlug}`
+  const sourceDir = `${workspacePath}/.teamclaw/skills/${skillSlug}`
   const sourceSkillPath = `${sourceDir}/SKILL.md`
   if (!(await exists(sourceSkillPath))) {
     throw new Error(`Skill "${skillSlug}" is not available for role attachment`)

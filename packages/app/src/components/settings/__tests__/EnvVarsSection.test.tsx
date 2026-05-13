@@ -83,10 +83,6 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }))
 
-vi.mock('@/lib/opencode/sdk-client', () => ({
-  initOpenCodeClient: vi.fn(),
-}))
-
 vi.mock('lucide-react', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>
   return {

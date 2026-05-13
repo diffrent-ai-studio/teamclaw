@@ -7,7 +7,7 @@ import { KnowledgeBrowser } from '@/components/knowledge/KnowledgeBrowser'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useSessionStore } from '@/stores/session'
 import { useSessionListStore } from '@/stores/session-list-store'
-import type { FileDiff } from '@/lib/opencode/sdk-types'
+import type { FileDiff } from '@/stores/session-types'
 import type { ComponentProps } from 'react'
 
 interface RightPanelProps {

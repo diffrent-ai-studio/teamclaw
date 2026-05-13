@@ -16,7 +16,6 @@ import { cn, isTauri, copyToClipboard } from '@/lib/utils';
  *  Record first, transcript shows above the button. User copies or inserts to chat. */
 export function VoiceInputFloatingButton() {
   const { t } = useTranslation();
-  // @ts-expect-error Phase 1E removal
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const [hasInstalledModel, setHasInstalledModel] = React.useState(!isTauri());
 

@@ -207,7 +207,6 @@ function PermissionEntryCard({
   const t = React.useCallback<TranslateFn>((key, fallback, options) => {
     return translate(i18nT, key, fallback, options)
   }, [i18nT])
-  // @ts-expect-error Phase 1E removal
   const replyPermission = useSessionStore((s) => s.replyPermission)
   const [submitting, setSubmitting] = React.useState(false)
   const [decided, setDecided] = React.useState<string | null>(null)
@@ -314,11 +313,8 @@ export function PendingPermissionInline() {
   const t = React.useCallback<TranslateFn>((key, fallback, options) => {
     return translate(i18nT, key, fallback, options)
   }, [i18nT])
-  // @ts-expect-error Phase 1E removal
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
-  // @ts-expect-error Phase 1E removal
   const sessions = useSessionStore((s) => s.sessions)
-  // @ts-expect-error Phase 1E removal
   const pendingPermissions = useSessionStore((s) => s.pendingPermissions)
   const [dismissedIds, setDismissedIds] = React.useState<string[]>([])
 

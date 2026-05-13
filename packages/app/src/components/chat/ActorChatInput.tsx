@@ -28,12 +28,12 @@ export function ActorChatInput() {
     try {
       // Resolve sender actor_id: look up the member row for this user in this team.
       // For Phase 1, use a heuristic — query members by user_id, find the actor in current team.
-      const { data: memberRows, error: memberErr } = await supabase
-        .from("members")
-        .select("id, actor:actors(id, team_id)")
+      const { data: actorRows, error: actorErr } = await supabase
+        .from("actors")
+        .select("id, team_id")
         .eq("user_id", session.user.id);
-      if (memberErr) throw memberErr;
-      const matching = (memberRows ?? []).find((m: any) => m.actor?.team_id === sessionRow.team_id);
+      if (actorErr) throw actorErr;
+      const matching = (actorRows ?? []).find((a) => a.team_id === sessionRow.team_id);
       if (!matching) {
         throw new Error(`No actor found for user in team ${sessionRow.team_id}`);
       }
@@ -79,6 +79,10 @@ export function ActorChatInput() {
         // created_at default
       });
       if (insErr) throw insErr;
+
+      // Optimistic local append — broker doesn't echo back to publisher and
+      // single-window scope means we won't get a remote echo either.
+      useSessionStore.getState().appendMessage(sid, message);
 
       setText("");
     } catch (e) {

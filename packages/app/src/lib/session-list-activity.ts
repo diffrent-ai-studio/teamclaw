@@ -3,7 +3,7 @@ import type {
   PendingQuestionState,
   Session,
 } from "@/stores/session-types";
-import type { SessionStatusInfo } from "@/lib/opencode/sdk-sse";
+import type { SessionStatusInfo } from "@/stores/session-types";
 
 export type SessionActivityState = "running" | "waiting";
 export type SessionActivityKind = "streaming" | "retry" | "question" | "permission";

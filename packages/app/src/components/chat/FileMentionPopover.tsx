@@ -20,7 +20,7 @@ const ALWAYS_IGNORED_NAMES = new Set([
   ".ruff_cache",
 ])
 
-const DEV_ONLY_NAMES = new Set([TEAMCLAW_DIR, ".opencode"])
+const DEV_ONLY_NAMES = new Set([TEAMCLAW_DIR])
 
 function isIgnoredName(name: string): boolean {
   if (useTeamModeStore.getState().devUnlocked) return false

@@ -8,7 +8,6 @@ import { buildConfig, TEAMCLAW_DIR } from '@/lib/build-config'
 export const TEAMCLAW_GITIGNORE_ENTRIES = [
   `# ${buildConfig.app.name} system directories`,
   `${TEAMCLAW_DIR}/`,
-  '.opencode/',
 ]
 
 /**

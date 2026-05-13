@@ -6,7 +6,7 @@ const mockInvoke = vi.hoisted(() => vi.fn())
 
 const workspaceStoreMocks = vi.hoisted(() => ({
   workspacePath: '/workspace-a',
-  openCodeReady: true,
+  workspaceReady: true,
 }))
 
 const teamMembersStoreMocks = vi.hoisted(() => ({
@@ -101,7 +101,7 @@ describe('TeamGitConfig workspace-aware calls', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     workspaceStoreMocks.workspacePath = '/workspace-a'
-    workspaceStoreMocks.openCodeReady = true
+    workspaceStoreMocks.workspaceReady = true
     teamMembersStoreMocks.loadMembers.mockReset()
     teamMembersStoreMocks.loadMyRole.mockReset()
     Object.defineProperty(window, '__TAURI_INTERNALS__', {

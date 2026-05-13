@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useSessionStore } from '@/stores/session'
-import type { Question } from '@/lib/opencode/sdk-types'
+import type { Question } from '@/stores/session-types'
 
 interface QuestionCardProps {
   toolCallId: string
@@ -16,11 +16,8 @@ interface QuestionCardProps {
 export const QuestionCard = React.memo(function QuestionCard({ toolCallId, questions, isCompleted }: QuestionCardProps) {
   const { t } = useTranslation()
   const questionList = Array.isArray(questions) ? (questions as Question[]) : []
-  // @ts-expect-error Phase 1E removal
   const pendingQuestions = useSessionStore(s => s.pendingQuestions)
-  // @ts-expect-error Phase 1E removal
   const pendingQuestion = pendingQuestions.find(q => q.toolCallId === toolCallId)
-  // @ts-expect-error Phase 1E removal
   const answerQuestion = useSessionStore(s => s.answerQuestion)
   const [answers, setAnswers] = React.useState<Record<string, string>>({})
   const [customInputs, setCustomInputs] = React.useState<Record<string, string>>({})
@@ -124,7 +121,7 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
 
               {/* Options */}
               {showInteractiveUI && question.options && question.options.length > 0 &&
-                question.options.map((option, optIndex) => {
+                question.options.map((option: any, optIndex: number) => {
                   const optionValue = option.value || option.label
                   const isSelected = selectedOption === optionValue
 

@@ -1,10 +1,10 @@
 import { create } from 'zustand'
-import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
 import { toast } from 'sonner'
 import { appShortName } from '@/lib/build-config'
 import { invoke } from '@tauri-apps/api/core'
 import { workspaceScopedKey } from '@/lib/storage'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { allAmuxdModels, AMUXD_AGENT_TYPES, availableModelsFor } from '@/lib/amuxd-models'
 import {
   type CustomProviderConfig,
   addCustomProviderToConfig,
@@ -13,7 +13,7 @@ import {
   removeCustomProviderFromConfig,
   getCustomProviderIds,
   providerApiKeyName,
-} from '@/lib/opencode/config'
+} from '@/lib/teamclaw-config'
 
 const SELECTED_MODEL_BASE = `${appShortName}-selected-model`
 
@@ -29,13 +29,12 @@ function readSavedSelectedModel(): string | null {
   return localStorage.getItem(SELECTED_MODEL_BASE)
 }
 
-// Safe helper: returns client or null if not initialized yet
-function tryGetClient() {
-  try {
-    return getOpenCodeClient()
-  } catch {
-    return null
-  }
+// Safe helper: agent client is not wired to the amuxd daemon yet; all
+// callers gracefully no-op when this returns null. Type is `any` so the
+// `if (!client) return` early-exits typecheck without narrowing the body.
+// TODO(amuxd): wire to daemon
+function tryGetClient(): any {
+  return null
 }
 
 export interface ProviderAuthMethod {
@@ -83,12 +82,12 @@ export interface ProviderState {
   // Auth methods per provider (from GET /provider/auth)
   authMethods: Record<string, ProviderAuthMethod[]>
 
-  // Custom provider IDs (defined in opencode.json)
+  // Custom provider IDs (defined in the legacy workspace config)
   customProviderIds: string[]
 
-  // Provider IDs disconnected in the current session. OpenCode reports custom
-  // providers (defined in opencode.json) as "connected" even after auth is
-  // removed, so we track them here and filter during refreshes.
+  // Provider IDs disconnected in the current session. The agent runtime reports
+  // custom providers (defined in the legacy workspace config) as "connected"
+  // even after auth is removed, so we track them here and filter during refreshes.
   _disconnectedIds: Set<string>
 
   // Actions
@@ -139,7 +138,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   // Initiate OAuth for a provider. Returns pending state with url+instructions for the UI to show.
   connectProviderOAuth: async (providerId, methodIndex) => {
     const client = tryGetClient()
-    if (!client) return { status: 'error' as const, message: 'OpenCode not connected' }
+    if (!client) return { status: 'error' as const, message: 'Agent runtime not connected' }
     try {
       const result = await client.oauthAuthorize(providerId, methodIndex)
       if (!result) return { status: 'error' as const, message: 'Provider does not support OAuth' }
@@ -199,8 +198,8 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       set({ providers, providersLoading: false })
     } catch (err) {
       console.error('Failed to load providers:', err)
-      // Only show toast if it's not a connection error (OpenCode not ready)
-      const isConnectionError = err instanceof Error && (err.message.includes('Cannot connect to OpenCode') || err.message.includes('Load failed'))
+      // Only show toast if it's not a connection error (agent runtime not ready)
+      const isConnectionError = err instanceof Error && (err.message.includes('Cannot connect to agent runtime') || err.message.includes('Load failed'))
       if (!isConnectionError) {
         toast.error('Failed to load providers', {
           id: 'provider-list-error',
@@ -251,8 +250,8 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       })
     } catch (err) {
       console.error('Failed to load configured providers:', err)
-      // Only show toast if it's not a connection error (OpenCode not ready)
-      const isConnectionError = err instanceof Error && (err.message.includes('Cannot connect to OpenCode') || err.message.includes('Load failed'))
+      // Only show toast if it's not a connection error (agent runtime not ready)
+      const isConnectionError = err instanceof Error && (err.message.includes('Cannot connect to agent runtime') || err.message.includes('Load failed'))
       if (!isConnectionError) {
         toast.error('Failed to load model list', {
           id: 'model-list-error',
@@ -263,7 +262,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     }
   },
 
-  // Refresh current model from opencode config (GET /config)
+  // Refresh current model from agent runtime config (GET /config)
   refreshCurrentModel: async () => {
     const client = tryGetClient()
     if (!client) return // Client not ready yet, skip silently
@@ -284,7 +283,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   connectProvider: async (providerId: string, apiKey: string) => {
     const client = tryGetClient()
     if (!client) {
-      toast.error('OpenCode not connected')
+      toast.error('Agent runtime not connected')
       return false
     }
     try {
@@ -366,7 +365,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   disconnectProvider: async (providerId: string) => {
     const client = tryGetClient()
     if (!client) {
-      toast.error('OpenCode not connected')
+      toast.error('Agent runtime not connected')
       return false
     }
     try {
@@ -375,7 +374,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
         description: `Successfully disconnected ${providerId}`,
       })
       // Track as disconnected so subsequent refreshes from the server
-      // don't re-add it as "connected" (OpenCode reports custom providers
+      // don't re-add it as "connected" (the agent runtime reports custom providers
       // as connected even after auth removal).
       set((state) => {
         const newDisconnected = new Set(state._disconnectedIds)
@@ -403,7 +402,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     }
   },
 
-  // Refresh custom provider IDs from opencode.json
+  // Refresh custom provider IDs from the legacy workspace config
   refreshCustomProviderIds: async (workspacePath: string) => {
     try {
       const ids = await getCustomProviderIds(workspacePath)
@@ -425,7 +424,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
         await invoke('env_var_set', { key: keyName, value: apiKey, description: `API key for provider ${config.name}` })
       }
       toast.success('Custom provider added', {
-        description: `${config.name} has been added to opencode.json. Restarting OpenCode...`,
+        description: `${config.name} has been added. Restarting agent...`,
       })
       return providerId
     } catch (err) {
@@ -448,7 +447,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
           await invoke('env_var_set', { key: keyName, value: config.apiKey, description: `API key for provider ${config.name}` })
         }
         toast.success('Custom provider updated', {
-          description: `${config.name} has been updated. Restarting OpenCode...`,
+          description: `${config.name} has been updated. Restarting agent...`,
         })
       }
       return success
@@ -471,12 +470,12 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     }
   },
 
-  // Remove a custom provider from opencode.json
+  // Remove a custom provider from the legacy workspace config
   removeCustomProvider: async (workspacePath: string, providerId: string) => {
     try {
       await removeCustomProviderFromConfig(workspacePath, providerId)
       toast.success('Custom provider removed', {
-        description: `Provider has been removed. Restarting OpenCode...`,
+        description: `Provider has been removed. Restarting agent...`,
       })
       return true
     } catch (err) {
@@ -488,7 +487,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     }
   },
 
-  // Select a model and sync to opencode backend
+  // Select a model and sync to the agent runtime backend
   selectModel: async (providerId: string, modelId: string, _modelName: string) => {
     const modelKey = `${providerId}/${modelId}`
     set({ currentModelKey: modelKey })
@@ -510,41 +509,52 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
 
   // Initialize all data at once
   initAll: async () => {
-    await Promise.all([
-      get().refreshProviders(),
-      get().refreshConfiguredProviders(),
-      get().refreshCurrentModel(),
-    ])
-
-    // Retry: sidecar may be healthy but provider registry not yet loaded.
-    // `/provider` always returns non-empty when providers are registered,
-    // so an empty list means the registry hasn't initialized yet.
-    if (get().providers.length === 0) {
-      const deadline = Date.now() + 5_000
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 500))
-        await Promise.all([
-          get().refreshProviders(),
-          get().refreshConfiguredProviders(),
-        ])
-        if (get().providers.length > 0) break
-      }
-    }
+    // v2 Phase 1: providers/models come from amuxd's static available_models
+    // list (ported from amux/daemon/src/runtime/models.rs). Phase 2's daemon
+    // installer will replace this with live RuntimeInfo per running runtime.
+    // We bypass refreshProviders/refreshConfiguredProviders (those still hit
+    // legacy SDK stubs) and seed state directly.
+    const flat = allAmuxdModels()
+    const providers: ProviderEntry[] = AMUXD_AGENT_TYPES.map((id) => ({
+      id,
+      name: id,
+      configured: availableModelsFor(id).length > 0,
+    }))
+    const configuredProviders: ConfiguredProvider[] = AMUXD_AGENT_TYPES
+      .map((id) => ({
+        id,
+        name: id,
+        models: availableModelsFor(id).map((m) => ({ id: m.id, name: m.displayName })),
+      }))
+      .filter((p) => p.models.length > 0)
+    const models: ModelOption[] = flat.map((m) => ({
+      id: m.id,
+      name: m.displayName,
+      provider: m.provider,
+    }))
+    set({
+      providers,
+      configuredProviders,
+      models,
+      providersLoading: false,
+      configuredProvidersLoading: false,
+    })
 
     // After loading, resolve selected model:
-    // Priority: opencode config > localStorage > first available model
-    const { currentModelKey, models } = get()
+    // Priority: localStorage > first available model
+    const { currentModelKey } = get()
+    const availableModels = get().models
 
     let resolvedKey = currentModelKey
 
-    if (!resolvedKey || !models.find((m) => `${m.provider}/${m.id}` === resolvedKey)) {
+    if (!resolvedKey || !availableModels.find((m) => `${m.provider}/${m.id}` === resolvedKey)) {
       // Try localStorage fallback (workspace-scoped, with legacy fallback)
       const saved = readSavedSelectedModel()
-      if (saved && models.find((m) => `${m.provider}/${m.id}` === saved)) {
+      if (saved && availableModels.find((m) => `${m.provider}/${m.id}` === saved)) {
         resolvedKey = saved
-      } else if (models.length > 0) {
+      } else if (availableModels.length > 0) {
         // Last resort: first available model
-        resolvedKey = `${models[0].provider}/${models[0].id}`
+        resolvedKey = `${availableModels[0].provider}/${availableModels[0].id}`
       }
     }
 

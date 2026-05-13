@@ -32,21 +32,15 @@ interface SessionListItemProps {
 
 function SessionStatusIndicator({ compact, sessionId }: { compact?: boolean; sessionId: string }) {
   const { t } = useTranslation()
-  // @ts-expect-error Phase 1E removal
   const sessions = useSessionStore(s => s.sessions)
-  // @ts-expect-error Phase 1E removal
   const sessionStatus = useSessionStore(s => s.sessionStatus)
-  // @ts-expect-error Phase 1E removal
   const pendingPermissions = useSessionStore(s => s.pendingPermissions)
-  // @ts-expect-error Phase 1E removal
   const pendingQuestions = useSessionStore(s => s.pendingQuestions)
   const streamingMessageId = useStreamingStore(s => s.streamingMessageId)
   const hasPendingPermission = pendingPermissions.some(
-    // @ts-expect-error Phase 1E removal
     (entry) => resolvePendingPermissionActivityOwner(entry, sessions, sessionId) === sessionId,
   )
   const hasPendingQuestion = pendingQuestions.some(
-    // @ts-expect-error Phase 1E removal
     (question) => resolvePendingQuestionActivityOwner(question, sessions, sessionId) === sessionId,
   )
 
@@ -137,15 +131,12 @@ const ROW_HEIGHT = 52
 const ROW_HEIGHT_COMPACT = 40
 
 export function SessionList({ compact, onSessionSelected }: SessionListProps) {
-  // @ts-expect-error Phase 1E removal
   const allSessions = useSessionStore(s => s.sessions)
-  // @ts-expect-error Phase 1E removal
   const activeSessionId = useSessionStore(s => s.activeSessionId)
   const cronSessionIds = useCronStore(s => s.cronSessionIds)
   const showCronSessions = useCronStore(s => s.showCronSessions)
 
   const parentSessions = useMemo(() => {
-    // @ts-expect-error Phase 1E removal
     return allSessions.filter(s => {
       if (s.parentID) return false
       return showCronSessions
@@ -154,11 +145,8 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
     })
   }, [allSessions, cronSessionIds, showCronSessions, activeSessionId])
 
-  // @ts-expect-error Phase 1E removal
   const isLoading = useSessionStore(s => s.isLoading)
-  // @ts-expect-error Phase 1E removal
   const highlightedSessionIds = useSessionStore(s => s.highlightedSessionIds)
-  // @ts-expect-error Phase 1E removal
   const setActiveSession = useSessionStore(s => s.setActiveSession)
   const clearSelection = useWorkspaceStore(s => s.clearSelection)
   const setFileModeRightTab = useUIStore(s => s.setFileModeRightTab)
@@ -178,7 +166,6 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
   void clearSelection
 
   const handleSelectSession = useCallback((id: string) => {
-    // @ts-expect-error Phase 1E removal
     const { viewingChildSessionId: vcid, setViewingChildSession: setVcs } = useSessionStore.getState()
     if (vcid) setVcs(null)
     useUIStore.getState().switchToSession(id)

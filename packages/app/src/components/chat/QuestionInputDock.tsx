@@ -106,9 +106,7 @@ export function QuestionInputDock({
   onHeightChange,
 }: QuestionInputDockProps) {
   const { t } = useTranslation();
-  // @ts-expect-error Phase 1E removal
   const answerQuestion = useSessionStore((s) => s.answerQuestion);
-  // @ts-expect-error Phase 1E removal
   const skipQuestion = useSessionStore((s) => s.skipQuestion);
   const rootRef = React.useRef<HTMLDivElement>(null);
   const lastReportedHeight = React.useRef(0);
@@ -178,7 +176,7 @@ export function QuestionInputDock({
       isLastQuestion &&
       questions.length > 1 &&
       questions.slice(0, -1).every(hasAnswerForQuestion) &&
-      !!currentQuestion?.options?.some((option) => getOptionValue(option) === ""),
+      !!currentQuestion?.options?.some((option: any) => getOptionValue(option) === ""),
     [currentQuestion?.options, hasAnswerForQuestion, isLastQuestion, questions],
   );
 
@@ -303,7 +301,7 @@ export function QuestionInputDock({
             <QuestionMarkdown>{currentQuestion.question}</QuestionMarkdown>
 
             <div className="space-y-1">
-              {currentQuestion.options?.map((option, optionIndex) => {
+              {currentQuestion.options?.map((option: any, optionIndex: number) => {
                 const optionValue = getOptionValue(option);
                 const isSelected = hasSelectedAnswer && selectedAnswer === optionValue && !customAnswer.trim();
                 return (

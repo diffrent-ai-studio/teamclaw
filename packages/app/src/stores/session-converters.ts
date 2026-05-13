@@ -1,8 +1,7 @@
-import type {
-  Session as OpenCodeSession,
-  SessionListItem,
-  Message as OpenCodeMessage,
-} from "@/lib/opencode/sdk-types";
+// Legacy agent SDK types are stubbed; chat conversion is dead code in v2.
+type AgentSession = any;
+type SessionListItem = any;
+type AgentMessage = any;
 import type { ToolCall, MessagePart, Message, Session } from './session-types';
 
 function isCompactionContinueMetadata(metadata: unknown): boolean {
@@ -23,10 +22,10 @@ function archiveMetadata(
   };
 }
 
-// Convert OpenCode message to our format
-export function convertMessage(msg: OpenCodeMessage): Message {
-  const hasCompactionPart = msg.parts.some((part) => part.type === "compaction");
-  const compactionPart = msg.parts.find((part) => part.type === "compaction");
+// Convert agent message to our format
+export function convertMessage(msg: AgentMessage): Message {
+  const hasCompactionPart = msg.parts.some((part: any) => part.type === "compaction");
+  const compactionPart = msg.parts.find((part: any) => part.type === "compaction");
   const isCompactionSummary =
     msg.info.role === "assistant" &&
     (msg.info.summary === true ||
@@ -37,17 +36,17 @@ export function convertMessage(msg: OpenCodeMessage): Message {
     (msg.info.synthetic === true && isCompactionContinueMetadata(msg.info.metadata));
 
   const content = msg.parts
-    .filter((p) => p.type === "text" && p.text && !isSyntheticCompactionContinue)
-    .map((p) => p.text)
+    .filter((p: any) => p.type === "text" && p.text && !isSyntheticCompactionContinue)
+    .map((p: any) => p.text)
     .join("");
 
   // Extract tool calls and pair them with results
   const toolParts = msg.parts.filter(
-    (p) => p.type === "tool-call" || p.type === "tool",
+    (p: any) => p.type === "tool-call" || p.type === "tool",
   );
-  const toolResultParts = msg.parts.filter((p) => p.type === "tool-result");
+  const toolResultParts = msg.parts.filter((p: any) => p.type === "tool-result");
 
-  const toolCalls: ToolCall[] = toolParts.map((p) => {
+  const toolCalls: ToolCall[] = toolParts.map((p: any) => {
     // For 'tool' type parts, get result and metadata from state
     // For 'tool-call' type parts, find matching result from toolResultParts
     const state = p.state as
@@ -63,7 +62,7 @@ export function convertMessage(msg: OpenCodeMessage): Message {
     let toolMetadata: ToolCall["metadata"] | undefined;
 
     if (p.type === "tool" && state) {
-      // For 'tool' type, result may be in raw, output, or result (OpenCode variance)
+      // For "tool" type, result may be in raw, output, or result (agent runtime variance)
       const s = state as { raw?: unknown; output?: unknown; result?: unknown };
       toolResult = s.raw ?? s.output ?? s.result;
       // metadata is in state.metadata (for task tool: sessionId, summary, etc.)
@@ -86,7 +85,7 @@ export function convertMessage(msg: OpenCodeMessage): Message {
       }
     } else {
       // For 'tool-call' type, find matching result
-      const matchingResult = toolResultParts.find((r) => r.toolResult?.content);
+      const matchingResult = toolResultParts.find((r: any) => r.toolResult?.content);
       toolResult = matchingResult?.toolResult?.content;
     }
 
@@ -120,7 +119,7 @@ export function convertMessage(msg: OpenCodeMessage): Message {
     };
   });
 
-  const parts: MessagePart[] = msg.parts.map((p) => ({
+  const parts: MessagePart[] = msg.parts.map((p: any) => ({
     id: p.id,
     type: p.type,
     content: p.text,
@@ -150,7 +149,7 @@ export function convertMessage(msg: OpenCodeMessage): Message {
     timestamp: new Date(msg.info.time.created),
     tokens: msg.info.tokens,
     cost: msg.info.cost,
-    // Preserve model information from OpenCode
+    // Preserve model information from agent
     modelID: msg.info.modelID,
     providerID: msg.info.providerID,
     agent: msg.info.agent,
@@ -167,8 +166,8 @@ export function convertMessage(msg: OpenCodeMessage): Message {
   };
 }
 
-// Convert OpenCode session to our format
-export function convertSession(session: OpenCodeSession): Session {
+// Convert agent session to our format
+export function convertSession(session: AgentSession): Session {
   const now = Date.now()
   return {
     id: session.id,

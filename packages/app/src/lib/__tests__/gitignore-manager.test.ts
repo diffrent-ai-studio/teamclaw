@@ -25,9 +25,9 @@ describe('gitignore-manager', () => {
 
   describe('parseGitignore', () => {
     it('should parse gitignore content into lines', () => {
-      const content = `# Comment\n${TEAMCLAW_DIR}/\n.opencode/\n`
+      const content = `# Comment\n${TEAMCLAW_DIR}/\nnode_modules/\n`
       const result = parseGitignore(content)
-      expect(result).toEqual(['# Comment', `${TEAMCLAW_DIR}/`, '.opencode/'])
+      expect(result).toEqual(['# Comment', `${TEAMCLAW_DIR}/`, 'node_modules/'])
     })
 
     it('should handle empty content', () => {
@@ -63,7 +63,7 @@ describe('gitignore-manager', () => {
 
     it('should not duplicate entries with different formatting', async () => {
       vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLAW_DIR}\n.opencode\n`)  // No trailing slashes
+      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLAW_DIR}\n`)  // No trailing slash
 
       await ensureGitignoreEntries('/workspace')
 
@@ -84,10 +84,10 @@ describe('gitignore-manager', () => {
 
     it('should not duplicate existing entries', async () => {
       vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLAW_DIR}/\n.opencode/\n`)
-      
+      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLAW_DIR}/\n`)
+
       await ensureGitignoreEntries('/workspace')
-      
+
       expect(writeTextFile).not.toHaveBeenCalled()
     })
   })

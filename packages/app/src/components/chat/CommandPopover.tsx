@@ -2,18 +2,25 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { Command as CommandIcon, Zap, Loader2, UserRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getOpenCodeClient, type Command as OpenCodeCommand } from '@/lib/opencode/sdk-client'
+// Commands come solely from the frontend skill/role scan.
+export type Command = {
+  name: string;
+  description?: string;
+  template?: string;
+  source?: string;
+  _type?: 'role' | 'skill' | 'command';
+}
 import { useWorkspaceStore } from '@/stores/workspace'
 import { isTauri } from '@/lib/utils'
 import { loadAllSkills } from '@/lib/git/skill-loader'
-import { readSkillPermissions, resolveSkillPermission } from '@/lib/opencode/config'
+import { readSkillPermissions, resolveSkillPermission } from '@/lib/teamclaw-config'
 import { loadAllRoles } from '@/lib/roles/loader'
 
 interface CommandPopoverProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   searchQuery: string
-  onSelect: (command: OpenCodeCommand) => void
+  onSelect: (command: Command) => void
 }
 
 interface SkillEntry {
@@ -39,8 +46,8 @@ function isRoleEntry(item: PickerItem): item is RoleEntry {
 }
 
 // Unified type for display in the list
-type CommandOrSkill = OpenCodeCommand | SkillEntry
-type PickerItem = OpenCodeCommand | SkillEntry | RoleEntry
+type CommandOrSkill = Command | SkillEntry
+type PickerItem = Command | SkillEntry | RoleEntry
 
 async function scanAvailableSkills(workspacePath: string): Promise<SkillEntry[]> {
   const { skills } = await loadAllSkills(workspacePath)
@@ -98,7 +105,7 @@ export function CommandPopover({
 }: CommandPopoverProps) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
-  const [commands, setCommands] = React.useState<OpenCodeCommand[]>([])
+  const [commands, setCommands] = React.useState<Command[]>([])
   const [roles, setRoles] = React.useState<RoleEntry[]>([])
   const [skills, setSkills] = React.useState<CommandOrSkill[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
@@ -110,13 +117,8 @@ export function CommandPopover({
     if (open) {
       setIsLoading(true)
       
-      // Load OpenCode commands
-      const commandsPromise = getOpenCodeClient()
-        .listCommands()
-        .catch(error => {
-          console.error('[CommandPopover] Failed to load commands:', error)
-          return []
-        })
+      // Only frontend-scanned skills/roles remain.
+      const commandsPromise: Promise<Command[]> = Promise.resolve([])
       
       // Load skills from .claude/skills/ (only on Tauri)
       const skillsPromise = (isTauri() && workspacePath)
@@ -142,7 +144,7 @@ export function CommandPopover({
       
       Promise.all([commandsPromise, skillsPromise, rolesPromise, permissionsPromise])
         .then(([cmds, skls, loadedRoles, permissions]) => {
-          // Separate OpenCode commands by source
+          // Separate commands by source
           const deniedSkillNames = new Set(
             skls
               .filter((skill) => resolveSkillPermission(skill.permissionKey, permissions).permission === 'deny')
@@ -153,21 +155,21 @@ export function CommandPopover({
             (skill) => resolveSkillPermission(skill.permissionKey, permissions).permission !== 'deny'
           )
 
-          const openCodeSkills = cmds.filter((cmd) => {
-            if ((cmd as OpenCodeCommand & { source?: string }).source !== 'skill') return false
+          const sdkSkills = cmds.filter((cmd) => {
+            if ((cmd as Command & { source?: string }).source !== 'skill') return false
             if (deniedSkillNames.has(cmd.name)) return false
             return resolveSkillPermission(cmd.name, permissions).permission !== 'deny'
           })
-          const openCodeCommands = cmds.filter((cmd) => (cmd as OpenCodeCommand & { source?: string }).source !== 'skill')
+          const sdkCommands = cmds.filter((cmd) => (cmd as Command & { source?: string }).source !== 'skill')
           
-          // Merge frontend-scanned skills with OpenCode skills
-          // Deduplicate: prefer OpenCode skills (they have more metadata like template)
-          const skillNameSet = new Set(openCodeSkills.map(s => s.name))
+          // Merge frontend-scanned skills with SDK skills
+          // Deduplicate: prefer SDK skills (they have more metadata like template)
+          const skillNameSet = new Set(sdkSkills.map(s => s.name))
           const uniqueFrontendSkills = allowedFrontendSkills.filter(s => !skillNameSet.has(s.name))
           
-          setCommands(openCodeCommands)
+          setCommands(sdkCommands)
           setRoles(loadedRoles)
-          setSkills([...openCodeSkills, ...uniqueFrontendSkills])
+          setSkills([...sdkSkills, ...uniqueFrontendSkills])
           setIsLoading(false)
         })
     } else {
@@ -219,7 +221,7 @@ export function CommandPopover({
             : item.name,
       description: item.description,
       _type: item._itemType,
-    } as OpenCodeCommand)
+    } as Command)
     console.log('[CommandPopover] ✅ onSelect called, closing popover');
     onOpenChange(false)
   }, [onSelect, onOpenChange])

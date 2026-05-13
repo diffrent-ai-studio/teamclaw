@@ -1,10 +1,20 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
+// Permissive proxy until the amuxd daemon client is wired up;
+// question flows are non-functional.
+// TODO(amuxd): wire to daemon
+const getAgentClient: () => any = () =>
+  new Proxy({}, {
+    get() {
+      return () => {
+        throw new Error('Agent client not wired to amuxd daemon yet');
+      };
+    },
+  });
 import { notificationService } from "@/lib/notification-service";
 import { buildConfig } from "@/lib/build-config";
 import type {
   QuestionAskedEvent,
-} from "@/lib/opencode/sdk-types";
+} from "./session-types";
 import type {
   ToolCall,
   SessionState,
@@ -119,7 +129,7 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
       });
 
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
 
         console.log(
           "[Question] Replying to question:",
@@ -164,7 +174,7 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
       }
 
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
 
         console.log(
           "[Question] Rejecting question:",
@@ -260,7 +270,7 @@ export function createQuestionActions(set: SessionSet, get: SessionGet) {
           "",
         questions: event.questions || existing?.questions || [],
         sessionId: event.sessionId,
-        source: "opencode" as const,
+        source: "agent" as const,
       };
 
       const cacheQuestion = (sessionId: string | null | undefined) => {

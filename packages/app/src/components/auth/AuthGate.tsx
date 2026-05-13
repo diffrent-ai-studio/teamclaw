@@ -13,6 +13,10 @@ export function AuthGate({ children }: AuthGateProps) {
     hydrate();
   }, [hydrate]);
 
+  useEffect(() => {
+    document.getElementById("skeleton")?.remove();
+  }, []);
+
   if (loading && !session) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">

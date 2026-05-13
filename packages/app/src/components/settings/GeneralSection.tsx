@@ -31,7 +31,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SettingCard, SectionHeader, ToggleSwitch } from './shared'
 import { getPermissionPolicy, setPermissionPolicy, type PermissionPolicy } from '@/lib/permission-policy'
-import { PermissionBatchSection } from './PermissionBatchSection'
 import { useSuggestionsStore } from '@/stores/suggestions'
 import { useUIStore } from '@/stores/ui'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -420,10 +419,6 @@ export const GeneralSection = React.memo(function GeneralSection() {
           </div>
         </div>
       </SettingCard>
-
-      {permissionPolicy === 'batch' && (
-        <PermissionBatchSection />
-      )}
 
       <ChatSuggestionsCard />
 

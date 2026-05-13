@@ -53,15 +53,13 @@ bash .claude/skills/fc-deploy/deploy.sh
 - `packages/app/src/hooks/` — React hooks
 
 **Rust backend key paths:**
-- `src-tauri/src/commands/` — Tauri IPC commands (34 modules: opencode, oss_sync, team_p2p, gateway/, cron/)
+- `src-tauri/src/commands/` — Tauri IPC commands (oss_sync, team_p2p, gateway/, cron/, etc.)
 - `src-tauri/src/rag/` — Full-text search + embeddings
-- `src-tauri/binaries/` — OpenCode sidecar
+- `src-tauri/binaries/` — sidecar binaries (teamclaw-introspect, etc.)
 
 **Editor system:** Markdown (Tiptap) / HTML (Tiptap + sandbox preview) / Code (CodeMirror 6 + Shiki)
 
 ## Streaming Architecture (Critical)
-
-See `packages/app/src/stores/STREAMING_ARCHITECTURE.md` for full details.
 
 Single source of truth principle — **never mix content sources**:
 - **Streaming phase**: display from `streamingContent` (built from delta buffer)

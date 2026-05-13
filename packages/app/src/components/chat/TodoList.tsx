@@ -1,7 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { CheckCircle2, ChevronDown, ChevronUp, Circle, Clock3, ListTodo, Trash2, XCircle } from "lucide-react";
-import type { Todo } from "@/lib/opencode/sdk-types";
+import type { Todo } from "@/stores/session-types";
 import type { QueuedMessage } from "@/stores/session";
 import { cn } from "@/lib/utils";
 

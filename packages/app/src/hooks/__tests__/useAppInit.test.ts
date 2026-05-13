@@ -4,8 +4,8 @@ import { renderHook, waitFor } from '@testing-library/react'
 // --- Hoist mocks ---
 const {
   mockSetWorkspace,
-  mockSetOpenCodeBootstrapped,
-  mockSetOpenCodeReady,
+  mockSetWorkspaceBootstrapped,
+  mockSetWorkspaceReady,
   mockIsTauri,
   mockExists,
   mockInvoke,
@@ -15,8 +15,8 @@ const {
   mockLoadMembers,
 } = vi.hoisted(() => ({
   mockSetWorkspace: vi.fn(),
-  mockSetOpenCodeBootstrapped: vi.fn(),
-  mockSetOpenCodeReady: vi.fn(),
+  mockSetWorkspaceBootstrapped: vi.fn(),
+  mockSetWorkspaceReady: vi.fn(),
   mockIsTauri: vi.fn(() => false),
   mockExists: vi.fn(),
   mockInvoke: vi.fn(),
@@ -47,10 +47,10 @@ vi.mock('@tauri-apps/api/event', () => ({
 const workspaceState = {
   workspacePath: null as string | null,
   setWorkspace: mockSetWorkspace,
-  setOpenCodeBootstrapped: mockSetOpenCodeBootstrapped,
-  setOpenCodeReady: mockSetOpenCodeReady,
-  openCodeBootstrapped: false,
-  openCodeReady: false,
+  setWorkspaceBootstrapped: mockSetWorkspaceBootstrapped,
+  setWorkspaceReady: mockSetWorkspaceReady,
+  workspaceBootstrapped: false,
+  workspaceReady: false,
   openPanel: vi.fn(),
   closePanel: vi.fn(),
 }
@@ -147,15 +147,7 @@ vi.mock('@/stores/telemetry', () => ({
     }),
 }))
 
-vi.mock('@/lib/opencode/sdk-client', () => ({
-  initOpenCodeClient: vi.fn(),
-}))
 
-vi.mock('@/lib/opencode/preloader', () => ({
-  startOpenCode: vi.fn().mockResolvedValue({ url: 'http://localhost:13141' }),
-  hasPreloadFor: vi.fn(() => false),
-  waitForOpenCodeBootstrapped: vi.fn().mockResolvedValue({ url: 'http://localhost:13141' }),
-}))
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -168,8 +160,8 @@ beforeEach(() => {
   mockLoadCurrentNodeId.mockResolvedValue(undefined)
   mockLoadMembers.mockResolvedValue(undefined)
   workspaceState.workspacePath = null
-  workspaceState.openCodeBootstrapped = false
-  workspaceState.openCodeReady = false
+  workspaceState.workspaceBootstrapped = false
+  workspaceState.workspaceReady = false
   teamModeState.teamMode = false
   teamModeState.setState.mockClear()
   p2pEngineState.init = vi.fn(async () => () => {})
@@ -181,24 +173,12 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('useOpenCodeInit', () => {
-  it('returns openCodeError as null initially', async () => {
-    const { useOpenCodeInit } = await import('@/hooks/useAppInit')
-    const { result } = renderHook(() => useOpenCodeInit())
-    expect(result.current.openCodeError).toBeNull()
-  })
-
-  it('exposes setOpenCodeError function', async () => {
-    const { useOpenCodeInit } = await import('@/hooks/useAppInit')
-    const { result } = renderHook(() => useOpenCodeInit())
-    expect(typeof result.current.setOpenCodeError).toBe('function')
-  })
-
+describe('useWorkspaceInit', () => {
   it('restores the last workspace when one is saved', async () => {
     localStorage.setItem('teamclaw-workspace-path', '/tmp/teamclaw-last')
 
-    const { useOpenCodeInit } = await import('@/hooks/useAppInit')
-    const { result } = renderHook(() => useOpenCodeInit())
+    const { useWorkspaceInit } = await import('@/hooks/useAppInit')
+    const { result } = renderHook(() => useWorkspaceInit())
 
     await waitFor(() => {
       expect(mockSetWorkspace).toHaveBeenCalledWith('/tmp/teamclaw-last')
@@ -211,8 +191,8 @@ describe('useOpenCodeInit', () => {
     mockExists.mockResolvedValue(false)
     localStorage.setItem('teamclaw-workspace-path', '/tmp/missing-workspace')
 
-    const { useOpenCodeInit } = await import('@/hooks/useAppInit')
-    const { result } = renderHook(() => useOpenCodeInit())
+    const { useWorkspaceInit } = await import('@/hooks/useAppInit')
+    const { result } = renderHook(() => useWorkspaceInit())
 
     await waitFor(() => {
       expect(mockSetWorkspace).not.toHaveBeenCalled()
@@ -259,7 +239,7 @@ describe('useGitReposInit', () => {
   it('hydrates current member roles when loading team shortcuts on startup', async () => {
     mockIsTauri.mockReturnValue(true)
     workspaceState.workspacePath = '/workspace-team'
-    workspaceState.openCodeReady = true
+    workspaceState.workspaceReady = true
 
     const { useGitReposInit } = await import('@/hooks/useAppInit')
     renderHook(() => useGitReposInit())
@@ -273,7 +253,7 @@ describe('useGitReposInit', () => {
   it('refreshes current member shortcut roles when member manifest files change', async () => {
     mockIsTauri.mockReturnValue(true)
     workspaceState.workspacePath = '/workspace-team'
-    workspaceState.openCodeReady = true
+    workspaceState.workspaceReady = true
 
     const { useGitReposInit } = await import('@/hooks/useAppInit')
     renderHook(() => useGitReposInit())
@@ -307,7 +287,7 @@ describe('useGitReposInit', () => {
   it('refreshes current member shortcut roles when team members change', async () => {
     mockIsTauri.mockReturnValue(true)
     workspaceState.workspacePath = '/workspace-team'
-    workspaceState.openCodeReady = true
+    workspaceState.workspaceReady = true
 
     const { useGitReposInit } = await import('@/hooks/useAppInit')
     renderHook(() => useGitReposInit())
@@ -338,7 +318,7 @@ describe('useP2pAutoReconnect', () => {
     vi.useFakeTimers()
     mockIsTauri.mockReturnValue(true)
     workspaceState.workspacePath = '/workspace-team'
-    workspaceState.openCodeReady = true
+    workspaceState.workspaceReady = true
 
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'p2p_sync_status') {

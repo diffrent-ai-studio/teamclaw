@@ -12,7 +12,7 @@ import {
   FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { FileDiff } from '@/lib/opencode/sdk-types'
+import type { FileDiff } from '@/stores/session-types'
 import { copyToClipboard } from '@/lib/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useTabsStore } from '@/stores/tabs'
@@ -190,14 +190,14 @@ export function SessionDiffPanel({ diff, compact: _compact }: SessionDiffPanelPr
               <div className="ml-5 mt-1 mb-2 text-[10px] font-mono bg-muted/30 rounded p-1.5 overflow-x-auto">
                 {file.before && (
                   <div className="text-red-600 dark:text-red-400">
-                    {file.before.split('\n').map((line, i) => (
+                    {file.before.split('\n').map((line: string, i: number) => (
                       <div key={`before-${i}`}>- {line}</div>
                     ))}
                   </div>
                 )}
                 {file.after && (
                   <div className="text-green-600 dark:text-green-400">
-                    {file.after.split('\n').map((line, i) => (
+                    {file.after.split('\n').map((line: string, i: number) => (
                       <div key={`after-${i}`}>+ {line}</div>
                     ))}
                   </div>

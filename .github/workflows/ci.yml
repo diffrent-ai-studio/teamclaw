@@ -63,7 +63,6 @@ jobs:
       - name: Create stub sidecar binaries (tauri-build requires them to exist)
         run: |
           mkdir -p src-tauri/binaries
-          touch src-tauri/binaries/opencode-x86_64-unknown-linux-gnu
           touch src-tauri/binaries/teamclaw-introspect-x86_64-unknown-linux-gnu
 
       - name: Check Rust formatting

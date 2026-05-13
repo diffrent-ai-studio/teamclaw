@@ -76,7 +76,7 @@ export function PermissionDialog({ permission: permEvent, onReply }: PermissionD
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">{t('permission.affectedFiles', 'Affected files:')}</p>
               <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                {permEvent.patterns.map((pattern, i) => (
+                {permEvent.patterns.map((pattern: string, i: number) => (
                   <Badge key={i} variant="secondary" className="text-[10px] font-mono px-1.5 py-0.5">
                     {pattern}
                   </Badge>
@@ -161,11 +161,9 @@ export function PermissionDialog({ permission: permEvent, onReply }: PermissionD
 // Wrapper component that connects to the store (not currently mounted)
 export function PermissionDialogContainer() {
   const pendingPermission = useSessionStore((s) => {
-    // @ts-expect-error Phase 1E removal
     const entry = s.pendingPermissions.find((e) => e.childSessionId === null)
     return entry?.permission ?? null
   })
-  // @ts-expect-error Phase 1E removal
   const replyPermission = useSessionStore(s => s.replyPermission)
 
   const handleReply = React.useCallback(

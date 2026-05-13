@@ -1,36 +1,37 @@
 import type { StoreApi } from 'zustand';
-import type {
-  PermissionAskedEvent,
-  Question,
-  Todo,
-  FileDiff,
-  TodoUpdatedEvent,
-  SessionDiffEvent,
-  SessionErrorEvent,
-  SendMessageFilePart,
-} from '@/lib/opencode/sdk-types';
-import type {
-  SessionCreatedEvent,
-  SessionUpdatedEvent,
-  ExternalMessageEvent,
-  SessionBusyEvent,
-  SessionIdleEvent,
-  SessionStatusEvent,
-  SessionStatusInfo,
-  OpenCodeSSEEvent,
-} from '@/lib/opencode/sdk-sse';
 import type { SearchResult } from '@/stores/knowledge';
-import type {
-  MessageCreatedEvent,
-  MessagePartCreatedEvent,
-  MessagePartUpdatedEvent,
-  MessageCompletedEvent,
-  ToolExecutingEvent,
-  QuestionAskedEvent,
-} from '@/lib/opencode/sdk-types';
 
-// Re-export types for convenience
-export type { PermissionAskedEvent };
+// ── Local type stubs for the legacy agent SDK shapes ──
+// Chat runtime is disabled and the consuming stores below are dead code that
+// we only need to keep typechecking. Stubs are intentionally loose (`any`)
+// to avoid chasing every legacy field.
+export type Question = any;
+export type Todo = any;
+export type FileDiff = any;
+export type SendMessageFilePart = any;
+export type SessionStatusInfo = any;
+
+export type PermissionAskedEvent = any;
+
+export type TodoUpdatedEvent = any;
+export type SessionDiffEvent = any;
+export type SessionErrorEvent = any;
+
+export type SessionCreatedEvent = any;
+export type SessionUpdatedEvent = any;
+export type ExternalMessageEvent = any;
+export type SessionBusyEvent = any;
+export type SessionIdleEvent = any;
+export type SessionStatusEvent = any;
+export type AgentSSEEvent = any;
+
+export type MessageCreatedEvent = any;
+export type MessagePartCreatedEvent = any;
+export type MessagePartUpdatedEvent = any;
+export type MessageCompletedEvent = any;
+export type ToolExecutingEvent = any;
+export type QuestionAskedEvent = any;
+// ── End local stubs ──
 
 export interface PendingPermissionEntry {
   permission: PermissionAskedEvent;
@@ -82,7 +83,7 @@ export interface PendingQuestionState {
   messageId: string;
   questions: Question[];
   sessionId?: string; // source session ID (child or parent)
-  source?: "opencode";
+  source?: "agent";
 }
 
 export interface MessagePart {
@@ -125,10 +126,10 @@ export interface Message {
   };
   cost?: number;
   permissionRequest?: PermissionAskedEvent;
-  // Model information from OpenCode (stored per-message)
+  // Model information (stored per-message)
   modelID?: string;
   providerID?: string;
-  agent?: string; // Agent/skill name from OpenCode
+  agent?: string; // Agent/skill name
   retrievedChunks?: SearchResult[]; // RAG 检索到的文档片段
   displayKind?: "compaction" | "compaction-summary" | "synthetic";
   hidden?: boolean;
@@ -214,7 +215,7 @@ export interface SessionState {
   // Session error
   sessionError: SessionErrorEvent | null;
 
-  // Session status (mirrors OpenCode's server-side session status)
+  // Session status (mirrors the agent runtime's server-side session status)
   sessionStatus: SessionStatusInfo | null;
   sessionStatuses: Record<string, SessionStatusInfo | undefined>;
 
@@ -297,7 +298,7 @@ export interface SessionState {
   clearHighlightedSession: (sessionId: string) => void;
 
   // Actions - Child session (subagent) streaming
-  handleChildSessionEvent: (event: OpenCodeSSEEvent) => void;
+  handleChildSessionEvent: (event: AgentSSEEvent) => void;
 
   // Actions - External message handling
   handleExternalMessage: (event: ExternalMessageEvent) => void;

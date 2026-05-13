@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
-import type { MCPRuntimeStatus } from '@/lib/opencode/sdk-types'
+// MCPRuntimeStatus was sourced from sdk-types; minimal stand-in below.
+type MCPRuntimeStatus = {
+  name: string;
+  status: string;
+  error?: string;
+  toolCount?: number;
+  [k: string]: unknown;
+}
 import { withAsync } from '@/lib/store-utils'
 import { useWorkspaceStore } from './workspace'
 
@@ -72,8 +79,7 @@ export const useMCPStore = create<MCPState>((set) => ({
   },
 
   loadRuntimeStatus: async () => {
-    // OpenCode sidecar removed — runtime status is no longer available via API
-    // Status is managed via Tauri commands (list_mcp_tools, test_mcp_server, etc.)
+    // Runtime status is managed via Tauri commands (list_mcp_tools, test_mcp_server, etc.)
   },
 
   loadTools: async () => {
@@ -156,7 +162,7 @@ export const useMCPStore = create<MCPState>((set) => ({
   syncFromFile: async () => {
     try {
       const newConfig = await invoke<Record<string, MCPServerConfig>>('get_mcp_config')
-      // OpenCode sidecar removed — just update local state from file
+      // Update local state from file (agent runtime will re-read on next session start)
       set({ servers: newConfig })
     } catch (error) {
       console.error('[MCP] syncFromFile failed:', error)

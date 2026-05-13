@@ -5,7 +5,7 @@ import { useSessionListStore } from "./session-list-store";
 // ────────────────────────────────────────────────────────────────────
 // v2 Phase 1 compat shim.
 //
-// Phase 1E removed the OpenCode-era session store but left ~167
+// Phase 1E removed the legacy session store but left ~167
 // `@ts-expect-error Phase 1E removal` references across 26 production
 // files (AppSidebar, ChatPanel, SessionList, etc) that read fields and
 // call methods which no longer exist. Those calls crash on render.

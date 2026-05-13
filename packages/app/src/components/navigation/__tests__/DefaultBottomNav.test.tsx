@@ -60,11 +60,12 @@ describe('DefaultBottomNav', () => {
     workspaceStoreState.setWorkspace.mockReset()
   })
 
-  it('renders three primary tabs and the more trigger', () => {
+  it('renders the primary tabs and the more trigger', () => {
     render(<DefaultBottomNav />)
 
     expect(screen.getByRole('button', { name: /session/i })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /knowledge/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /actors/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /ideas/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /shortcuts/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /more/i })).toBeTruthy()
   })
@@ -72,9 +73,9 @@ describe('DefaultBottomNav', () => {
   it('routes primary tab clicks through selectDefaultPrimaryTab', () => {
     render(<DefaultBottomNav />)
 
-    fireEvent.click(screen.getByRole('button', { name: /knowledge/i }))
+    fireEvent.click(screen.getByRole('button', { name: /actors/i }))
 
-    expect(uiStoreState.selectDefaultPrimaryTab).toHaveBeenCalledWith('knowledge')
+    expect(uiStoreState.selectDefaultPrimaryTab).toHaveBeenCalledWith('actors')
   })
 
   it('shows the workspace section and routes more destinations through the UI store', () => {

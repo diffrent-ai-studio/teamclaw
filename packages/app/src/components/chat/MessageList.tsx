@@ -59,9 +59,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
     const { t } = useTranslation();
 
     // ── Store selectors ──────────────────────────────────────────────────
-    // @ts-expect-error Phase 1E removal
     const isLoading = useSessionStore((s) => s.isLoading);
-    // @ts-expect-error Phase 1E removal
     const messageQueue = useSessionStore((s) => s.messageQueue);
     const streamingContentLength = useStreamingStore(
       (s) => s.streamingContent.length,
@@ -84,7 +82,6 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
     const activeSessionDirectory = useSessionStore((s) =>
       sessionDirectory ??
       (activeSessionId
-        // @ts-expect-error Phase 1E removal
         ? s.sessions.find((ss) => ss.id === activeSessionId)?.directory
         : undefined),
     );
@@ -419,7 +416,6 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       }
     }, [activeSessionId]);
 
-    // @ts-expect-error Phase 1E removal
     const storeActiveSessionId = useSessionStore((s) => s.activeSessionId);
 
     // Load feedback for the store-active session (not the lagging display id during fade)

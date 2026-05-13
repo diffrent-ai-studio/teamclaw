@@ -2,9 +2,8 @@ import { create } from "zustand";
 import type { ChildStreamingState } from "@/stores/session-types";
 import { sessionLookupCache, getSessionById } from "@/stores/session-cache";
 import { useSessionStore } from "@/stores/session";
-import {
-  clearAllChildSessions,
-} from "@/lib/opencode/sdk-sse";
+// clearAllChildSessions removed with sdk-sse; no-op stub for v2.
+const clearAllChildSessions = () => {};
 
 // Re-export for convenience
 export type { ChildStreamingState };
@@ -191,7 +190,6 @@ export let childRafId: number | null = null;
 export const typewriterTick = () => {
   const streamingState = useStreamingStore.getState();
   const { streamingMessageId } = streamingState;
-  // @ts-expect-error Phase 1E removal
   const { activeSessionId } = useSessionStore.getState();
 
   if (!streamingMessageId || !activeSessionId) {
@@ -319,7 +317,6 @@ export const flushAllPending = (): string => {
 
   const streamingState = useStreamingStore.getState();
   const { streamingMessageId, streamingContent } = streamingState;
-  // @ts-expect-error Phase 1E removal
   const { activeSessionId } = useSessionStore.getState();
 
   if (!streamingMessageId || !activeSessionId) {
@@ -384,9 +381,7 @@ export const flushAllPending = (): string => {
   });
   
   // Sync parts back to session store (reasoning blocks need this)
-  // @ts-expect-error Phase 1E removal
   useSessionStore.setState((store) => ({
-    // @ts-expect-error Phase 1E removal
     sessions: store.sessions.map((s) =>
       s.id === activeSessionId ? newSession : s,
     ),
@@ -439,33 +434,23 @@ export const cleanupChildSession = (sessionId: string) => {
   // Clean up permissions and questions belonging to this child session
   const sessionState = useSessionStore.getState();
 
-  // @ts-expect-error Phase 1E removal
   const hasPermissions = sessionState.pendingPermissions.some(
-    // @ts-expect-error Phase 1E removal
     (e) => e.childSessionId === sessionId,
   );
   if (hasPermissions) {
-    // @ts-expect-error Phase 1E removal
     useSessionStore.setState((state) => ({
-      // @ts-expect-error Phase 1E removal
       pendingPermissions: state.pendingPermissions.filter(
-        // @ts-expect-error Phase 1E removal
         (e) => e.childSessionId !== sessionId,
       ),
     }));
   }
 
-  // @ts-expect-error Phase 1E removal
   const hasQuestions = sessionState.pendingQuestions.some(
-    // @ts-expect-error Phase 1E removal
     (q) => q.sessionId === sessionId,
   );
   if (hasQuestions) {
-    // @ts-expect-error Phase 1E removal
     useSessionStore.setState((state) => ({
-      // @ts-expect-error Phase 1E removal
       pendingQuestions: state.pendingQuestions.filter(
-        // @ts-expect-error Phase 1E removal
         (q) => q.sessionId !== sessionId,
       ),
     }));

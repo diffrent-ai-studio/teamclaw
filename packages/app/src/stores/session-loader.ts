@@ -1,5 +1,15 @@
-import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
-import type { Todo, FileDiff } from "@/lib/opencode/sdk-types";
+// Permissive proxy so the file typechecks until the amuxd daemon client
+// replaces it; every method throws at runtime (chat is disabled).
+// TODO(amuxd): wire to daemon
+const getAgentClient: () => any = () =>
+  new Proxy({}, {
+    get() {
+      return () => {
+        throw new Error('Agent client not wired to amuxd daemon yet');
+      };
+    },
+  });
+import type { Todo, FileDiff } from "./session-types";
 import { notificationService } from "@/lib/notification-service";
 import { useProviderStore } from "@/stores/provider";
 import { appShortName } from "@/lib/build-config";
@@ -88,11 +98,11 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
       set({ draftInput: "" });
     },
 
-    // Load all sessions from OpenCode, filtered by workspace directory
+    // Load all sessions from the agent runtime, filtered by workspace directory
     loadSessions: async (workspacePath?: string) => {
       set({ isLoading: true, error: null, errorSessionId: null, isLoadingMore: false });
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
         const sessions = await client.listSessions(
           workspacePath
             ? { directory: workspacePath, roots: true }
@@ -101,7 +111,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
 
         // Filter out archived, child, and internal sessions
         const activeSessions = sessions.filter(
-          (session) =>
+          (session: any) =>
             session.time?.archived == null &&
             !session.parentID,
         );
@@ -118,7 +128,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
 
         // Debug: Log first few session titles to detect issues
         if (activeSessions.length > 0) {
-          console.log("[Session] First 3 session titles:", activeSessions.slice(0, 3).map(s => ({ id: s.id.substring(0, 10), title: s.title })));
+          console.log("[Session] First 3 session titles:", activeSessions.slice(0, 3).map((s: any) => ({ id: s.id.substring(0, 10), title: s.title })));
         }
 
         // Preserve existing messages when updating sessions list
@@ -127,7 +137,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
           existingSessions.map((s) => [s.id, s.messages]),
         );
 
-        const newSessions = activeSessions.map((item) => {
+        const newSessions = activeSessions.map((item: any) => {
           const converted = convertSessionListItem(item);
           const existingMessages = existingMessagesMap.get(item.id);
           return existingMessages && existingMessages.length > 0
@@ -136,7 +146,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         });
 
         // Sort by updatedAt descending (most recently active first)
-        newSessions.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+        newSessions.sort((a: any, b: any) => b.updatedAt.getTime() - a.updatedAt.getTime());
 
         const nextWorkspacePath = workspacePath ?? null;
         const pinnedSessionIds =
@@ -157,7 +167,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
           try {
             const children = await client.getSessionChildren(activeSessionId);
             apiChildSessions = children
-              .filter((c) => c.time?.archived == null)
+              .filter((c: any) => c.time?.archived == null)
               .map(convertSessionListItem);
             if (apiChildSessions.length > 0) {
               console.log("[Session] Loaded", apiChildSessions.length, "child sessions from API for active session:", activeSessionId);
@@ -227,7 +237,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         archivedSessionError: null,
       });
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
         const sessions = await client.listSessions(
           directory
             ? { directory, roots: true, archived: true }
@@ -236,9 +246,9 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         if (!isCurrentArchivedLoad(requestId)) return;
 
         const archivedSessions = sessions
-          .filter((session) => session.time?.archived != null && !session.parentID)
+          .filter((session: any) => session.time?.archived != null && !session.parentID)
           .map(convertSessionListItem)
-          .sort((a, b) => {
+          .sort((a: any, b: any) => {
             const aTime = a.archivedAt ?? a.updatedAt;
             const bTime = b.archivedAt ?? b.updatedAt;
             return bTime.getTime() - aTime.getTime();
@@ -263,7 +273,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
     openArchivedSession: async (id: string) => {
       set({ viewingArchivedSessionId: id, archivedSessionError: null });
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
         const messages = await client.getMessages(id);
         if (get().viewingArchivedSessionId !== id) return;
 
@@ -291,7 +301,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
 
     restoreSession: async (id: string) => {
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
         const session = get().archivedSessions.find((s) => s.id === id);
         const directory = session?.directory ?? get().currentWorkspacePath ?? undefined;
 
@@ -353,7 +363,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
 
       set({ isLoading: true, error: null, errorSessionId: null });
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
         const newSession = await client.createSession();
 
         const session = convertSession(newSession);
@@ -453,7 +463,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
       });
 
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
 
         // Fetch messages, session info, todos, diffs, and child sessions in parallel
         const [messages, sessionInfo, todosData, diffsData, childSessionsData] = await Promise.all([
@@ -469,7 +479,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         console.log("[Session] Diff endpoint response:", diffsData);
 
         // Convert todos to our format
-        const todos: Todo[] = todosData.map((t) => ({
+        const todos: Todo[] = todosData.map((t: any) => ({
           id: t.id,
           content: t.content,
           status: t.status as
@@ -562,14 +572,14 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
           const convertedMessages = messages.map(convertMessage);
 
           // Build arrays of old/new user messages for position-based matching
-          const oldUserMessages = currentSession?.messages.filter(m => m.role === 'user') || [];
-          const newUserMessages = convertedMessages.filter(m => m.role === 'user');
+          const oldUserMessages = currentSession?.messages.filter((m: any) => m.role === 'user') || [];
+          const newUserMessages = convertedMessages.filter((m: any) => m.role === 'user');
 
-          const mergedMessages = convertedMessages.map((newMsg) => {
+          const mergedMessages = convertedMessages.map((newMsg: any) => {
             let oldMsg = oldMessagesMap.get(newMsg.id);
 
             if (!oldMsg && newMsg.role === 'user') {
-              const newUserIndex = newUserMessages.findIndex(m => m.id === newMsg.id);
+              const newUserIndex = newUserMessages.findIndex((m: any) => m.id === newMsg.id);
               if (newUserIndex !== -1 && newUserIndex < oldUserMessages.length) {
                 oldMsg = oldUserMessages[newUserIndex];
               }
@@ -607,7 +617,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
           if (childSessionsData.length > 0) {
             const existingIds = new Set(newSessions.map((s) => s.id));
             const apiChildren = childSessionsData
-              .filter((c) => c.time?.archived == null && !existingIds.has(c.id))
+              .filter((c: any) => c.time?.archived == null && !existingIds.has(c.id))
               .map(convertSessionListItem);
             if (apiChildren.length > 0) {
               console.log("[Session] Merged", apiChildren.length, "API child sessions for session:", id);
@@ -690,7 +700,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
     // Archive a session
     archiveSession: async (id: string) => {
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
         const session = get().sessions.find((s) => s.id === id);
         const directory = session?.directory;
         const wasActiveSession = get().activeSessionId === id;
@@ -743,7 +753,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
 
     updateSessionTitle: async (id: string, title: string) => {
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
         await client.updateSession(id, { title });
 
         set((state) => {
@@ -774,14 +784,14 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
       set({ dashboardLoading: true, dashboardLoadError: undefined, dashboardLoadProgress: { loaded: 0, total: 0 } });
 
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
 
         const allSessions = await client.listSessions(
           workspacePath ? { directory: workspacePath, roots: true } : { roots: true },
         );
 
         const activeSessions = allSessions.filter(
-          (s) => s.time?.archived == null,
+          (s: any) => s.time?.archived == null,
         );
 
         const existingSessions = get().sessions;
@@ -789,7 +799,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
           existingSessions.map((s) => [s.id, s.messages]),
         );
 
-        const sessionsNeedingMessages = activeSessions.filter((s) => {
+        const sessionsNeedingMessages = activeSessions.filter((s: any) => {
           const existing = existingMessagesMap.get(s.id);
           return !existing || existing.length === 0;
         });
@@ -814,7 +824,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
         for (let i = 0; i < sessionsNeedingMessages.length; i += CONCURRENCY) {
           const batch = sessionsNeedingMessages.slice(i, i + CONCURRENCY);
           const results = await Promise.allSettled(
-            batch.map(async (session) => {
+            batch.map(async (session: any) => {
               const messages = await client.getMessages(session.id);
               return { sessionId: session.id, messages: messages.map(convertMessage) };
             }),
@@ -869,7 +879,7 @@ export function createLoaderActions(set: SessionSet, get: SessionGet) {
               const newSessionsToAdd = successfulLoads
                 .filter((l) => !existingIds.has(l.sessionId))
                 .map((l) => {
-                  const sessionData = activeSessions.find((s) => s.id === l.sessionId);
+                  const sessionData = activeSessions.find((s: any) => s.id === l.sessionId);
                   if (!sessionData) return null;
                   const now = Date.now()
                   return {

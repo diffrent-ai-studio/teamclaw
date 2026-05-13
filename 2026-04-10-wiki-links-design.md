@@ -13,7 +13,7 @@
 - Backlinks 面板（未来再做）
 - 图谱可视化（未来再做）
 - knowledge/ 以外的链接范围
-- Agent 自动提取笔记（独立的 OpenCode plugin）
+- Agent 自动提取笔记（独立的 agent plugin）
 
 ## 设计
 

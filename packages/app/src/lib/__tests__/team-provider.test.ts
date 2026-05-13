@@ -16,7 +16,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   remove: mockRemove,
 }))
 
-vi.mock('@/lib/opencode/config', () => ({
+vi.mock('@/lib/teamclaw-config', () => ({
   addCustomProviderToConfig: mockAddCustomProviderToConfig,
   removeCustomProviderFromConfig: mockRemoveCustomProviderFromConfig,
 }))
@@ -104,7 +104,7 @@ describe('team provider file helpers', () => {
     expect(mockAddCustomProviderToConfig).not.toHaveBeenCalled()
   })
 
-  it('returns null when provider.json is absent and never writes opencode.json', async () => {
+  it('returns null when provider.json is absent and never writes the legacy config', async () => {
     const { loadTeamProviderFile } = await import('@/lib/team-provider')
     const result = await loadTeamProviderFile('/workspace')
 

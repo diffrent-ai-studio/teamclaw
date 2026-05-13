@@ -1,6 +1,6 @@
 # TeamClaw
 
-OpenCode を基盤としたローカル AI エージェント。あなたの AI パートナー
+ローカル AI エージェント。あなたの AI パートナー
 
 > **あなたの味方。ともに。**
 
@@ -14,7 +14,7 @@ OpenCode を基盤としたローカル AI エージェント。あなたの AI 
 ## 主な機能
 
 - **3カラムレイアウト** — サイドバー、チャットエリア、詳細パネル
-- **OpenCode 統合** — 完全な Agent 機能サポート
+- **ローカル Agent ランタイム** — 完全な Agent 機能サポート
 - **MCP サポート** — Model Context Protocol、エンタープライズシステム連携
 - **Skills / プラグイン拡張** — 拡張可能なスキルシステム
 - **ローカルファイル操作** — 権限管理付きのファイル読み書き
@@ -39,7 +39,6 @@ OpenCode を基盤としたローカル AI エージェント。あなたの AI 
 - **フロントエンド**: React 19 + TypeScript
 - **スタイリング**: Tailwind CSS 4
 - **状態管理**: Zustand
-- **Agent**: OpenCode
 - **エディター**: Tiptap (Markdown/HTML)、CodeMirror 6 (コード)
 - **Diff**: カスタム Diff レンダラー、Shiki 構文ハイライト
 
@@ -64,17 +63,6 @@ xattr -cr /Applications/TeamClaw.app
 - Node.js >= 20
 - pnpm >= 10
 - Rust >= 1.70
-- OpenCode CLI
-
-### OpenCode CLI のインストール
-
-```bash
-# macOS / Linux
-curl -fsSL https://opencode.ai/install | bash
-
-# または npm でインストール
-npm install -g opencode
-```
 
 ### クイックスタート
 
@@ -82,31 +70,11 @@ npm install -g opencode
 # 1. 依存関係をインストール
 pnpm install
 
-# 2. OpenCode sidecar バイナリをダウンロード（必須、git には含まれていません）
-./src-tauri/binaries/download-opencode.sh
-
-# 3. Tauri 開発モードを起動
+# 2. Tauri 開発モードを起動
 pnpm tauri dev
 ```
 
 起動後、TeamClaw の画面で Workspace ディレクトリを選択してください。
-
-### OpenCode の更新
-
-OpenCode は頻繁にリリースされるため、以下のコマンドでいつでも最新版に更新できます：
-
-```bash
-pnpm update-opencode
-```
-
-既に最新版の場合は自動的にスキップされます。バージョン指定も可能：`pnpm update-opencode -- v1.2.1`
-
-> **開発モード（オプション）**：sidecar をダウンロードせず、OpenCode Server を別途実行することもできます：
->
-> ```bash
-> cd /path/to/your/workspace && opencode serve --port 13141
-> OPENCODE_DEV_MODE=true pnpm tauri dev
-> ```
 
 ## チーム協力
 

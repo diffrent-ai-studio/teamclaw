@@ -26,7 +26,7 @@ import { FileMentionPopover } from "./FileMentionPopover";
 import { MentionPopover } from "./MentionPopover";
 import { AgentSelectorDock } from "./AgentSelectorDock";
 import { CommandPopover } from "./CommandPopover";
-import type { Command as OpenCodeCommand } from "@/lib/opencode/sdk-client";
+import type { Command as ChatCommand } from "./CommandPopover";
 import { useTeamModeStore } from "@/stores/team-mode";
 import {
   ModelSelector,
@@ -124,7 +124,7 @@ function CommandPopoverWrapper({
 }) {
   const insertSkillMention = useInsertSkillMention();
 
-  const handleSelect = React.useCallback((command: OpenCodeCommand & { _type?: 'role' | 'skill' | 'command' }) => {
+  const handleSelect = React.useCallback((command: ChatCommand & { _type?: 'role' | 'skill' | 'command' }) => {
     console.log('[CommandPopoverWrapper] 🎯 handleSelect called, command:', command.name, 'type:', command._type);
     const type = command._type || 'skill'; // Default to skill for backward compatibility
     insertSkillMention(command.name, type);

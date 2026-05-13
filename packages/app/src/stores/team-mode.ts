@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import {
   getCustomProviderConfig,
   removeCustomProviderFromConfig,
-} from '@/lib/opencode/config'
+} from '@/lib/teamclaw-config'
 import { loadTeamProviderFile, TEAM_SHARED_PROVIDER_ID } from '@/lib/team-provider'
 import { useProviderStore } from './provider'
 import { useWorkspaceStore } from './workspace'
@@ -41,7 +41,7 @@ function readPreTeamModel(): string | null {
  * and both fetch and the AI SDK drop the `Authorization` header across that
  * redirect — surfacing as `Authentication Error, No api key passed in.` on
  * chat-completions calls. Force https for any non-local host before we hand
- * the URL to OpenCode's provider config.
+ * the URL to the agent provider config.
  *
  * Local/private hosts keep `http://` (they don't redirect, and users may run
  * a dev LiteLLM without TLS).
@@ -91,7 +91,7 @@ interface TeamModeState {
   teamGitLastSyncAt: string | null
 
   loadTeamConfig: (workspacePath: string) => Promise<void>
-  applyTeamModelToOpenCode: (workspacePath: string, force?: boolean) => Promise<void>
+  applyTeamModel: (workspacePath: string, force?: boolean) => Promise<void>
   switchTeamModel: (modelId: string, workspacePath: string) => Promise<void>
   clearTeamMode: (workspacePath?: string) => Promise<void>
   setDevUnlocked: (unlocked: boolean) => void
@@ -225,10 +225,10 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     }
   },
 
-  applyTeamModelToOpenCode: async (workspacePath: string, force?: boolean) => {
-    // Refresh in-memory state from `_meta/provider.json`. Disk → opencode.json
-    // sync is owned by Rust `ensure_team_provider`, which runs inside every
-    // start_opencode — we never write opencode.json from here.
+  applyTeamModel: async (workspacePath: string, force?: boolean) => {
+    // Refresh in-memory state from `_meta/provider.json`. Disk-side provider
+    // config is owned by Rust `ensure_team_provider`, which runs at agent
+    // startup — we never write the on-disk config from here.
     const providerFile = await loadTeamProviderFile(workspacePath).catch(() => null)
     if (providerFile?.provider) {
       const syncedModels = providerFile.provider.models
@@ -260,26 +260,10 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         } catch { /* ignore */ }
       }
 
-      // Skip the restart if the running sidecar's opencode.json already matches what
-      // we want — Rust `ensure_team_provider` writes it on cold start, so post-boot
-      // applyTeamModelToOpenCode calls are usually no-ops.
-      const teamModels = get().teamModelOptions.length > 0 ? get().teamModelOptions : (buildConfig.team.llm.models ?? [])
-      const expectedModelIds = teamModels.map((m) => m.id).sort()
-      const existingConfig = await getCustomProviderConfig(workspacePath, TEAM_PROVIDER_ID).catch(() => null)
-      const existingModelIds = existingConfig?.models.map((m) => m.modelId).sort() ?? []
-      const configAlreadyMatches = !!existingConfig
-        && existingConfig.baseURL === teamModelConfig.baseUrl
-        && JSON.stringify(expectedModelIds) === JSON.stringify(existingModelIds)
-
-      if (!configAlreadyMatches && isTauri()) {
-        const { restartOpencode } = await import('@/lib/opencode/restart')
-        await restartOpencode(workspacePath)
-      }
-
       await providerStore.selectModel(TEAM_PROVIDER_ID, teamModelConfig.model, teamModelConfig.modelName)
       await providerStore.refreshConfiguredProviders()
     } catch (err) {
-      console.error('[TeamMode] Failed to apply team model to OpenCode:', err)
+      console.error('[TeamMode] Failed to apply team model:', err)
     }
   },
 
@@ -296,7 +280,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     }
     set({ teamModelConfig: newConfig })
 
-    // Select the model in OpenCode (all models are already registered in the provider)
+    // Select the model in the agent runtime (all models are already registered in the provider)
     const providerStore = useProviderStore.getState()
     await providerStore.selectModel(TEAM_PROVIDER_ID, modelId, option.name)
 
@@ -364,30 +348,10 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     // Set state immediately to trigger UI updates
     set({ teamMode: false, teamModeType: null, teamModelConfig: null, _appliedConfigKey: null, p2pFileSyncStatusMap: {}, teamGitFileSyncStatusMap: {} })
 
-    // Remove team provider from opencode.json
+    // Remove team provider from teamclaw config
     if (workspacePath) {
       try {
         await removeCustomProviderFromConfig(workspacePath, TEAM_PROVIDER_ID)
-
-        // Restart OpenCode to apply the removal of the custom provider
-        if (isTauri()) {
-          const { invoke } = await import('@tauri-apps/api/core')
-          const { initOpenCodeClient } = await import('@/lib/opencode/sdk-client')
-
-          await invoke('stop_opencode', { workspacePath })
-          await new Promise((r) => setTimeout(r, 500))
-          const status = await invoke<{ url: string }>('start_opencode', {
-            config: { workspace_path: workspacePath },
-          })
-          initOpenCodeClient({ baseUrl: status.url, workspacePath })
-
-          // Notify workspace store so SSE reconnects to the new sidecar
-          const { useWorkspaceStore } = await import('./workspace')
-          useWorkspaceStore.getState().setOpenCodeReady(true, status.url)
-
-          // Wait for OpenCode to initialize
-          await new Promise((r) => setTimeout(r, 500))
-        }
       } catch { /* ignore */ }
     }
 
@@ -398,23 +362,6 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
       // Force disconnect the team provider to remove it from the list immediately
       await providerStore.disconnectProvider(TEAM_PROVIDER_ID)
-
-      // Wait for OpenCode to be fully ready before initializing
-      if (isTauri()) {
-        const { getOpenCodeClient } = await import('@/lib/opencode/sdk-client')
-        let retries = 10
-        while (retries > 0) {
-          try {
-            const client = getOpenCodeClient()
-            const isReady = await client.isReady()
-            if (isReady) break
-          } catch {
-            // Client not ready yet
-          }
-          await new Promise((r) => setTimeout(r, 300))
-          retries--
-        }
-      }
 
       // Ensure UI updates by refreshing providers and initializing
       await providerStore.initAll()

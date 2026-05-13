@@ -19,7 +19,6 @@ import { useTeamMembersStore } from '@/stores/team-members'
 // `myRole` is null until the user joins a team; gate team-shared UI on it so
 // users without a team don't hit the backend's `secrets not initialized` error.
 import { useWorkspaceStore } from '@/stores/workspace'
-import { restartOpencode } from '@/lib/opencode/restart'
 import { listen } from '@tauri-apps/api/event'
 
 // ─── Unified type for the combined list ─────────────────────────────────
@@ -124,7 +123,7 @@ function EnvVarDialog({ open, onOpenChange, editingEntry, onSave }: EnvVarDialog
     try {
       // Lowercase the key when saving a system-shared placeholder as a team
       // secret — the displayed name is uppercase (env-var convention) but
-      // shared_secrets stores lowercase. opencode injects both cases at startup.
+      // shared_secrets stores lowercase. The agent injects both cases at startup.
       const outboundKey = isPlaceholder && shared ? trimmedKey.toLowerCase() : trimmedKey
       await onSave(outboundKey, value, description.trim() || '', shared)
       onOpenChange(false)
@@ -476,13 +475,9 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
   const [addDialogOpen, setAddDialogOpen] = React.useState(false)
   const [editingEntry, setEditingEntry] = React.useState<UnifiedEntry | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<UnifiedEntry | null>(null)
-  const [isRestarting, setIsRestarting] = React.useState(false)
-  const [restartError, setRestartError] = React.useState<string | null>(null)
-  // Track keys that changed after OpenCode started (need restart to take effect)
   const [dirtyKeys, setDirtyKeys] = React.useState<Set<string>>(new Set())
 
   const isLoading = envLoading || secretsLoading
-  const needsRestart = hasChanges || dirtyKeys.size > 0
 
   React.useEffect(() => {
     loadEnvVars()
@@ -606,26 +601,6 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
     return false
   }
 
-  const handleRestartOpenCode = async () => {
-    if (!workspacePath) {
-      setRestartError(t('settings.mcp.noWorkspace', 'No workspace selected'))
-      return
-    }
-
-    setIsRestarting(true)
-    setRestartError(null)
-    try {
-      await restartOpencode(workspacePath)
-      setHasChanges(false)
-      setDirtyKeys(new Set())
-    } catch (err) {
-      console.error('Failed to restart OpenCode:', err)
-      setRestartError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setIsRestarting(false)
-    }
-  }
-
   return (
     <div className="space-y-6">
       <SectionHeader
@@ -635,46 +610,6 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
         iconColor="text-emerald-500"
       />
 
-      {/* Restart Warning */}
-      {needsRestart && (
-        <SettingCard className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border-amber-200 dark:border-amber-800">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5" />
-            <div className="flex-1">
-              <p className="font-medium text-amber-900 dark:text-amber-100">
-                {t('settings.envVars.configChanged', 'Environment Variables Changed')}
-              </p>
-              <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                {t('settings.envVars.restartToApply', 'Restart OpenCode to apply the new environment variables to MCP servers.')}
-              </p>
-              {restartError && (
-                <p className="text-sm text-red-600 dark:text-red-400 mt-2">
-                  {t('common.error', 'Error')}: {restartError}
-                </p>
-              )}
-            </div>
-            <Button
-              size="sm"
-              onClick={handleRestartOpenCode}
-              disabled={isRestarting || !workspacePath}
-              className="gap-2"
-            >
-              {isRestarting ? (
-                <>
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {t('settings.mcp.restarting', 'Restarting...')}
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="h-3 w-3" />
-                  {t('settings.mcp.restart', 'Restart')}
-                </>
-              )}
-            </Button>
-          </div>
-        </SettingCard>
-      )}
-
       {/* Action bar */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
@@ -683,22 +618,6 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
             : ''}
         </p>
         <div className="flex items-center gap-2">
-          {needsRestart && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleRestartOpenCode}
-              disabled={isRestarting || !workspacePath}
-              className="gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-950/30"
-            >
-              {isRestarting ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              {t('settings.envVars.restart', 'Restart OpenCode')}
-            </Button>
-          )}
           <Button size="sm" onClick={() => setAddDialogOpen(true)}>
             <Plus className="h-4 w-4 mr-1" />
             {t('settings.envVars.add', 'Add Variable')}

@@ -24,12 +24,12 @@ vi.mock('@/stores/deps', () => ({
     () => ({
       dependencies: [
         {
-          name: 'OpenCode',
+          name: 'Agent',
           installed: true,
           version: '1.0.0',
           required: true,
           description: 'AI Agent Backend',
-          install_commands: { macos: 'brew install opencode', windows: 'winget install opencode', linux: 'apt install opencode' },
+          install_commands: { macos: 'brew install agent', windows: 'winget install agent', linux: 'apt install agent' },
           affected_features: [],
           priority: 1,
         },
@@ -56,7 +56,7 @@ vi.mock('@/stores/deps', () => ({
     {
       getState: () => ({
         dependencies: [
-          { name: 'OpenCode', installed: true, required: true },
+          { name: 'Agent', installed: true, required: true },
           { name: 'ffmpeg', installed: false, required: false },
         ],
         checkDependencies: mockCheckDependencies,
@@ -91,7 +91,7 @@ describe('SetupGuide', () => {
 
   it('shows installed dependency with checkmark', () => {
     render(<SetupGuide {...defaultProps} />)
-    expect(screen.getByText('OpenCode')).toBeDefined()
+    expect(screen.getByText('Agent')).toBeDefined()
     expect(screen.getByText('v1.0.0')).toBeDefined()
   })
 
@@ -105,7 +105,7 @@ describe('SetupGuide', () => {
 
   it('shows Skip button when all required deps are installed', () => {
     render(<SetupGuide {...defaultProps} />)
-    // All required (OpenCode) are installed, so skip should appear
+    // All required (Agent) are installed, so skip should appear
     expect(screen.getByText('Skip')).toBeDefined()
   })
 

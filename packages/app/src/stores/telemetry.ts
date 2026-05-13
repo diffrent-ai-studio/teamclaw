@@ -8,9 +8,19 @@ import type {
 import { ScoringEngine } from '@/lib/telemetry/scoring-engine'
 import { buildSessionReport } from '@/lib/telemetry/report-builder'
 import { useSessionStore } from '@/stores/session'
-import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
+// Permissive proxy until the amuxd daemon client is wired up;
+// telemetry's session-report builder is non-functional.
+// TODO(amuxd): wire to daemon
+const getAgentClient: () => any = () =>
+  new Proxy({}, {
+    get() {
+      return () => {
+        throw new Error('Agent client not wired to amuxd daemon yet');
+      };
+    },
+  });
 import { isTauri } from '@/lib/utils'
-import type { Message as OpenCodeMessage } from '@/lib/opencode/sdk-types'
+type AgentMessage = any;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -70,13 +80,12 @@ let lastTeamExportAt = 0
  */
 async function ensureSessionMessagesLoaded(sessionId: string): Promise<void> {
   const sessionStore = useSessionStore.getState()
-  // @ts-expect-error Phase 1E removal
   const messages = sessionStore.getSessionMessages(sessionId)
   
   // If session has messages with token data, we're good
   if (messages && messages.length > 0) {
-    // @ts-expect-error Phase 1E removal
-    const hasTokenData = messages.some(msg => msg.role === 'assistant' && msg.tokens)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const hasTokenData = messages.some((msg: any) => msg.role === 'assistant' && msg.tokens)
     if (hasTokenData) {
       return
     }
@@ -86,19 +95,19 @@ async function ensureSessionMessagesLoaded(sessionId: string): Promise<void> {
   console.log(`[telemetry] Loading messages for session ${sessionId}`)
   
   try {
-    const client = getOpenCodeClient()
+    const client = getAgentClient()
     const apiMessages = await client.getMessages(sessionId)
     
-    // Convert OpenCode messages to our format
-    const convertedMessages = apiMessages.map((msg: OpenCodeMessage) => ({
+    // Convert agent messages to our format
+    const convertedMessages = apiMessages.map((msg: AgentMessage) => ({
       id: msg.info.id,
       sessionId: msg.info.sessionID,
       role: msg.info.role as 'user' | 'assistant' | 'system',
       content: msg.parts
-        ?.filter(p => p.type === 'text')
-        .map(p => p.text || '')
+        ?.filter((p: any) => p.type === 'text')
+        .map((p: any) => p.text || '')
         .join('') || '',
-      parts: (msg.parts || []).map((p) => ({
+      parts: (msg.parts || []).map((p: any) => ({
         id: p.id,
         type: p.type,
         text: p.text,
@@ -114,9 +123,7 @@ async function ensureSessionMessagesLoaded(sessionId: string): Promise<void> {
     }))
     
     // Update the session in the store
-    // @ts-expect-error Phase 1E removal
     useSessionStore.setState((state) => ({
-      // @ts-expect-error Phase 1E removal
       sessions: state.sessions.map(s =>
         s.id === sessionId ? { ...s, messages: convertedMessages } : s
       )
@@ -411,10 +418,8 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       
       // Load all sessions and their messages (same as Token Usage page)
       console.log('[telemetry] Loading all session messages...')
-      // @ts-expect-error Phase 1E removal
       await sessionStore.loadAllSessionMessages(workspacePath)
 
-      // @ts-expect-error Phase 1E removal
       const sessions = sessionStore.sessions
       console.log(`[telemetry] Processing ${sessions.length} sessions`)
 
@@ -429,7 +434,6 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         const batch = sessions.slice(i, i + BATCH_SIZE)
         
         await Promise.allSettled(
-          // @ts-expect-error Phase 1E removal
           batch.map(async (session) => {
             try {
               // Skip if this session was already scored recently (within 60s)
@@ -440,8 +444,8 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
 
               // Check if session has messages with token data
               const hasTokenData = session.messages.some(
-                // @ts-expect-error Phase 1E removal
-                msg => msg.role === 'assistant' && msg.tokens
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (msg: any) => msg.role === 'assistant' && msg.tokens
               )
               
               if (!hasTokenData) {

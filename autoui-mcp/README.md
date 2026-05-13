@@ -34,9 +34,9 @@ pnpm dlx autoui-mcp
 
 ## Usage
 
-### With OpenCode
+### MCP Client Configuration
 
-Add to your `opencode.json`:
+Add to your MCP client configuration:
 
 ```json
 {

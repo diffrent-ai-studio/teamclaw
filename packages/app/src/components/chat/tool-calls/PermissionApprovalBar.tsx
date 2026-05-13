@@ -8,7 +8,6 @@ import { truncatePermissionSnippet } from "@/lib/utils";
 // Reads permission state directly from toolCall.permission (not global store).
 export function PermissionApprovalBar({ toolCall }: { toolCall: ToolCall }) {
   const { t } = useTranslation();
-  // @ts-expect-error Phase 1E removal
   const replyPermission = useSessionStore((s) => s.replyPermission);
   const [submitting, setSubmitting] = useState(false);
 

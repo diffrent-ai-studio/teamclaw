@@ -19,7 +19,7 @@ interface EnvVarsState {
   envVars: EnvVarEntry[]
   isLoading: boolean
   error: string | null
-  hasChanges: boolean  // Track if env vars changed and OpenCode needs restart
+  hasChanges: boolean  // Track if env vars changed and agent needs restart
 
   // Actions
   loadEnvVars: () => Promise<void>

@@ -79,15 +79,15 @@ Be precise.
     const workspace = "/workspace"
     mockExists.mockImplementation(async (path: string) => {
       return [
-        `${workspace}/.opencode/roles`,
-        `${workspace}/.opencode/roles/config.json`,
-        `${workspace}/.opencode/roles/default-role/ROLE.md`,
+        `${workspace}/.teamclaw/roles`,
+        `${workspace}/.teamclaw/roles/config.json`,
+        `${workspace}/.teamclaw/roles/default-role/ROLE.md`,
         `${workspace}/team-roles`,
         `${workspace}/team-roles/external-role/ROLE.md`,
       ].includes(path)
     })
     mockReadTextFile.mockImplementation(async (path: string) => {
-      if (path === `${workspace}/.opencode/roles/config.json`) {
+      if (path === `${workspace}/.teamclaw/roles/config.json`) {
         return JSON.stringify({ paths: ["./team-roles"] })
       }
       if (path.endsWith("default-role/ROLE.md")) {
@@ -126,7 +126,7 @@ External
 `
     })
     mockReadDir.mockImplementation(async (path: string) => {
-      if (path === `${workspace}/.opencode/roles`) {
+      if (path === `${workspace}/.teamclaw/roles`) {
         return [{ isDirectory: true, name: "default-role" }, { isDirectory: true, name: "skill" }]
       }
       if (path === `${workspace}/team-roles`) {
@@ -144,15 +144,15 @@ External
     const workspace = "/workspace"
     mockExists.mockImplementation(async (path: string) => {
       return [
-        `${workspace}/.opencode/roles`,
-        `${workspace}/.opencode/roles/config.json`,
-        `${workspace}/.opencode/roles/default-role/ROLE.md`,
-        `${workspace}/.opencode/roles/skills`,
-        `${workspace}/.opencode/roles/skills/design-helper/SKILL.md`,
+        `${workspace}/.teamclaw/roles`,
+        `${workspace}/.teamclaw/roles/config.json`,
+        `${workspace}/.teamclaw/roles/default-role/ROLE.md`,
+        `${workspace}/.teamclaw/roles/skills`,
+        `${workspace}/.teamclaw/roles/skills/design-helper/SKILL.md`,
       ].includes(path)
     })
     mockReadTextFile.mockImplementation(async (path: string) => {
-      if (path === `${workspace}/.opencode/roles/config.json`) {
+      if (path === `${workspace}/.teamclaw/roles/config.json`) {
         return JSON.stringify({ paths: [] })
       }
       if (path.endsWith("default-role/ROLE.md")) {
@@ -185,10 +185,10 @@ Body
       return ""
     })
     mockReadDir.mockImplementation(async (path: string) => {
-      if (path === `${workspace}/.opencode/roles`) {
+      if (path === `${workspace}/.teamclaw/roles`) {
         return [{ isDirectory: true, name: "default-role" }, { isDirectory: true, name: "skills" }]
       }
-      if (path === `${workspace}/.opencode/roles/skills`) {
+      if (path === `${workspace}/.teamclaw/roles/skills`) {
         return [{ isDirectory: true, name: "design-helper" }]
       }
       return []
@@ -208,15 +208,15 @@ Body
     const workspace = "/workspace"
     mockExists.mockImplementation(async (path: string) => {
       return [
-        `${workspace}/.opencode/roles`,
-        `${workspace}/.opencode/roles/config.json`,
-        `${workspace}/.opencode/roles/default-role/ROLE.md`,
-        `${workspace}/.opencode/roles/legacy`,
-        `${workspace}/.opencode/roles/legacy/design-helper/SKILL.md`,
+        `${workspace}/.teamclaw/roles`,
+        `${workspace}/.teamclaw/roles/config.json`,
+        `${workspace}/.teamclaw/roles/default-role/ROLE.md`,
+        `${workspace}/.teamclaw/roles/legacy`,
+        `${workspace}/.teamclaw/roles/legacy/design-helper/SKILL.md`,
       ].includes(path)
     })
     mockReadTextFile.mockImplementation(async (path: string) => {
-      if (path === `${workspace}/.opencode/roles/config.json`) {
+      if (path === `${workspace}/.teamclaw/roles/config.json`) {
         return JSON.stringify({ paths: [] })
       }
       if (path.endsWith("default-role/ROLE.md")) {
@@ -249,10 +249,10 @@ Body
       return ""
     })
     mockReadDir.mockImplementation(async (path: string) => {
-      if (path === `${workspace}/.opencode/roles`) {
+      if (path === `${workspace}/.teamclaw/roles`) {
         return [{ isDirectory: true, name: "default-role" }, { isDirectory: true, name: "legacy" }]
       }
-      if (path === `${workspace}/.opencode/roles/legacy`) {
+      if (path === `${workspace}/.teamclaw/roles/legacy`) {
         return [{ isDirectory: true, name: "design-helper" }]
       }
       return []

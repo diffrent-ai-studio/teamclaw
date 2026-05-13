@@ -1,6 +1,6 @@
 import { exists, mkdir, readTextFile, remove, writeTextFile } from '@tauri-apps/plugin-fs'
 import { TEAM_REPO_DIR } from '@/lib/build-config'
-import type { CustomProviderConfig } from '@/lib/opencode/config'
+import type { CustomProviderConfig } from '@/lib/teamclaw-config'
 
 export const TEAM_SHARED_PROVIDER_ID = 'team'
 

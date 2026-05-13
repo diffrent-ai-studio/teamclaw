@@ -12,9 +12,7 @@ vi.mock('@/components/viewers/UnsupportedFileViewer', () => ({
 }));
 
 // Import after mocks
-import { shouldHideFileTreeEntry, useWorkspaceStore } from '../workspace';
-import type { FileNode } from '../workspace';
-import { TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config';
+import { useWorkspaceStore } from '../workspace';
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
@@ -166,60 +164,6 @@ describe('workspace store: behavioral tests', () => {
     });
   });
 
-  describe('advanced mode file tree hiding', () => {
-    const workspacePath = '/workspace';
-
-    it('hides workspace system directories and files when advanced mode is off', () => {
-      const hiddenEntries: FileNode[] = [
-        { name: TEAMCLAW_DIR, path: `${workspacePath}/${TEAMCLAW_DIR}`, type: 'directory' },
-        { name: '.opencode', path: `${workspacePath}/.opencode`, type: 'directory' },
-        { name: 'opencode.json', path: `${workspacePath}/opencode.json`, type: 'file' },
-        { name: 'config.json', path: `${workspacePath}/config.json`, type: 'file' },
-      ];
-
-      for (const entry of hiddenEntries) {
-        expect(shouldHideFileTreeEntry(entry, workspacePath, false)).toBe(true);
-      }
-    });
-
-    it('hides team internal directories when advanced mode is off', () => {
-      const hiddenEntries: FileNode[] = [
-        { name: '_feedback', path: `${workspacePath}/${TEAM_REPO_DIR}/_feedback`, type: 'directory' },
-        { name: '_meta', path: `${workspacePath}/${TEAM_REPO_DIR}/_meta`, type: 'directory' },
-        { name: '_secrets', path: `${workspacePath}/${TEAM_REPO_DIR}/_secrets`, type: 'directory' },
-        { name: '.git', path: `${workspacePath}/${TEAM_REPO_DIR}/.git`, type: 'directory' },
-        { name: '.leaderboard', path: `${workspacePath}/${TEAM_REPO_DIR}/.leaderboard`, type: 'directory' },
-      ];
-
-      for (const entry of hiddenEntries) {
-        expect(shouldHideFileTreeEntry(entry, workspacePath, false)).toBe(true);
-      }
-    });
-
-    it('does not hide normal files or similarly named nested files in basic mode', () => {
-      const visibleEntries: FileNode[] = [
-        { name: TEAM_REPO_DIR, path: `${workspacePath}/${TEAM_REPO_DIR}`, type: 'directory' },
-        { name: 'README.md', path: `${workspacePath}/${TEAM_REPO_DIR}/README.md`, type: 'file' },
-        { name: 'config.json', path: `${workspacePath}/${TEAM_REPO_DIR}/config.json`, type: 'file' },
-        { name: '_meta', path: `${workspacePath}/src/_meta`, type: 'directory' },
-      ];
-
-      for (const entry of visibleEntries) {
-        expect(shouldHideFileTreeEntry(entry, workspacePath, false)).toBe(false);
-      }
-    });
-
-    it('shows advanced entries when advanced mode is on', () => {
-      const entry: FileNode = {
-        name: '_secrets',
-        path: `${workspacePath}/${TEAM_REPO_DIR}/_secrets`,
-        type: 'directory',
-      };
-
-      expect(shouldHideFileTreeEntry(entry, workspacePath, true)).toBe(false);
-    });
-  });
-
   describe('collapseDirectory', () => {
     it('removes path from expandedPaths', () => {
       useWorkspaceStore.setState({
@@ -315,37 +259,6 @@ describe('workspace store: behavioral tests', () => {
       await useWorkspaceStore.getState().undo();
       expect(useWorkspaceStore.getState().undoStack.length).toBe(1);
       expect(useWorkspaceStore.getState().undoStack[0].originalPath).toBe('/old.ts');
-    });
-  });
-
-  describe('setOpenCodeReady', () => {
-    it('sets ready state with url', () => {
-      useWorkspaceStore.getState().setOpenCodeReady(true, 'http://localhost:13141');
-      expect(useWorkspaceStore.getState().openCodeBootstrapped).toBe(true);
-      expect(useWorkspaceStore.getState().openCodeReady).toBe(true);
-      expect(useWorkspaceStore.getState().openCodeUrl).toBe('http://localhost:13141');
-    });
-
-    it('sets ready false without clearing url when not provided', () => {
-      useWorkspaceStore.setState({ openCodeUrl: 'http://localhost:13141' });
-      useWorkspaceStore.getState().setOpenCodeReady(false);
-      expect(useWorkspaceStore.getState().openCodeReady).toBe(false);
-      // URL not cleared because no url param
-      expect(useWorkspaceStore.getState().openCodeUrl).toBe('http://localhost:13141');
-    });
-  });
-
-  describe('setOpenCodeBootstrapped', () => {
-    it('clears ready state and url when reset', () => {
-      useWorkspaceStore.setState({
-        openCodeBootstrapped: true,
-        openCodeReady: true,
-        openCodeUrl: 'http://localhost:13141',
-      });
-      useWorkspaceStore.getState().setOpenCodeBootstrapped(false);
-      expect(useWorkspaceStore.getState().openCodeBootstrapped).toBe(false);
-      expect(useWorkspaceStore.getState().openCodeReady).toBe(false);
-      expect(useWorkspaceStore.getState().openCodeUrl).toBeNull();
     });
   });
 

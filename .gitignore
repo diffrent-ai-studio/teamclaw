@@ -40,7 +40,6 @@ src-tauri/target/
 src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
 !src-tauri/binaries/README.md
-!src-tauri/binaries/download-opencode.sh
 !src-tauri/binaries/build-rag-mcp-server.sh
 !src-tauri/binaries/build-autoui-mcp-server.sh
 src-tauri/.tauri_private_key
@@ -103,8 +102,6 @@ credentials/
 # Windows
 Thumbs.db
 
-.opencode
-.opencode/
 docs/superpowers/
 
 # Internal planning documents

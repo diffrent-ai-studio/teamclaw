@@ -46,7 +46,7 @@ export interface GitStatusOptions {
 
 /**
  * Git服务模块 - 封装Git相关操作
- * 遵循项目架构，通过OpenCode服务器API获取Git状态
+ * 遵循项目架构，通过 Tauri 命令获取 Git 状态
  */
 export class GitService {
   private static instance: GitService
@@ -77,7 +77,6 @@ export class GitService {
     }
 
     try {
-      // OpenCode sidecar removed — git status via OpenCode API is no longer available.
       // Return empty array until a Tauri-native git status command is implemented.
       const gitStatuses: GitFileStatus[] = []
 

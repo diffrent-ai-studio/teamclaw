@@ -1,6 +1,6 @@
 # TeamClaw
 
-OpenCode 기반의 로컬 AI 에이전트, 당신의 AI 파트너
+로컬 AI 에이전트, 당신의 AI 파트너
 
 > **당신의 파트너, 함께.**
 
@@ -14,7 +14,7 @@ OpenCode 기반의 로컬 AI 에이전트, 당신의 AI 파트너
 ## 주요 기능
 
 - **3단 레이아웃** — 사이드바, 채팅 영역, 상세 패널
-- **OpenCode 통합** — 완전한 Agent 기능 지원
+- **로컬 Agent 런타임** — 완전한 Agent 기능 지원
 - **MCP 지원** — Model Context Protocol, 엔터프라이즈 시스템 연동
 - **Skills / 플러그인 확장** — 확장 가능한 스킬 시스템
 - **로컬 파일 작업** — 권한 관리가 있는 파일 읽기/쓰기
@@ -39,7 +39,6 @@ OpenCode 기반의 로컬 AI 에이전트, 당신의 AI 파트너
 - **프론트엔드**: React 19 + TypeScript
 - **스타일링**: Tailwind CSS 4
 - **상태 관리**: Zustand
-- **Agent**: OpenCode
 - **에디터**: Tiptap (Markdown/HTML), CodeMirror 6 (코드)
 - **Diff**: 커스텀 Diff 렌더러, Shiki 구문 강조
 
@@ -64,17 +63,6 @@ xattr -cr /Applications/TeamClaw.app
 - Node.js >= 20
 - pnpm >= 10
 - Rust >= 1.70
-- OpenCode CLI
-
-### OpenCode CLI 설치
-
-```bash
-# macOS / Linux
-curl -fsSL https://opencode.ai/install | bash
-
-# 또는 npm으로 설치
-npm install -g opencode
-```
 
 ### 빠른 시작
 
@@ -82,31 +70,11 @@ npm install -g opencode
 # 1. 의존성 설치
 pnpm install
 
-# 2. OpenCode sidecar 바이너리 다운로드 (필수, git에 포함되지 않음)
-./src-tauri/binaries/download-opencode.sh
-
-# 3. Tauri 개발 모드 시작
+# 2. Tauri 개발 모드 시작
 pnpm tauri dev
 ```
 
 시작 후 TeamClaw 인터페이스에서 Workspace 디렉토리를 선택하세요.
-
-### OpenCode 업데이트
-
-OpenCode는 자주 릴리스되므로 다음 명령으로 언제든 최신 버전으로 업데이트할 수 있습니다:
-
-```bash
-pnpm update-opencode
-```
-
-이미 최신 버전이면 자동으로 건너뜁니다. 버전 지정도 가능: `pnpm update-opencode -- v1.2.1`
-
-> **개발 모드 (선택사항)**: sidecar를 다운로드하지 않고 OpenCode Server를 별도로 실행할 수도 있습니다:
->
-> ```bash
-> cd /path/to/your/workspace && opencode serve --port 13141
-> OPENCODE_DEV_MODE=true pnpm tauri dev
-> ```
 
 ## 팀 협업
 

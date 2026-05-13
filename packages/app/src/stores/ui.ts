@@ -12,12 +12,9 @@ export type MainContentLayout = 'stacked' | 'split'
 // Right panel tab in file mode
 export type FileModeRightTab = 'shortcuts' | 'changes' | 'files' | 'agent'
 export type DefaultPrimaryTab = 'session' | 'actors' | 'ideas' | 'shortcuts'
-export type DefaultMoreDestination = 'automation' | 'rolesSkills' | 'settings'
+export type DefaultMoreDestination = 'settings'
 
-export type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'roles' | 'rolesSkills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts' | 'cache'
-
-/** Sections that can be opened in the main column from the workspace sidebar strip. */
-export type EmbeddedSidebarSettingsSection = 'automation' | 'rolesSkills'
+export type SettingsSection = 'general' | 'voice' | 'channels' | 'team' | 'envVars' | 'knowledge' | 'tokenUsage' | 'privacy' | 'leaderboard' | 'shortcuts' | 'cache'
 
 interface UIState {
   currentView: View
@@ -33,8 +30,6 @@ interface UIState {
   actorSheetOpen: boolean
   spotlightMode: boolean
   settingsInitialSection: SettingsSection | null
-  /** When set, main column shows this settings section (workspace UI variant only). */
-  embeddedSettingsSection: EmbeddedSidebarSettingsSection | null
   setView: (view: View) => void
   setDefaultMoreOpen: (open: boolean) => void
   setActorSheetOpen: (open: boolean) => void
@@ -43,8 +38,6 @@ interface UIState {
   openDefaultMoreDestination: (destination: DefaultMoreDestination) => Promise<void> | void
   openSettings: (section?: SettingsSection) => void
   closeSettings: () => void
-  openEmbeddedSettingsSection: (section: EmbeddedSidebarSettingsSection) => void
-  closeEmbeddedSettingsSection: () => void
   setLayoutMode: (mode: LayoutMode) => void
   toggleLayoutMode: () => void
   toggleMainContentLayout: () => void
@@ -91,7 +84,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   actorSheetOpen: false,
   spotlightMode: false,
   settingsInitialSection: null,
-  embeddedSettingsSection: null,
 
   setView: (view) => set({ currentView: view }),
 
@@ -108,7 +100,6 @@ export const useUIStore = create<UIState>((set, get) => ({
       defaultMoreOpen: false,
       currentView: 'chat',
       settingsInitialSection: null,
-      embeddedSettingsSection: null,
     })
 
     if (tab === 'session') {
@@ -128,38 +119,22 @@ export const useUIStore = create<UIState>((set, get) => ({
       get().openSettings()
       return
     }
-
-    if (destination === 'automation') {
-      get().openSettings('automation')
-      return
-    }
-
-    if (destination === 'rolesSkills') {
-      get().openSettings('rolesSkills')
-      return
-    }
   },
 
   openSettings: (section) => set({
     currentView: 'settings',
     settingsInitialSection: section ?? null,
-    embeddedSettingsSection: null,
   }),
 
-  closeSettings: () => set({ currentView: 'chat', settingsInitialSection: null, embeddedSettingsSection: null }),
-
-  openEmbeddedSettingsSection: (section) => set({ embeddedSettingsSection: section }),
-
-  closeEmbeddedSettingsSection: () => set({ embeddedSettingsSection: null }),
+  closeSettings: () => set({ currentView: 'chat', settingsInitialSection: null }),
 
   startNewChat: () => {
-    // Switch to chat view synchronously so settings (full-page or embedded)
-    // hides immediately — waiting on the dynamic imports below would leave
-    // the settings UI visible until the import chain resolves.
+    // Switch to chat view synchronously so settings hides immediately —
+    // waiting on the dynamic imports below would leave the settings UI
+    // visible until the import chain resolves.
     set({
       currentView: 'chat',
       settingsInitialSection: null,
-      embeddedSettingsSection: null,
     })
     const isStacked = get().mainContentLayout === 'stacked'
 
@@ -212,10 +187,9 @@ export const useUIStore = create<UIState>((set, get) => ({
     }
     
     // Close any open UI elements and return to chat view
-    set({ 
-      currentView: 'chat', 
-      settingsInitialSection: null, 
-      embeddedSettingsSection: null 
+    set({
+      currentView: 'chat',
+      settingsInitialSection: null,
     })
     useWorkspaceStore.getState().clearSelection()
     useTabsStore.getState().hideAll()

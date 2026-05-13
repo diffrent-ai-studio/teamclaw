@@ -1,6 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
-import type { SendMessageFilePart, SessionErrorEvent } from "@/lib/opencode/sdk-types";
+// Permissive proxy until the amuxd daemon client is wired up;
+// chat send/messages are non-functional.
+// TODO(amuxd): wire to daemon
+const getAgentClient: () => any = () =>
+  new Proxy({}, {
+    get() {
+      return () => {
+        throw new Error('Agent client not wired to amuxd daemon yet');
+      };
+    },
+  });
+import type { SendMessageFilePart, SessionErrorEvent } from "./session-types";
 import type {
   Message,
   QueuedMessage,
@@ -22,7 +32,8 @@ import {
   cleanupAllChildSessions,
 } from "@/stores/streaming";
 import { trackEvent } from "@/stores/telemetry";
-import { syncSetSessionId } from "@/lib/opencode/sdk-sse";
+// syncSetSessionId removed (was SSE bookkeeping)
+const syncSetSessionId = (_id: string | null) => {};
 import { insertMessageSorted } from "@/lib/insert-message-sorted";
 import { useWorkspaceStore } from "@/stores/workspace";
 import {
@@ -224,7 +235,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
           return { sessions: newSessions, sessionError: retryError };
         });
         try {
-          const client = getOpenCodeClient();
+          const client = getAgentClient();
           const { selectedModel } = get();
           const modelParam = selectedModel
             ? { providerID: selectedModel.providerID, modelID: selectedModel.modelID }
@@ -276,7 +287,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
       setMessageTimeout(pendingAssistantId, activeSessionId);
 
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
         const { selectedModel } = get();
         const modelParam = selectedModel
           ? {
@@ -445,7 +456,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
 
       try {
         clearMessageTimeout();
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
         const sessionIdsToAbort = Array.from(new Set([activeSessionId, ...childSessionIds]));
 
         // Abort with a 5-second timeout per request — don't let a hung server block the UI
@@ -513,7 +524,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
       console.log("[Session] Reloading messages for active session:", activeSessionId);
 
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
         const messages = await client.getMessages(activeSessionId);
         const convertedMessages = messages.map(convertMessage);
 
@@ -523,14 +534,14 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
             currentSession?.messages.map((m) => [m.id, m]) || []
           );
 
-          const oldUserMessages = currentSession?.messages.filter(m => m.role === 'user') || [];
-          const newUserMessages = convertedMessages.filter(m => m.role === 'user');
+          const oldUserMessages = currentSession?.messages.filter((m: any) => m.role === 'user') || [];
+          const newUserMessages = convertedMessages.filter((m: any) => m.role === 'user');
 
-          const mergedMessages = convertedMessages.map((newMsg) => {
+          const mergedMessages = convertedMessages.map((newMsg: any) => {
             let oldMsg = oldMessagesMap.get(newMsg.id);
 
             if (!oldMsg && newMsg.role === 'user') {
-              const newUserIndex = newUserMessages.findIndex(m => m.id === newMsg.id);
+              const newUserIndex = newUserMessages.findIndex((m: any) => m.id === newMsg.id);
               if (newUserIndex !== -1 && newUserIndex < oldUserMessages.length) {
                 oldMsg = oldUserMessages[newUserIndex];
               }

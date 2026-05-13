@@ -1,7 +1,7 @@
 /**
  * Compare workspace paths, handling ~/path vs /absolute/path in web mode.
- * In web mode, workspacePath may be ~/opencode-test (not expanded) while
- * OpenCode returns event.directory as /Users/xxx/opencode-test.
+ * In web mode, workspacePath may be ~/some-workspace (not expanded) while
+ * agent runtime returns event.directory as /Users/xxx/some-workspace.
  */
 export function workspacePathsMatch(a: string, b: string): boolean {
   const na = a.replace(/\/+$/, "").replace(/\\/g, "/");

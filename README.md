@@ -1,11 +1,17 @@
 # TeamClaw v2 (worktree branch: `v2/amuxd-architecture`)
 
 > **Architecture migration in progress.** This branch is the v2 rebuild described in
-> `docs/superpowers/specs/2026-05-08-amuxd-architecture-design.md`. Plan: `docs/superpowers/plans/2026-05-08-amuxd-architecture-phase-0-1-v2.md`.
+> `docs/superpowers/specs/2026-05-08-amuxd-architecture-design.md`. Plan:
+> `docs/superpowers/plans/2026-05-08-amuxd-architecture-phase-0-1.md`.
 >
-> **Phase 0+1 complete (2026-05-08):** Supabase email+password auth, Rust MQTT bus,
-> ChatPanel rendering on Teamclaw_Message, send-message via LiveEventEnvelope +
-> Supabase persistence. OpenCode sidecar removed.
+> **Phase 1 status (2026-05-09): single-window scope.** Verified working end-to-end:
+> Supabase email+password auth, session list from Supabase, message history load on
+> session select, send → MQTT publish + Supabase persist + optimistic local append,
+> `ActorMessageList` rendering. Multi-window round-trip
+> is **descoped** — the broker on the configured EMQX host does not echo publishes
+> back to the same client, and `create_workspace_window` shares a single MQTT client
+> across webviews; cross-process round-trip is deferred to a future phase or broker
+> config change.
 >
 > **Local dev requires** `packages/app/.env.development.local` (gitignored) with:
 > - `VITE_SUPABASE_URL`
@@ -14,13 +20,24 @@
 >
 > Wire format: `proto/amux.proto` + `proto/teamclaw.proto`, vendored from
 > `/Volumes/openbeta/workspace/amux/proto/`. Topics: `amux/{team}/session/{sid}/live`.
-> Phase 2 (daemon installer + ACP runtime + agent streaming) is the next plan.
+>
+> **Known Phase 1 debt to clear in Phase 2:** the Phase 1E `useSessionStore`
+> compat shim (`packages/app/src/stores/session-store.ts`) provides stub fields and
+> no-op methods so 26 legacy consumer files (`AppSidebar`, parts of `ChatPanel`,
+> `MessageList`, `SessionList`, etc.) compile and render against the lean v2
+> store. Buttons like archive / rename / pin / permission flow `console.warn` and
+> no-op. `noUnusedLocals`/`noUnusedParameters` in `packages/app/tsconfig.json` are
+> temporarily disabled while those consumers carry intentionally-unused vars.
+>
+> Phase 2 (daemon installer + ACP runtime + agent streaming + permission flow) is
+> the next plan and where the compat shim should be peeled off as those UI paths
+> get rewired.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
 [![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclaw.svg)](https://github.com/different-ai-studio/teamclaw/graphs/contributors)
 
-Local AI agents built on OpenCode — your AI Ally for every role
+Local AI agents — your AI Ally for every role
 
 > **Your Ally. Together.**
 
@@ -48,7 +65,7 @@ English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [�
 ## Features
 
 - Three-column layout (Sidebar, Chat, Detail Panel)
-- OpenCode integration for Agent capabilities
+- Local agent runtime for Agent capabilities
 - Channel gateways: Discord, Feishu, Email, Kook, WeCom, WeChat
 - Automation (Cron) for scheduled tasks
 - Team collaboration modes: P2P and S3/OSS
@@ -73,7 +90,6 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 - **Frontend**: React 19 + TypeScript
 - **Styling**: Tailwind CSS 4
 - **State**: Zustand
-- **Agent**: OpenCode
 - **Editors**: Tiptap (Markdown/HTML), CodeMirror 6 (Code)
 - **Diff**: Custom Diff Renderer with Shiki syntax highlighting
 
@@ -100,17 +116,6 @@ This is not needed if the app is signed and notarized with an Apple Developer ce
 - Node.js >= 20
 - pnpm >= 10
 - Rust >= 1.70
-- OpenCode CLI
-
-### Install OpenCode CLI
-
-```bash
-# macOS / Linux
-curl -fsSL https://opencode.ai/install | bash
-
-# Or via npm
-npm install -g opencode
-```
 
 ### Quick Start
 
@@ -118,14 +123,9 @@ npm install -g opencode
 # 1. Install dependencies
 pnpm install
 
-# 2. Download OpenCode sidecar binary (required, not in git)
-./src-tauri/binaries/download-opencode.sh
+# 2. (Optional) Build local MCP sidecars — see src-tauri/binaries/README.md
 
-# 3. (Optional) Build MCP sidecars for OpenCode — see src-tauri/binaries/README.md
-#    Tauri externalBin currently only bundles OpenCode; rag-mcp-server / autoui-mcp-server
-#    are for opencode.json if you use local MCP binaries.
-
-# 4. Start Tauri dev
+# 3. Start Tauri dev
 pnpm tauri dev
 ```
 
@@ -149,23 +149,6 @@ Notes:
 - Install `sccache` if you want compiler cache hits in addition to the shared target directory.
 
 > **MCP binaries**: For local RAG MCP use the standalone `rag-mcp-server` build (not an in-app HTTP bridge). Optional sidecar build steps are in [src-tauri/binaries/README.md](src-tauri/binaries/README.md).
-
-### Update OpenCode
-
-OpenCode releases frequently. Update to the latest version with a single command:
-
-```bash
-pnpm update-opencode
-```
-
-Skips automatically if already up to date. You can also pin a version: `pnpm update-opencode -- v1.2.1`
-
-> **Dev mode (optional)**: Instead of downloading the sidecar, you can run OpenCode Server separately:
->
-> ```bash
-> cd /path/to/your/workspace && opencode serve --port 13141
-> OPENCODE_DEV_MODE=true pnpm tauri dev
-> ```
 
 ## Team Collaboration
 

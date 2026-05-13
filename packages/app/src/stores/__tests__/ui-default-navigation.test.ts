@@ -7,7 +7,6 @@ describe('default layout navigation model', () => {
     useUIStore.setState({
       currentView: 'chat',
       settingsInitialSection: null,
-      embeddedSettingsSection: null,
       defaultNavTab: 'session',
       defaultMoreOpen: false,
     } as Partial<ReturnType<typeof useUIStore.getState>>)
@@ -18,10 +17,10 @@ describe('default layout navigation model', () => {
     })
   })
 
-  it('switches to knowledge primary tab without opening settings', () => {
-    useUIStore.getState().selectDefaultPrimaryTab('knowledge')
+  it('switches to shortcuts primary tab without opening settings', () => {
+    useUIStore.getState().selectDefaultPrimaryTab('shortcuts')
 
-    expect(useUIStore.getState().defaultNavTab).toBe('knowledge')
+    expect(useUIStore.getState().defaultNavTab).toBe('shortcuts')
     expect(useWorkspaceStore.getState().isPanelOpen).toBe(false)
     expect(useUIStore.getState().currentView).toBe('chat')
   })
@@ -36,20 +35,6 @@ describe('default layout navigation model', () => {
 
     expect(useUIStore.getState().defaultNavTab).toBe('shortcuts')
     expect(useUIStore.getState().currentView).toBe('settings')
-    expect(useUIStore.getState().defaultMoreOpen).toBe(false)
-  })
-
-  it('opens automation settings from more without changing the selected primary tab', () => {
-    useUIStore.setState({
-      defaultNavTab: 'knowledge',
-      defaultMoreOpen: true,
-    } as Partial<ReturnType<typeof useUIStore.getState>>)
-
-    useUIStore.getState().openDefaultMoreDestination('automation')
-
-    expect(useUIStore.getState().defaultNavTab).toBe('knowledge')
-    expect(useUIStore.getState().currentView).toBe('settings')
-    expect(useUIStore.getState().settingsInitialSection).toBe('automation')
     expect(useUIStore.getState().defaultMoreOpen).toBe(false)
   })
 })

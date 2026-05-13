@@ -36,13 +36,10 @@ const SpotlightWindow = lazy(() =>
   }))
 )
 
-// SSE connection provider — must render outside spotlight/main conditional
-import { SSEProvider } from "@/components/SSEProvider"
-
 import { FileContentViewer } from "@/components/FileEditor";
 import { useNeedsTrafficLightSpacer } from "@/hooks/useTrafficLightSpacer";
 import {
-  useOpenCodeInit,
+  useWorkspaceInit,
   useChannelGatewayInit,
   useGitReposInit,
   useCronInit,
@@ -53,7 +50,6 @@ import {
   useTauriBodyClass,
   useSetupGuide,
   useTelemetryConsent,
-  useOpenCodePreload,
   useLayoutModeShortcut,
 } from "@/hooks/useAppInit";
 import {
@@ -70,7 +66,6 @@ import {
   SidebarCollapseToggle,
   SidebarSecondarySessionActions,
 } from "@/components/app-sidebar";
-import { SettingsSectionBody } from "@/components/settings/section-registry";
 import { isWorkspaceUIVariant } from "@/lib/ui-variant";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -113,11 +108,6 @@ import { syncActorsForTeam } from "@/lib/sync/actor-sync";
 import { syncMessagesForSession } from "@/lib/sync/message-sync";
 import { syncParticipantsForSession } from "@/lib/sync/session-participant-sync";
 import { syncSessionsForTeam } from "@/lib/sync/session-sync";
-import { initOpenCodeClient } from "@/lib/opencode/sdk-client";
-import {
-  startOpenCode,
-  clearPreload,
-} from "@/lib/opencode/preloader";
 import { Button } from "@/components/ui/button";
 
 // Module-level set of session/live topics we've already MQTT-subscribed to.
@@ -596,7 +586,6 @@ function AppContent() {
   const closePanel = useWorkspaceStore((s) => s.closePanel);
   const clearWorkspace = useWorkspaceStore((s) => s.clearWorkspace);
   const selectedFile = useWorkspaceStore((s) => s.selectedFile);
-  const setOpenCodeReady = useWorkspaceStore((s) => s.setOpenCodeReady);
 
   // UI store - individual selectors
   const currentView = useUIStore((s) => s.currentView);
@@ -606,10 +595,6 @@ function AppContent() {
   const setFileModeRightTab = useUIStore((s) => s.setFileModeRightTab);
   const mainContentLayout = useUIStore((s) => s.mainContentLayout);
   const openSettings = useUIStore((s) => s.openSettings);
-  const embeddedSettingsSection = useUIStore((s) => s.embeddedSettingsSection);
-  const closeEmbeddedSettingsSection = useUIStore(
-    (s) => s.closeEmbeddedSettingsSection,
-  );
   const isNewWorkspace = useWorkspaceStore((s) => s.isNewWorkspace);
   const setIsNewWorkspace = useWorkspaceStore((s) => s.setIsNewWorkspace);
   const { state, open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
@@ -700,7 +685,7 @@ function AppContent() {
   ];
 
   // Extracted hooks — initialization, panel state, keyboard shortcuts
-  const { openCodeError, setOpenCodeError, initialWorkspaceResolved } = useOpenCodeInit();
+  const { initialWorkspaceResolved } = useWorkspaceInit();
   useChannelGatewayInit();
   useGitReposInit();
   useCronInit();
@@ -1236,90 +1221,6 @@ function AppContent() {
     );
   }
 
-  // If there's an OpenCode error (e.g., workspace mismatch in dev mode)
-  if (openCodeError) {
-    return (
-      <>
-        <AppSidebar />
-        <SidebarInset className="flex h-svh flex-col overflow-hidden">
-          <header
-            className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 bg-background px-4"
-            data-tauri-drag-region
-          >
-            {collapsedInsetLeading}
-            <span className="font-medium">{buildConfig.app.name}</span>
-          </header>
-          <div className="flex-1 overflow-hidden flex flex-col items-center justify-center gap-6 p-8">
-            <div className="flex flex-col items-center gap-4 text-center max-w-lg">
-              <div className="rounded-full bg-amber-100 p-4">
-                <AlertTriangle className="h-12 w-12 text-amber-600" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-xl font-semibold">
-                  {t(
-                    "app.openCodeError",
-                    "OpenCode Server Failed to Start",
-                  )}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {t(
-                    "app.openCodeErrorHint",
-                    "The server process exited unexpectedly. Try choosing another directory or retrying the connection.",
-                  )}
-                </p>
-                <details className="text-left">
-                  <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none">
-                    {t("app.showErrorDetails", "Show error details")}
-                  </summary>
-                  <div className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap bg-muted p-3 rounded-lg font-mono max-h-48 overflow-y-auto break-all">
-                    {openCodeError}
-                  </div>
-                </details>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={() => clearWorkspace()}>
-                {t("app.chooseDirectory", "Choose Another Directory")}
-              </Button>
-              <Button
-                onClick={async () => {
-                  setOpenCodeError(null);
-                  if (!isTauri()) {
-                    console.log(
-                      "[Web Mode] Cannot start OpenCode from browser",
-                    );
-                    return;
-                  }
-                  try {
-                    // Clear stale preload so we get a fresh invocation
-                    clearPreload();
-                    const status = await startOpenCode(workspacePath!);
-                    console.log("[OpenCode] Server started:", status);
-                    initOpenCodeClient({ baseUrl: status.url });
-                    setOpenCodeReady(true, status.url);
-                  } catch (error) {
-                    setOpenCodeError(String(error));
-                  }
-                }}
-              >
-                {t("app.retryConnection", "Retry Connection")}
-              </Button>
-            </div>
-
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <Terminal className="h-3 w-3" />
-              {t(
-                "app.retryConnectionTip",
-                'Tip: Restart OpenCode server with the command above, then click "Retry Connection"',
-              )}
-            </p>
-          </div>
-        </SidebarInset>
-      </>
-    );
-  }
-
   // File Mode: Completely different layout without sidebar
   if (layoutMode === "file") {
     return (
@@ -1535,58 +1436,37 @@ function AppContent() {
           >
             {collapsedInsetLeading}
 
-            {embeddedSettingsSection ? (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 shrink-0 rounded-lg"
-                  onClick={closeEmbeddedSettingsSection}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="min-w-0 truncate text-sm font-medium">
-                  {embeddedSettingsSection === "automation"
-                    ? t("settings.nav.automation", "Automation")
-                    : t("settings.nav.rolesSkills", "Roles & Skills")}
-                </span>
-                <div className="min-w-0 flex-1" />
-              </>
-            ) : (
-              <>
-                <button
+            <button
+              className={cn(
+                "min-w-0 truncate text-sm text-left",
+                hasActiveFileTab && "cursor-pointer hover:text-foreground/70 transition-colors"
+              )}
+              onClick={() => {
+                if (hasActiveFileTab) {
+                  useTabsStore.getState().hideAll();
+                }
+              }}
+              disabled={!hasActiveFileTab}
+            >
+              {activeSession?.title || t("chat.newChat", "New Chat")}
+            </button>
+            {activeSession && (
+              <button
+                onClick={async () => {
+                  setIsRefreshingMessages(true);
+                  await reloadActiveSessionMessages();
+                  setIsRefreshingMessages(false);
+                }}
+                className="ml-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                title={t("chat.refreshMessages", "Refresh messages")}
+              >
+                <RotateCw
                   className={cn(
-                    "min-w-0 truncate text-sm text-left",
-                    hasActiveFileTab && "cursor-pointer hover:text-foreground/70 transition-colors"
+                    "h-3.5 w-3.5",
+                    isRefreshingMessages && "animate-spin",
                   )}
-                  onClick={() => {
-                    if (hasActiveFileTab) {
-                      useTabsStore.getState().hideAll();
-                    }
-                  }}
-                  disabled={!hasActiveFileTab}
-                >
-                  {activeSession?.title || t("chat.newChat", "New Chat")}
-                </button>
-                {activeSession && (
-                  <button
-                    onClick={async () => {
-                      setIsRefreshingMessages(true);
-                      await reloadActiveSessionMessages();
-                      setIsRefreshingMessages(false);
-                    }}
-                    className="ml-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    title={t("chat.refreshMessages", "Refresh messages")}
-                  >
-                    <RotateCw
-                      className={cn(
-                        "h-3.5 w-3.5",
-                        isRefreshingMessages && "animate-spin",
-                      )}
-                    />
-                  </button>
-                )}
-              </>
+                />
+              </button>
             )}
 
             {/* Panel tabs - right side of header */}
@@ -1642,16 +1522,12 @@ function AppContent() {
             </div>
           </header>
 
-          {/* Main content - Chat, file preview, or embedded settings section */}
+          {/* Main content - Chat or file preview */}
           <div
             className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
             data-onboarding-id="main-chat-area"
           >
-            {embeddedSettingsSection ? (
-              <SettingsSectionBody section={embeddedSettingsSection} />
-            ) : (
-              <MainContent />
-            )}
+            <MainContent />
           </div>
         </div>
 
@@ -1673,10 +1549,7 @@ function AppContent() {
       </SidebarInset>
       <OnboardingTour
         id="main-workspace"
-        enabled={
-          !!workspacePath &&
-          !embeddedSettingsSection
-        }
+        enabled={!!workspacePath}
         steps={mainWorkspaceOnboardingSteps}
       />
       <WorkspaceTypeDialog
@@ -1710,11 +1583,10 @@ function App() {
     }).catch(() => {});
   }, []);
 
-  // Extracted hooks — initialization, setup guide, telemetry consent, preload
+  // Extracted hooks — initialization, setup guide, telemetry consent
   useTauriBodyClass();
-  useOpenCodePreload();
-  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
-  const { showSetupGuide, dependencies, handleRecheck, handleSetupContinue } = useSetupGuide(openCodeReady);
+  const workspaceReady = !!useWorkspaceStore((s) => s.workspacePath);
+  const { showSetupGuide, dependencies, handleRecheck, handleSetupContinue } = useSetupGuide(workspaceReady);
   const { showConsentDialog, setShowConsentDialog } = useTelemetryConsent(showSetupGuide);
 
   const spotlightContent = (
@@ -1765,7 +1637,6 @@ function App() {
 
   return isTauri() ? (
     <div className="h-screen w-screen rounded-2xl overflow-hidden bg-background">
-      <SSEProvider />
       <div style={{ display: spotlightMode ? 'contents' : 'none' }}>
         {spotlightContent}
       </div>
@@ -1775,7 +1646,6 @@ function App() {
     </div>
   ) : (
     <>
-      <SSEProvider />
       <div style={{ display: spotlightMode ? 'contents' : 'none' }}>
         {spotlightContent}
       </div>

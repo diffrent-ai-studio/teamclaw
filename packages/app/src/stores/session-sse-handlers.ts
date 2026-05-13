@@ -1,9 +1,8 @@
 /**
- * session-sse-handlers.ts — Phase 1E stub.
+ * session-sse-handlers.ts — stub kept for module resolution.
  *
- * OpenCode sidecar removed. The SSE handler sub-modules have been deleted.
- * This file is kept as a stub to maintain module resolution for any remaining
- * imports during the transition to native Tauri-RPC event handling.
+ * SSE handler sub-modules were removed during the v2 amuxd transition.
+ * This file is retained until native Tauri-RPC event handling replaces it.
  */
 import type { SessionState } from "./session-types";
 

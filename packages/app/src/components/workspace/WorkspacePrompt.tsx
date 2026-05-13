@@ -17,7 +17,7 @@ import { isTauri } from '@/lib/utils'
 
 
 // Default workspace for web mode
-const DEFAULT_WEB_WORKSPACE = '~/opencode-test'
+const DEFAULT_WEB_WORKSPACE = '~/teamclaw-workspace'
 
 export function WorkspacePrompt() {
   const { t } = useTranslation()
@@ -150,7 +150,7 @@ export function WorkspacePrompt() {
                 <div>
                   <p className="font-medium text-foreground">{t('workspace.webModeAccessTitle', 'Access check')}</p>
                   <p className="mt-1 leading-5">
-                    {t('workspace.webModeAccessBody', 'Make sure the OpenCode server has permission to access this directory before continuing.')}
+                    {t('workspace.webModeAccessBody', 'Make sure the agent has permission to access this directory before continuing.')}
                   </p>
                 </div>
               </div>

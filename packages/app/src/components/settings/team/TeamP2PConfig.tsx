@@ -296,7 +296,7 @@ export function TeamP2PConfig() {
         const store = useTeamModeStore.getState()
         await store.loadTeamConfig(workspacePath)
         if (useTeamModeStore.getState().teamMode) {
-          await store.applyTeamModelToOpenCode(workspacePath)
+          await store.applyTeamModel(workspacePath)
         }
       }
     } catch (err) {
@@ -378,7 +378,7 @@ export function TeamP2PConfig() {
         const store = useTeamModeStore.getState()
         await store.loadTeamConfig(workspacePath)
         if (useTeamModeStore.getState().teamMode) {
-          await store.applyTeamModelToOpenCode(workspacePath)
+          await store.applyTeamModel(workspacePath)
         }
       }
       // Auto-register on seed if invite code + seed URL provided

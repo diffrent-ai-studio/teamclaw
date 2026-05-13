@@ -29,8 +29,6 @@
     "test:e2e:e2e": "vitest run --config vitest.config.e2e.ts tests/e2e",
     "test:e2e:functional": "vitest run --config vitest.config.e2e.ts tests/functional",
     "test:stress": "vitest run --config vitest.config.stress.ts",
-    "update-opencode": "node scripts/update-opencode.js",
-    "update-opencode:all": "./scripts/download-opencode-all.sh",
     "verify-release": "./scripts/verify-release-build.sh",
     "ship": "./scripts/ship-pr.sh"
   },

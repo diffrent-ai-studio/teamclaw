@@ -151,7 +151,7 @@ export function TeamGitConfig() {
   const myRole = useTeamMembersStore((s) => s.myRole)
   const canManageServiceConfig = myRole === 'owner' || myRole === 'manager'
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
-  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady)
+  const workspaceReady = !!workspacePath
   const workspaceArgs = React.useMemo<{ workspacePath?: string }>(
     () => (workspacePath ? { workspacePath } : {}),
     [workspacePath],
@@ -220,9 +220,9 @@ export function TeamGitConfig() {
         return
       }
 
-      // Wait for OpenCode to register the workspace in backend state.
+      // Wait for the workspace to be registered in backend state.
       // Otherwise get_team_config races startup and throws "No workspace path set".
-      if (!workspacePath || !openCodeReady) {
+      if (!workspacePath || !workspaceReady) {
         return
       }
 
@@ -263,7 +263,7 @@ export function TeamGitConfig() {
       setErrorMessage(err instanceof Error ? err.message : String(err))
       setState('error')
     }
-  }, [workspacePath, openCodeReady, workspaceArgs])
+  }, [workspacePath, workspaceReady, workspaceArgs])
 
   React.useEffect(() => {
     initialize()
@@ -293,7 +293,7 @@ export function TeamGitConfig() {
               const store = useTeamModeStore.getState()
               await store.loadTeamConfig(ws)
               if (useTeamModeStore.getState().teamMode) {
-                await store.applyTeamModelToOpenCode(ws, true)
+                await store.applyTeamModel(ws, true)
               }
             } catch (err) {
               console.warn('[Team Join] Post-clone team config refresh failed:', err)
@@ -388,8 +388,8 @@ export function TeamGitConfig() {
 
   // ─── Connect flow (legacy fallback) ─────────────────────────────────
 
-  // @ts-expect-error kept as legacy fallback for potential external usage
-  const handleConnect = async () => { // eslint-disable-line @typescript-eslint/no-unused-vars
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const handleConnect = async () => {
     if (!gitUrl.trim()) return
 
     setState('connecting')
@@ -670,7 +670,7 @@ export function TeamGitConfig() {
         const store = useTeamModeStore.getState()
         await store.loadTeamConfig(workspacePath)
         if (useTeamModeStore.getState().teamMode) {
-          await store.applyTeamModelToOpenCode(workspacePath, true)
+          await store.applyTeamModel(workspacePath, true)
         }
       }
       setTeamConfig(newConfig)

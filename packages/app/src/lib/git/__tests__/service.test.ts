@@ -78,8 +78,7 @@ describe('GitService', () => {
   })
 
   describe('getGitStatus', () => {
-    it('returns empty array (OpenCode sidecar removed)', async () => {
-      // OpenCode sidecar removed — git status via API is no longer available.
+    it('returns empty array (git status not wired)', async () => {
       // getGitStatus() now returns an empty array until a Tauri-native implementation.
       const result = await gitService.getGitStatus()
       expect(result).toEqual([])
@@ -94,21 +93,21 @@ describe('GitService', () => {
   })
 
   describe('getFileGitStatus', () => {
-    it('returns null (no status data without OpenCode)', async () => {
+    it('returns null (no status data)', async () => {
       const result = await gitService.getFileGitStatus('test-file.txt')
       expect(result).toBeNull()
     })
   })
 
   describe('hasFileChanged', () => {
-    it('returns false for all files (no status data without OpenCode)', async () => {
+    it('returns false for all files (no status data)', async () => {
       const hasChanged = await gitService.hasFileChanged('any-file.js')
       expect(hasChanged).toBe(false)
     })
   })
 
   describe('getChangedFiles', () => {
-    it('returns empty array (no status data without OpenCode)', async () => {
+    it('returns empty array (no status data)', async () => {
       const result = await gitService.getChangedFiles()
       expect(result).toEqual([])
     })

@@ -1,11 +1,21 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { getOpenCodeClient } from "@/lib/opencode/sdk-client";
+// Permissive proxy until the amuxd daemon client is wired up;
+// permission flows are non-functional.
+// TODO(amuxd): wire to daemon
+const getAgentClient: () => any = () =>
+  new Proxy({}, {
+    get() {
+      return () => {
+        throw new Error('Agent client not wired to amuxd daemon yet');
+      };
+    },
+  });
 import { isTauri } from "@/lib/utils";
 import { buildConfig } from "@/lib/build-config";
 import { notificationService } from "@/lib/notification-service";
 import { shouldAutoAuthorize } from "@/lib/permission-policy";
-import type { PermissionAskedEvent } from "@/lib/opencode/sdk-types";
+import type { PermissionAskedEvent } from "./session-types";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type {
   PendingPermissionEntry,
@@ -26,7 +36,7 @@ import {
 } from "@/lib/session-list-activity";
 
 /**
- * Cache of permission config from opencode.json.
+ * Cache of permission config from the legacy workspace config file.
  * Maps permission name (e.g. "bash", "write") to its action ("allow" | "ask" | "deny").
  */
 let _permConfigCache: Record<string, string> | null = null;
@@ -68,8 +78,8 @@ async function loadPermissionConfig(): Promise<Record<string, string>> {
 const _alwaysAllowedPermissions = new Set<string>();
 
 /**
- * Write a permission as "allow" into opencode.json so OpenCode itself
- * stops asking for this permission type entirely.
+ * Write a permission as "allow" into the legacy workspace config so the
+ * agent runtime stops asking for this permission type entirely.
  */
 async function setPermissionAllowInConfig(permissionType: string): Promise<void> {
   if (!isTauri()) return;
@@ -98,9 +108,9 @@ async function setPermissionAllowInConfig(permissionType: string): Promise<void>
     // Update the in-memory cache
     _permConfigCache = permission;
 
-    console.log("[Session] Set permission '%s' to 'allow' in opencode.json", permissionType);
+    console.log("[Session] Set permission '%s' to 'allow' in legacy config", permissionType);
   } catch (err) {
-    console.error("[Session] Failed to update opencode.json permission:", err);
+    console.error("[Session] Failed to update legacy config permission:", err);
   }
 }
 
@@ -118,7 +128,12 @@ type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partia
 type SessionGet = () => SessionState;
 
 /**
- * Persist an "always allow" rule to opencode.db so it survives server restarts.
+ * Persist an "always allow" rule to the agent runtime DB so it survives restarts.
+ *
+ * NOTE: Tauri commands `get_opencode_project_id`, `read_opencode_allowlist`, and
+ * `write_opencode_allowlist` referenced below no longer exist in src-tauri.
+ * Calls fail silently inside try/catch — preserved as historical wiring until
+ * the amuxd daemon installer ships its own allowlist persistence path.
  */
 async function persistAllowlistRule(perm: PermissionAskedEvent): Promise<void> {
   if (!isTauri()) return;
@@ -242,7 +257,7 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
       return knownClassification;
     }
 
-    const client = getOpenCodeClient();
+    const client = getAgentClient();
     let sessionInfo: SessionLookupInfo | null = null;
     try {
       sessionInfo = await client.getSession(sessionId) as SessionLookupInfo;
@@ -346,17 +361,17 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
     handlePermissionAsked: (event: PermissionAskedEvent) => {
       // Check permission policy -- auto-authorize if bypass or batch-done
       if (shouldAutoAuthorize()) {
-        const client = getOpenCodeClient();
-        client.replyPermission(event.id, { reply: "always" }).catch((err) => {
+        const client = getAgentClient();
+        client.replyPermission(event.id, { reply: "always" }).catch((err: unknown) => {
           console.error("[Session] Failed to auto-reply permission:", err);
         });
         return;
       }
 
-      // Check opencode.json permission config -- auto-authorize if set to "allow"
+      // Check legacy permission config -- auto-authorize if set to "allow"
       if (event.permission && _permConfigCache?.[event.permission] === "allow") {
-        const client = getOpenCodeClient();
-        client.replyPermission(event.id, { reply: "once" }).catch((err) => {
+        const client = getAgentClient();
+        client.replyPermission(event.id, { reply: "once" }).catch((err: unknown) => {
           console.error("[Session] Failed to auto-reply permission from config:", err);
         });
         return;
@@ -364,8 +379,8 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
 
       // Check if this permission type was already "Always Allowed" during this session
       if (event.permission && _alwaysAllowedPermissions.has(event.permission)) {
-        const client = getOpenCodeClient();
-        client.replyPermission(event.id, { reply: "always" }).catch((err) => {
+        const client = getAgentClient();
+        client.replyPermission(event.id, { reply: "always" }).catch((err: unknown) => {
           console.error("[Session] Failed to auto-reply always-allowed permission:", err);
         });
         return;
@@ -402,12 +417,12 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
         decision === "deny" ? "denied" : decision === "always" ? "allowlisted" : "approved";
 
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
         await client.replyPermission(permissionId, {
           reply: replyMap[decision],
         });
 
-        // Persist "always" decisions to opencode.db and cache in memory
+        // Persist "always" decisions to the agent runtime DB and cache in memory
         if (decision === "always") {
           const { activeSessionId } = get();
           const session = activeSessionId ? getSessionById(activeSessionId) : null;
@@ -439,9 +454,9 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
             // Cache in memory so subsequent requests for same permission type are auto-approved
             if (permEvent.permission) {
               _alwaysAllowedPermissions.add(permEvent.permission);
-              // Write to opencode.json so OpenCode itself stops asking
+              // Write to legacy config so the agent runtime stops asking
               setPermissionAllowInConfig(permEvent.permission).catch((err) => {
-                console.error("[Session] Failed to set permission in opencode.json:", err);
+                console.error("[Session] Failed to set permission in legacy config:", err);
               });
             }
             persistAllowlistRule(permEvent).catch((err) => {
@@ -508,31 +523,31 @@ export function createPermissionActions(set: SessionSet, get: SessionGet) {
       if (!activeSessionId) return;
 
       try {
-        const client = getOpenCodeClient();
+        const client = getAgentClient();
         const permissions = await client.listPermissions();
         if (!permissions || permissions.length === 0) return;
 
         if (shouldAutoAuthorize()) {
           console.log("[Session] Auto-authorizing polled permissions (policy: bypass/batch-done)");
           for (const perm of permissions) {
-            client.replyPermission(perm.id, { reply: "always" }).catch((err) => {
+            client.replyPermission(perm.id, { reply: "always" }).catch((err: unknown) => {
               console.error("[Session] Failed to auto-reply polled permission:", err);
             });
           }
           return;
         }
 
-        // Auto-authorize permissions that are set to "allow" in opencode.json or already "Always Allowed"
+        // Auto-authorize permissions that are set to "allow" in legacy config or already "Always Allowed"
         {
-          const remaining = permissions.filter((perm) => {
+          const remaining = permissions.filter((perm: any) => {
             if (perm.permission && _permConfigCache?.[perm.permission] === "allow") {
-              client.replyPermission(perm.id, { reply: "once" }).catch((err) => {
+              client.replyPermission(perm.id, { reply: "once" }).catch((err: unknown) => {
                 console.error("[Session] Failed to auto-reply polled permission from config:", err);
               });
               return false;
             }
             if (perm.permission && _alwaysAllowedPermissions.has(perm.permission)) {
-              client.replyPermission(perm.id, { reply: "always" }).catch((err) => {
+              client.replyPermission(perm.id, { reply: "always" }).catch((err: unknown) => {
                 console.error("[Session] Failed to auto-reply polled always-allowed permission:", err);
               });
               return false;

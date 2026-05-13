@@ -21,7 +21,7 @@ if (args[0] === "check" && !env.CI) {
   }
 }
 
-// Unlike opencode (downloaded externally), introspect is a local crate.
+// introspect is a local crate.
 // Build before invoking cargo to avoid build.rs deadlock. Skipped when env.CI is set (e.g. rust:check).
 ensureTeamclawIntrospectSidecar(env);
 

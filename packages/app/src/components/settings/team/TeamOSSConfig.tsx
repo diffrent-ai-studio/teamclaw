@@ -221,7 +221,7 @@ export function TeamOSSConfig() {
       const store = useTeamModeStore.getState()
       await store.loadTeamConfig(workspacePath)
       if (useTeamModeStore.getState().teamMode) {
-        await store.applyTeamModelToOpenCode(workspacePath)
+        await store.applyTeamModel(workspacePath)
       }
       await useProviderStore.getState().initAll()
     } catch {
@@ -255,7 +255,7 @@ export function TeamOSSConfig() {
         const store = useTeamModeStore.getState()
         await store.loadTeamConfig(workspacePath)
         if (useTeamModeStore.getState().teamMode) {
-          await store.applyTeamModelToOpenCode(workspacePath)
+          await store.applyTeamModel(workspacePath)
         }
         await useProviderStore.getState().initAll()
       }

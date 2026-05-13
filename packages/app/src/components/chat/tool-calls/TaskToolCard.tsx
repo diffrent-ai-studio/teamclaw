@@ -81,7 +81,6 @@ export function TaskToolCard({ toolCall }: { toolCall: ToolCall }) {
 
   const openChildSession = useCallback(() => {
     if (sessionId) {
-      // @ts-expect-error Phase 1E removal
       useSessionStore.getState().setViewingChildSession(sessionId);
     }
   }, [sessionId]);

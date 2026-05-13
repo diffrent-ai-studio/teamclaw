@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Clock, Bookmark, BookOpen, Settings, Pin, Shapes, SquarePlus, UserPlus, Lightbulb } from "lucide-react"
+import { Search, SquarePen, MessageSquare, Loader2, Archive, PanelLeftIcon, FolderOpen, Users, Cloud, Pencil, Ellipsis, Bookmark, BookOpen, Settings, Pin, SquarePlus, UserPlus, Lightbulb } from "lucide-react"
 import { isWorkspaceUIVariant } from "@/lib/ui-variant"
 
 import { useSessionStore } from "@/stores/session"
@@ -52,21 +52,9 @@ import {
   CommandItem,
 } from "@/components/ui/command"
 
-import type { EmbeddedSidebarSettingsSection } from "@/stores/ui"
 import type { Session } from "@/stores/session"
 
 type SessionSearchFilter = "active" | "archived" | "all"
-
-const WORKSPACE_QUICK_SECTIONS: {
-  id: EmbeddedSidebarSettingsSection
-  labelKey: string
-  fallback: string
-  icon: React.ComponentType<{ className?: string }>
-  color: string
-}[] = [
-  { id: 'automation', labelKey: 'settings.nav.automation', fallback: 'Automation', icon: Clock, color: 'text-amber-500' },
-  { id: 'rolesSkills', labelKey: 'settings.nav.rolesSkills', fallback: 'Roles & Skills', icon: Shapes, color: 'text-foreground' },
-]
 
 function SessionActivityBadge({ activity }: { activity?: SessionListActivity }) {
   const { t } = useTranslation()
@@ -782,26 +770,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const openSettings = useUIStore(s => s.openSettings)
   const closeSettings = useUIStore(s => s.closeSettings)
   const defaultNavTab = useUIStore(s => s.defaultNavTab)
-  const embeddedSettingsSection = useUIStore(s => s.embeddedSettingsSection)
-  const openEmbeddedSettingsSection = useUIStore(s => s.openEmbeddedSettingsSection)
-  const closeEmbeddedSettingsSection = useUIStore(s => s.closeEmbeddedSettingsSection)
   const clearSelection = useWorkspaceStore(s => s.clearSelection)
   const isPanelOpen = useWorkspaceStore(s => s.isPanelOpen)
   const activeWorkspacePanelTab = useWorkspaceStore(s => s.activeTab)
   const openPanel = useWorkspaceStore(s => s.openPanel)
   const closePanel = useWorkspaceStore(s => s.closePanel)
-  const handleOpenEmbeddedSection = (section: EmbeddedSidebarSettingsSection) => {
-    clearSelection()
-    closeSettings()
-    closePanel()
-    useTabsStore.getState().hideAll()
-    openEmbeddedSettingsSection(section)
-  }
 
   const handleWorkspaceShortcutsPanel = () => {
     clearSelection()
     closeSettings()
-    closeEmbeddedSettingsSection()
     useTabsStore.getState().hideAll()
     if (isPanelOpen && activeWorkspacePanelTab === "shortcuts") {
       closePanel()
@@ -812,8 +789,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const shortcutsStripActive =
     isPanelOpen &&
-    activeWorkspacePanelTab === "shortcuts" &&
-    !embeddedSettingsSection
+    activeWorkspacePanelTab === "shortcuts"
   const defaultSidebarContent = isWorkspaceUIVariant() ? 'session' : defaultNavTab
 
   const handleSelectSession = (id: string) => {
@@ -1028,25 +1004,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   {t("navigation.shortcuts", "Shortcuts")}
                 </span>
               </Button>
-              {WORKSPACE_QUICK_SECTIONS.map(({ id, labelKey, fallback, icon: Icon, color }) => {
-                const isActive = embeddedSettingsSection === id
-                return (
-                  <Button
-                    key={id}
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                      "h-9 justify-start gap-2 px-1.5 font-normal",
-                      isActive && "bg-primary/10 text-primary font-medium"
-                    )}
-                    onClick={() => handleOpenEmbeddedSection(id)}
-                  >
-                    <Icon className={cn("h-4 w-4 shrink-0", isActive ? color : "text-muted-foreground")} />
-                    <span className="truncate text-sm">{t(labelKey, fallback)}</span>
-                  </Button>
-                )
-              })}
-            </div>
+              </div>
             {/* Inset rule (not edge-to-edge) */}
             <div
               className="mx-3 mt-2 h-px shrink-0 bg-border/60"

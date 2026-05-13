@@ -67,15 +67,10 @@ pnpm dev
 
 **Additional Prerequisites:**
 - Rust >= 1.70
-- OpenCode CLI
 
 ```bash
-# Install OpenCode CLI
-curl -fsSL https://opencode.ai/install | bash
-
 # Setup development environment
 pnpm install
-./src-tauri/binaries/download-opencode.sh
 ./build-bridge.sh
 
 # Start full Tauri app

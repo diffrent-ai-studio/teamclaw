@@ -6,7 +6,8 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { supabase } from '@/lib/supabase-client'
+import { loadActorsForTeam } from '@/lib/local-cache'
+import { syncActorsForTeam } from '@/lib/sync/actor-sync'
 import { cn } from '@/lib/utils'
 
 type Candidate = {
@@ -40,22 +41,39 @@ export function NewSessionActorPicker({ open, onCancel, onConfirm, teamId, selfA
     if (!open || !teamId) { setCandidates([]); setPicked(new Set()); return }
     let cancelled = false
     setLoading(true); setError(false); setPicked(new Set())
+
+    function applyRows(rows: { id: string; actorType: string; displayName: string }[]) {
+      const filtered = rows
+        .filter(r => r.id !== selfActorId)
+        .filter(r => r.actorType === 'member' || r.actorType === 'agent')
+        .map<Candidate>(r => ({
+          id: r.id,
+          actor_type: r.actorType as 'member' | 'agent',
+          display_name: r.displayName,
+        }))
+      setCandidates(filtered)
+    }
+
     void (async () => {
-      const { data, error: err } = await supabase
-        .from('actors')
-        .select('id, actor_type, display_name')
-        .eq('team_id', teamId)
-        .in('actor_type', ['member', 'agent'])
-      if (cancelled) return
-      if (err) {
-        console.error('[NewSessionActorPicker] fetch failed', err)
+      try {
+        // ── Phase 1: instant render from local libsql cache ──────────────
+        const local = await loadActorsForTeam(teamId)
+        if (cancelled) return
+        applyRows(local)
+        setLoading(false)
+
+        // ── Phase 2: background delta sync, re-hydrate if anything new ──
+        const synced = await syncActorsForTeam(teamId)
+        if (cancelled || synced === 0) return
+        const fresh = await loadActorsForTeam(teamId)
+        if (cancelled) return
+        applyRows(fresh)
+      } catch (e) {
+        if (cancelled) return
+        console.error('[NewSessionActorPicker] load failed', e)
         setError(true)
         setLoading(false)
-        return
       }
-      const filtered = (data ?? []).filter((c: Candidate) => c.id !== selfActorId)
-      setCandidates(filtered as Candidate[])
-      setLoading(false)
     })()
     return () => { cancelled = true }
   }, [open, teamId, selfActorId])

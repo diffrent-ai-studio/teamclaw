@@ -114,6 +114,39 @@ export function AgentSelectorDock({ engagedAgent, onEngageAgent }: AgentSelector
     return () => { cancelled = true }
   }, [activeSessionId])
 
+  // Refetch agent_runtimes when a runtime retain arrives for an agent
+  // we don't yet have mapped — the initial supabase fetch can race the
+  // daemon's INSERT into agent_runtimes, leaving the dock stuck on
+  // Loading even though the runtime is live.
+  const retainSignature = React.useMemo(() => {
+    if (!engagedAgent) return ''
+    return Object.entries(runtimeStates)
+      .filter(([, e]) => e.daemonDeviceId === engagedAgent.id)
+      .map(([rid]) => rid)
+      .sort()
+      .join(',')
+  }, [runtimeStates, engagedAgent])
+
+  React.useEffect(() => {
+    if (!engagedAgent || !activeSessionId) return
+    if (agentToRuntimeId.has(engagedAgent.id)) return
+    if (!retainSignature) return // no retain for this agent yet — nothing to refetch
+    let cancelled = false
+    void (async () => {
+      const { data: rtRows } = await supabase
+        .from('agent_runtimes')
+        .select('agent_id, runtime_id')
+        .eq('session_id', activeSessionId)
+      if (cancelled) return
+      const map = new Map<string, string>()
+      for (const r of (rtRows ?? []) as { agent_id: string; runtime_id: string }[]) {
+        if (r.agent_id && r.runtime_id) map.set(r.agent_id, r.runtime_id)
+      }
+      setAgentToRuntimeId(map)
+    })()
+    return () => { cancelled = true }
+  }, [engagedAgent, activeSessionId, agentToRuntimeId, retainSignature])
+
   const engagedRuntimeId = engagedAgent ? agentToRuntimeId.get(engagedAgent.id) : undefined
   const engagedRuntimeInfo = engagedRuntimeId ? runtimeStates[engagedRuntimeId]?.info : undefined
   const { color: dotColor, pulse } = dotClasses(engagedRuntimeInfo)

@@ -484,7 +484,12 @@
     "pinned": "Pinned",
     "ideasSection": "Ideas",
     "actorsSection": "Actors",
-    "countActiveRecent": "{{count}} active · recent first"
+    "countActiveRecent": "{{count}} active · recent first",
+    "dateToday": "Today",
+    "dateYesterday": "Yesterday",
+    "dateThisWeek": "This week",
+    "dateEarlier": "Earlier",
+    "participantCount": "{{count}} 位"
   },
   "setup": {
     "title": "Setup Required",

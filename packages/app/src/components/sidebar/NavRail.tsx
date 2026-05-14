@@ -17,19 +17,28 @@ interface TopEntryProps {
 }
 
 function TopEntry({ label, icon: Icon, active, badge, onClick }: TopEntryProps) {
+  // Direction B quick-link row: tight 7×9 padding, selected (#e7e2d6) fill on
+  // active, no left bar. The coral left bar is reserved for session cards in
+  // the middle column. See AGENTS.md §2 "Sidebar".
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50',
-        active && 'bg-muted/40 font-medium before:absolute before:left-0 before:top-1/2 before:h-[72%] before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary',
+        'flex w-full items-center gap-2.5 rounded-md px-[9px] py-[7px] text-left text-[13px] transition-colors',
+        active
+          ? 'bg-selected font-semibold text-foreground'
+          : 'text-ink-2 hover:bg-selected/60',
       )}
     >
-      <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground')} />
+      <Icon
+        className={cn('h-[15px] w-[15px] shrink-0', active ? 'text-foreground' : 'text-muted-foreground')}
+      />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge != null && (
-        <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{badge}</span>
+        <span className="shrink-0 font-mono text-[11px] tabular-nums text-faint">
+          {badge}
+        </span>
       )}
     </button>
   )
@@ -52,8 +61,8 @@ export function NavRail() {
   }
 
   return (
-    <div className="flex h-full w-full min-w-0 flex-col gap-2 overflow-y-auto px-1.5 py-2">
-      <div className="flex flex-col gap-0.5">
+    <div className="flex h-full w-full min-w-0 flex-col gap-2 overflow-y-auto px-3 pt-0 pb-3">
+      <div className="flex flex-col">
         <TopEntry
           label={t('sidebar.sessions', 'Sessions')}
           icon={Inbox}

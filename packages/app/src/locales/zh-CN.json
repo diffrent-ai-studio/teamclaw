@@ -484,7 +484,12 @@
     "pinned": "已置顶",
     "ideasSection": "想法",
     "actorsSection": "成员",
-    "countActiveRecent": "{{count}} 个 · 按最近活动排序"
+    "countActiveRecent": "{{count}} 个 · 按最近活动排序",
+    "dateToday": "今天",
+    "dateYesterday": "昨天",
+    "dateThisWeek": "本周",
+    "dateEarlier": "更早",
+    "participantCount": "{{count}} 位"
   },
   "setup": {
     "title": "需要设置",

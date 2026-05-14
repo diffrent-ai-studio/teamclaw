@@ -53,13 +53,21 @@ export function PromptInputSubmit({
     }
   }
 
+  // Direction B: filled coral primary action; outline for stop state.
+  // See AGENTS.md §4 "Chat input".
   return (
     <Button
       type={showStop ? "button" : "submit"}
-      variant="outline"
+      variant={showStop ? "outline" : "default"}
       size="icon"
       disabled={showStop ? false : disabled}
-      className={cn("h-8 w-8", showStop && "text-red-500 hover:text-red-600 hover:bg-red-50", className)}
+      className={cn(
+        "h-8 w-8 rounded-lg",
+        showStop
+          ? "text-red-500 hover:text-red-600 hover:bg-red-50"
+          : "bg-coral text-white hover:bg-coral/90 disabled:bg-coral/40 disabled:text-white/80",
+        className,
+      )}
       onClick={handleClick}
       {...props}
     >

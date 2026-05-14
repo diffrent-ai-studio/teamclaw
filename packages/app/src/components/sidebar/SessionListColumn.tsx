@@ -6,11 +6,12 @@ import { useStreamingStore } from '@/stores/streaming'
 import { useUIStore } from '@/stores/ui'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCronStore } from '@/stores/cron'
-import { useSessionListStore } from '@/stores/session-list-store'
+import { useSessionListStore, type SessionListEntry } from '@/stores/session-list-store'
 import { useSidebar } from '@/components/ui/sidebar'
 import { TrafficLights } from '@/components/ui/traffic-lights'
 import { SidebarCollapseToggle } from '@/components/app-sidebar'
 import { Button } from '@/components/ui/button'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { AnimatedClock } from '@/components/ui/animated-clock'
 import {
   DropdownMenu,
@@ -24,7 +25,45 @@ import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/date-format'
 import { buildSessionListActivityMap, type SessionListActivity } from '@/lib/session-list-activity'
 import { loadSessionIdsForActor } from '@/lib/session-by-actor'
-import type { Session } from '@/stores/session-types'
+import {
+  loadSessionParticipants,
+  loadActorsByIds,
+} from '@/lib/local-cache'
+import { actorAvatarColor } from '@/lib/actor-color'
+
+/**
+ * Merged row shape consumed by the rendering pipeline. Combines list-canonical
+ * fields from `useSessionListStore.rows` (title, last_message_*, idea_id) with
+ * per-user state (pin) we need for sorting.
+ */
+type ListRow = {
+  id: string
+  title: string
+  teamId: string
+  lastMessageAt: Date | null
+  lastMessagePreview: string | null
+  ideaId: string | null
+  isPinned: boolean
+}
+
+type ParticipantInfo = {
+  actorId: string
+  displayName: string
+  avatarUrl: string | null
+  isAgent: boolean
+}
+
+function entryToRow(entry: SessionListEntry, isPinned: boolean): ListRow {
+  return {
+    id: entry.id,
+    title: entry.title,
+    teamId: entry.team_id,
+    lastMessageAt: entry.last_message_at ? new Date(entry.last_message_at) : null,
+    lastMessagePreview: entry.last_message_preview,
+    ideaId: entry.idea_id,
+    isPinned,
+  }
+}
 
 function SessionActivityBadge({ activity }: { activity?: SessionListActivity }) {
   const { t } = useTranslation()
@@ -70,13 +109,17 @@ export function SessionListColumn() {
   const { t } = useTranslation()
   const filter = useUIStore((s) => s.sidebarFilter)
 
+  // List source: v2 canonical store. Entries already carry last_message_at,
+  // last_message_preview, idea_id — no extra Supabase round-trip needed.
+  const listRows = useSessionListStore((s) => s.rows)
+  const listLoading = useSessionListStore((s) => s.loading)
+
+  // Per-user state (pin, active row, highlight, activity badges) stays on the
+  // legacy useSessionStore. Reads here are read-only; writes (rename / archive
+  // / pin) go through its handlers, which update both stores transitively.
   const allSessions = useSessionStore((s) => s.sessions)
   const pinnedSessionIds = useSessionStore((s) => s.pinnedSessionIds)
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
-  const isLoading = useSessionStore((s) => s.isLoading)
-  const isLoadingMore = useSessionStore((s) => s.isLoadingMore)
-  const hasMoreSessions = useSessionStore((s) => s.hasMoreSessions)
-  const visibleSessionCount = useSessionStore((s) => s.visibleSessionCount)
   const highlightedSessionIds = useSessionStore((s) => s.highlightedSessionIds)
   const sessionStatuses = useSessionStore((s) => s.sessionStatuses) || {}
   const pendingQuestionIdsBySession = useSessionStore((s) => s.pendingQuestionIdsBySession) || {}
@@ -87,7 +130,6 @@ export function SessionListColumn() {
   const archiveSession = useSessionStore((s) => s.archiveSession)
   const updateSessionTitle = useSessionStore((s) => s.updateSessionTitle)
   const toggleSessionPinned = useSessionStore((s) => s.toggleSessionPinned)
-  const loadMoreSessions = useSessionStore((s) => s.loadMoreSessions)
   const cronSessionIds = useCronStore((s) => s.cronSessionIds)
   const showCronSessions = useCronStore((s) => s.showCronSessions)
   const toggleShowCronSessions = useCronStore((s) => s.toggleShowCronSessions)
@@ -101,6 +143,18 @@ export function SessionListColumn() {
   const [renamingSessionId, setRenamingSessionId] = React.useState<string | null>(null)
   const [actorSessionIds, setActorSessionIds] = React.useState<Set<string> | null>(null)
   const [actorLoading, setActorLoading] = React.useState(false)
+  /**
+   * Per-session participant cache. Populated lazily once a row becomes visible
+   * (see the visibleIds effect below). Each entry is the joined result of
+   * session_participant × actor from libsql, so we hit local cache only.
+   *
+   * Not invalidated on participant change today — would need to wire into the
+   * realtime envelope handler in App.tsx if that becomes important. Tracked in
+   * AGENTS.md §7.
+   */
+  const [participantsBySession, setParticipantsBySession] = React.useState<
+    Record<string, ParticipantInfo[]>
+  >({})
 
   // Load actor-session set when filter switches to actor mode.
   // teamId is only used for cache namespacing; the supabase query is by actor_id.
@@ -133,43 +187,111 @@ export function SessionListColumn() {
     return () => document.removeEventListener('keydown', down)
   }, [hasWorkspace])
 
-  const baseSessions = React.useMemo(
-    () => allSessions
-      .filter((s) => !s.parentID)
-      .filter((s) => showCronSessions ? cronSessionIds.has(s.id) : !cronSessionIds.has(s.id))
-      .sort((a, b) => {
-        const aPinned = pinnedSessionIds.includes(a.id)
-        const bPinned = pinnedSessionIds.includes(b.id)
-        if (aPinned !== bPinned) return aPinned ? -1 : 1
-        return b.updatedAt.getTime() - a.updatedAt.getTime()
-      })
-      .slice(0, visibleSessionCount),
-    [allSessions, cronSessionIds, pinnedSessionIds, showCronSessions, visibleSessionCount],
-  )
+  /**
+   * Apply cron / pin / idea / actor filters and sort: pinned first within
+   * each filter mode, then last_message_at DESC. Rows with null
+   * last_message_at (brand-new sessions) sort to the top, matching the
+   * convention in `session-list-store.sortEntries`.
+   */
+  const filteredRows = React.useMemo<ListRow[]>(() => {
+    const pinnedSet = new Set(pinnedSessionIds)
+    let base = listRows.map((r) => entryToRow(r, pinnedSet.has(r.id)))
 
-  const filteredSessions = React.useMemo(() => {
-    if (filter.kind === 'all') return baseSessions
-    // For pinned/idea/actor modes, cron sessions are always hidden.
-    const nonCronTopLevel = allSessions.filter((s) => !s.parentID && !cronSessionIds.has(s.id))
-    const byRecent = (a: Session, b: Session) => b.updatedAt.getTime() - a.updatedAt.getTime()
+    base = base.filter((r) =>
+      showCronSessions ? cronSessionIds.has(r.id) : !cronSessionIds.has(r.id),
+    )
+
     if (filter.kind === 'pinned') {
-      return nonCronTopLevel
-        .filter((s) => pinnedSessionIds.includes(s.id))
-        .sort(byRecent)
-    }
-    if (filter.kind === 'idea') {
-      return nonCronTopLevel
-        .filter((s) => s.ideaId === filter.ideaId)
-        .sort(byRecent)
-    }
-    if (filter.kind === 'actor') {
+      base = base.filter((r) => r.isPinned)
+    } else if (filter.kind === 'idea') {
+      base = base.filter((r) => r.ideaId === filter.ideaId)
+    } else if (filter.kind === 'actor') {
       if (!actorSessionIds) return []
-      return nonCronTopLevel
-        .filter((s) => actorSessionIds.has(s.id))
-        .sort(byRecent)
+      base = base.filter((r) => actorSessionIds.has(r.id))
     }
-    return baseSessions
-  }, [filter, baseSessions, allSessions, cronSessionIds, pinnedSessionIds, actorSessionIds])
+
+    return base.sort((a, b) => {
+      if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1
+      if (!a.lastMessageAt && !b.lastMessageAt) return 0
+      if (!a.lastMessageAt) return -1
+      if (!b.lastMessageAt) return 1
+      return b.lastMessageAt.getTime() - a.lastMessageAt.getTime()
+    })
+  }, [listRows, pinnedSessionIds, cronSessionIds, showCronSessions, filter, actorSessionIds])
+
+  /**
+   * Load participants for any visible row we haven't seen yet. Two libsql
+   * round-trips per session: session_participant by sessionId, then actor by
+   * id batch. Both tables are indexed for these queries.
+   */
+  const visibleIds = filteredRows.map((r) => r.id).join('|')
+  React.useEffect(() => {
+    if (filteredRows.length === 0) return
+    const missing = filteredRows
+      .map((r) => r.id)
+      .filter((id) => !participantsBySession[id])
+    if (missing.length === 0) return
+    let cancelled = false
+    void (async () => {
+      const entries = await Promise.all(
+        missing.map(async (sid) => {
+          const parts = await loadSessionParticipants(sid)
+          if (parts.length === 0) return [sid, [] as ParticipantInfo[]] as const
+          const actorIds = parts.map((p) => p.actorId)
+          const actors = await loadActorsByIds(actorIds)
+          const byId = new Map(actors.map((a) => [a.id, a] as const))
+          const info: ParticipantInfo[] = parts
+            .map((p) => {
+              const a = byId.get(p.actorId)
+              if (!a) return null
+              return {
+                actorId: a.id,
+                displayName: a.displayName,
+                avatarUrl: a.avatarUrl ?? null,
+                isAgent: a.actorType === 'agent',
+              }
+            })
+            .filter((x): x is ParticipantInfo => x !== null)
+          return [sid, info] as const
+        }),
+      )
+      if (cancelled) return
+      setParticipantsBySession((prev) => {
+        const next = { ...prev }
+        for (const [sid, info] of entries) next[sid] = info
+        return next
+      })
+    })()
+    return () => { cancelled = true }
+    // visibleIds (string) carries the row id set; including participantsBySession would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleIds])
+
+  /**
+   * Date-bucket rows (Today / Yesterday / This week / Earlier). Rows without
+   * a last_message_at — brand new sessions — fall into Today so they're
+   * immediately visible at the top.
+   */
+  const groupedRows = React.useMemo(() => {
+    const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const startOfYesterday = startOfToday - 86400_000
+    const startOfWeek = startOfToday - 6 * 86400_000
+    const groups: { key: string; label: string; items: ListRow[] }[] = [
+      { key: 'today',     label: t('sidebar.dateToday', 'Today'),         items: [] },
+      { key: 'yesterday', label: t('sidebar.dateYesterday', 'Yesterday'), items: [] },
+      { key: 'thisWeek',  label: t('sidebar.dateThisWeek', 'This week'),  items: [] },
+      { key: 'earlier',   label: t('sidebar.dateEarlier', 'Earlier'),     items: [] },
+    ]
+    for (const r of filteredRows) {
+      const ts = r.lastMessageAt?.getTime() ?? Number.POSITIVE_INFINITY
+      if (ts >= startOfToday) groups[0].items.push(r)
+      else if (ts >= startOfYesterday) groups[1].items.push(r)
+      else if (ts >= startOfWeek) groups[2].items.push(r)
+      else groups[3].items.push(r)
+    }
+    return groups.filter((g) => g.items.length > 0)
+  }, [filteredRows, t])
 
   const sessionActivityMap = React.useMemo(
     () =>
@@ -224,7 +346,8 @@ export function SessionListColumn() {
   const handleSelectSession = (id: string) => useUIStore.getState().switchToSession(id)
   const handleStartRename = (e: React.SyntheticEvent, id: string) => { e.stopPropagation(); setRenamingSessionId(id) }
   const handleRenameConfirm = async (id: string, newTitle: string) => {
-    if (newTitle.trim() && newTitle !== allSessions.find((s) => s.id === id)?.title) {
+    const current = listRows.find((r) => r.id === id)?.title
+    if (newTitle.trim() && newTitle !== current) {
       try { await updateSessionTitle(id, newTitle.trim()) }
       catch (e) { console.error('[SessionListColumn] rename failed:', e) }
     }
@@ -233,78 +356,128 @@ export function SessionListColumn() {
   const handleArchive = async (e: React.SyntheticEvent, id: string) => { e.stopPropagation(); await archiveSession(id) }
   const handleTogglePinned = (e: React.SyntheticEvent, id: string) => { e.stopPropagation(); toggleSessionPinned(id) }
 
-  const renderSessionItem = (session: Session) => {
-    const isHighlighted = highlightedSessionIds.includes(session.id)
-    const isRenaming = renamingSessionId === session.id
-    const isPinned = pinnedSessionIds.includes(session.id)
-    const activity = sessionActivityMap.get(session.id)
+  const renderSessionItem = (row: ListRow) => {
+    const isHighlighted = highlightedSessionIds.includes(row.id)
+    const isRenaming = renamingSessionId === row.id
+    const isActive = row.id === activeSessionId
+    const activity = sessionActivityMap.get(row.id)
+    const parts = participantsBySession[row.id] ?? []
     return (
-      <SidebarMenuItem key={session.id}>
+      <SidebarMenuItem key={row.id}>
         <SidebarMenuButton
-          isActive={session.id === activeSessionId}
+          isActive={isActive}
           className={cn(
-            'h-auto py-2 pr-8 transition-all duration-300',
-            session.id === activeSessionId &&
-              "relative z-0 data-[active=true]:!bg-muted/40 data-[active=true]:font-medium before:pointer-events-none before:absolute before:left-0 before:top-1/2 before:z-10 before:h-[72%] before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary before:content-['']",
-            isHighlighted && session.id !== activeSessionId && 'bg-emerald-500/15 ring-1 ring-emerald-500/30',
+            // Direction B: paper-on-paper active state, 2px coral left bar.
+            // See AGENTS.md §2 "Session list".
+            'h-auto rounded-none py-3 pl-4 pr-4 transition-colors',
+            isActive &&
+              "relative z-0 data-[active=true]:!bg-paper data-[active=true]:font-medium before:pointer-events-none before:absolute before:left-0 before:top-0 before:bottom-0 before:z-10 before:w-[2px] before:bg-coral before:content-['']",
+            isHighlighted && !isActive && 'bg-emerald-500/15 ring-1 ring-emerald-500/30',
           )}
-          onClick={() => { if (!isRenaming) handleSelectSession(session.id) }}
-          onDoubleClick={(e) => { e.stopPropagation(); handleStartRename(e, session.id) }}
+          onClick={() => { if (!isRenaming) handleSelectSession(row.id) }}
+          onDoubleClick={(e) => { e.stopPropagation(); handleStartRename(e, row.id) }}
         >
-          <div className="flex flex-col items-start gap-1 flex-1 min-w-0">
+          <div className="flex flex-col items-start gap-1.5 flex-1 min-w-0">
+            {/* Title row: [pin] title [time] [NEW] */}
             <div className="flex items-center gap-1.5 w-full">
+              {row.isPinned && <Pin className="h-3 w-3 shrink-0 text-amber-500 fill-amber-500/20" />}
               {isRenaming ? (
                 <SessionRenameInput
-                  defaultValue={session.title}
-                  onConfirm={(v) => handleRenameConfirm(session.id, v)}
+                  defaultValue={row.title}
+                  onConfirm={(v) => handleRenameConfirm(row.id, v)}
                   onCancel={() => setRenamingSessionId(null)}
                 />
               ) : (
                 <>
-                  <span className="truncate text-left text-l">{session.title}</span>
-                  {isPinned && <Pin className="h-3 w-3 shrink-0 text-amber-500 fill-amber-500/20" />}
-                  {session.id !== activeSessionId && isHighlighted && (
-                    <span className="shrink-0 text-[10px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+                  <span className={cn(
+                    'min-w-0 flex-1 truncate text-left text-[13px]',
+                    isActive ? 'font-semibold text-foreground' : 'font-medium text-foreground',
+                  )}>
+                    {row.title || t('chat.newChat', 'New Chat')}
+                  </span>
+                  {row.lastMessageAt && (
+                    <span className="shrink-0 font-mono text-[10.5px] text-faint">
+                      {formatRelativeTime(row.lastMessageAt)}
+                    </span>
+                  )}
+                  {!isActive && isHighlighted && (
+                    <span className="shrink-0 rounded-full bg-coral px-1.5 py-px text-[10px] font-semibold leading-4 text-white">
                       {t('chat.newSessionBadge', 'NEW')}
                     </span>
                   )}
                 </>
               )}
             </div>
-            {!isRenaming && (
-              <div className="flex min-w-0 items-center gap-2 w-full">
-                <span className="shrink-0 text-[10px] text-muted-foreground">
-                  {formatRelativeTime(session.updatedAt)}
-                  {session.messageCount !== undefined && (
-                    <> · {t('chat.messageCountShort', { count: session.messageCount })}</>
-                  )}
-                </span>
+            {/* Preview line: 2 lines max from last_message_preview. AGENTS.md §2. */}
+            {!isRenaming && row.lastMessagePreview && (
+              <div className="w-full text-[12px] leading-[1.45] text-muted-foreground overflow-hidden text-ellipsis [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
+                {row.lastMessagePreview}
+              </div>
+            )}
+            {/* Participants cluster + activity badge */}
+            {!isRenaming && (parts.length > 0 || activity) && (
+              <div className="flex w-full items-center gap-1.5">
+                {parts.length > 0 && (
+                  <>
+                    <div className="flex -space-x-1.5">
+                      {parts.slice(0, 3).map((p) => {
+                        const c = actorAvatarColor(p.actorId)
+                        return (
+                          <Avatar
+                            key={p.actorId}
+                            className={cn(
+                              'h-4 w-4 ring-1 ring-paper',
+                              p.isAgent ? 'rounded-[3px]' : 'rounded-full',
+                            )}
+                          >
+                            {p.avatarUrl && <AvatarImage src={p.avatarUrl} alt={p.displayName} />}
+                            <AvatarFallback
+                              className={cn(
+                                'text-[8px] font-semibold',
+                                p.isAgent ? 'rounded-[3px]' : 'rounded-full',
+                              )}
+                              style={{ background: c.bg, color: c.fg }}
+                            >
+                              {p.displayName.slice(0, 1).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                        )
+                      })}
+                    </div>
+                    <span className="text-[10.5px] text-faint">
+                      {t('sidebar.participantCount', { count: parts.length, defaultValue: '{{count}} 位' })}
+                    </span>
+                  </>
+                )}
+                <span className="flex-1" />
                 <SessionActivityBadge activity={activity} />
               </div>
             )}
           </div>
         </SidebarMenuButton>
+        {/* Direction B: ellipsis menu sits on row 3 (avatars row), right-aligned.
+            Avoids overlapping title & preview text. AGENTS.md §2. */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 opacity-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 transition-opacity hover:bg-black/10 dark:hover:bg-white/10 rounded-md"
+              className="absolute right-2 bottom-2 h-6 w-6 opacity-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 transition-opacity hover:bg-black/10 dark:hover:bg-white/10 rounded-md"
               onClick={(e) => e.stopPropagation()}
             >
               <Ellipsis className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={(e) => handleTogglePinned(e as React.SyntheticEvent, session.id)}>
+            <DropdownMenuItem onClick={(e) => handleTogglePinned(e as React.SyntheticEvent, row.id)}>
               <Pin className="h-4 w-4 mr-2" />
-              {isPinned ? t('sidebar.unpin', 'Unpin') : t('sidebar.pinToTop', 'Pin to top')}
+              {row.isPinned ? t('sidebar.unpin', 'Unpin') : t('sidebar.pinToTop', 'Pin to top')}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={(e) => handleStartRename(e, session.id)}>
+            <DropdownMenuItem onClick={(e) => handleStartRename(e, row.id)}>
               <Pencil className="h-4 w-4 mr-2" />
               {t('sidebar.rename', 'Rename')}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={(e) => handleArchive(e as React.SyntheticEvent, session.id)}>
+            <DropdownMenuItem onClick={(e) => handleArchive(e as React.SyntheticEvent, row.id)}>
               <Archive className="h-4 w-4 mr-2" />
               {t('sidebar.archive', 'Archive')}
             </DropdownMenuItem>
@@ -315,11 +488,11 @@ export function SessionListColumn() {
   }
 
   return (
-    <div className="flex h-full flex-col min-w-0 border-r border-border/60 bg-sidebar">
+    <div className="flex h-full flex-col min-w-0 border-r border-border bg-background">
       <SessionSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
 
       <div
-        className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border/60"
+        className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border"
         data-tauri-drag-region
       >
         {sidebarCollapsed && (
@@ -329,9 +502,11 @@ export function SessionListColumn() {
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">{title}</div>
-          <div className="truncate text-[11px] text-muted-foreground">
-            {t('sidebar.countActiveRecent', '{{count}} active · recent first', { count: filteredSessions.length })}
+          <div className="truncate text-[15px] font-bold tracking-tight text-foreground">
+            {title}{' '}
+            <span className="font-mono text-[11px] font-normal text-faint">
+              · {filteredRows.length}
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
@@ -378,38 +553,30 @@ export function SessionListColumn() {
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
-        ) : isLoading && filteredSessions.length === 0 ? (
+        ) : listLoading && filteredRows.length === 0 ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
-        ) : filteredSessions.length === 0 ? (
+        ) : filteredRows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <MessageSquare className="h-8 w-8 text-muted-foreground mb-2" />
             <p className="text-sm text-muted-foreground">{t('sidebar.noConversations', 'No conversations')}</p>
           </div>
         ) : (
           <SidebarMenu>
-            {filteredSessions.map(renderSessionItem)}
+            {groupedRows.map((group) => (
+              <React.Fragment key={group.key}>
+                <div className="px-4 pt-3 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-faint">
+                  {group.label}{' '}
+                  <span className="font-mono text-faint/80">· {group.items.length}</span>
+                </div>
+                {group.items.map(renderSessionItem)}
+              </React.Fragment>
+            ))}
           </SidebarMenu>
         )}
-
-        {filter.kind === 'all' && hasMoreSessions && filteredSessions.length > 0 && (
-          <div className="px-2 py-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full"
-              onClick={() => loadMoreSessions()}
-              disabled={isLoadingMore}
-            >
-              {isLoadingMore ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{t('sidebar.loadingMore', 'Loading...')}</>
-              ) : (
-                t('sidebar.loadMore', 'Load More')
-              )}
-            </Button>
-          </div>
-        )}
+        {/* Load-more deferred — useSessionListStore caps at 50; pagination
+            lands in a separate pass (see AGENTS.md §7). */}
       </div>
     </div>
   )

@@ -27,23 +27,29 @@ export function IdeasSection() {
 
   return (
     <div className="flex flex-col">
+      {/* Group header: 10.5px faint, count suffix `· N`. AGENTS.md §2. */}
       <div className="flex items-center gap-1 pr-1">
         <button
           type="button"
           onClick={toggle}
-          className="group flex flex-1 items-center gap-1 px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/80 hover:text-foreground"
+          className="group flex flex-1 items-center gap-1.5 rounded-md px-[9px] py-1 text-left text-[10.5px] font-semibold uppercase tracking-[0.08em] text-faint hover:text-foreground"
         >
-          {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          {collapsed ? <ChevronRight className="h-[10px] w-[10px]" /> : <ChevronDown className="h-[10px] w-[10px]" />}
           <span>{t('sidebar.ideasSection', 'Ideas')}</span>
+          {ideas.length > 0 && (
+            <span className="font-mono font-normal normal-case tracking-normal text-faint/80">
+              · {ideas.length}
+            </span>
+          )}
         </button>
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setCreateOpen(true) }}
-          className="rounded-md p-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          className="rounded-md p-0.5 text-faint hover:bg-selected/60 hover:text-foreground"
           title={t('ideas.newIdea', 'New idea')}
           aria-label={t('ideas.newIdea', 'New idea')}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-[11px] w-[11px]" />
         </button>
       </div>
       <CreateIdeaDialog
@@ -55,10 +61,10 @@ export function IdeasSection() {
       {!collapsed && (
         <div className="flex flex-col">
           {loading && (
-            <div className="px-2 py-1 text-[11px] text-muted-foreground">{t('ideas.loading', 'Loading ideas...')}</div>
+            <div className="px-[9px] py-1 text-[12px] text-faint">{t('ideas.loading', 'Loading ideas...')}</div>
           )}
           {!loading && ideas.length === 0 && (
-            <div className="px-2 py-1 text-[11px] text-muted-foreground">{t('ideas.empty', 'No ideas yet')}</div>
+            <div className="px-[9px] py-1 text-[12px] text-faint">{t('ideas.empty', 'No ideas yet')}</div>
           )}
           {ideas.map((idea) => {
             const active = filter.kind === 'idea' && filter.ideaId === idea.id
@@ -69,8 +75,12 @@ export function IdeasSection() {
                 type="button"
                 onClick={() => handleClickIdea(idea)}
                 className={cn(
-                  'relative flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm hover:bg-muted/50',
-                  active && 'bg-muted/40 font-medium before:absolute before:left-0 before:top-1/2 before:h-[72%] before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary',
+                  // Direction B row: tight 5×9 padding, selected fill on active,
+                  // no left bar (reserved for session list cards). AGENTS.md §2.
+                  'flex w-full items-center gap-2 rounded-md px-[9px] py-[5px] text-left text-[12.5px] transition-colors',
+                  active
+                    ? 'bg-selected font-semibold text-foreground'
+                    : 'text-ink-2 hover:bg-selected/60',
                 )}
               >
                 <span className="min-w-0 flex-1 truncate">{idea.title}</span>

@@ -5,6 +5,7 @@ import { useActorsForTeam, isActorOnline, type ActorRow } from '@/components/pan
 import { InviteActorDialog } from '@/components/sidebar/InviteActorDialog'
 import { useUIStore } from '@/stores/ui'
 import { cn } from '@/lib/utils'
+import { actorAvatarColor } from '@/lib/actor-color'
 
 export function ActorsSection() {
   const { t } = useTranslation()
@@ -26,33 +27,39 @@ export function ActorsSection() {
 
   return (
     <div className="flex flex-col">
+      {/* Group header: 10.5px faint, count suffix `· N`. AGENTS.md §2. */}
       <div className="flex items-center gap-1 pr-1">
         <button
           type="button"
           onClick={toggle}
-          className="group flex flex-1 items-center gap-1 px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/80 hover:text-foreground"
+          className="group flex flex-1 items-center gap-1.5 rounded-md px-[9px] py-1 text-left text-[10.5px] font-semibold uppercase tracking-[0.08em] text-faint hover:text-foreground"
         >
-          {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          {collapsed ? <ChevronRight className="h-[10px] w-[10px]" /> : <ChevronDown className="h-[10px] w-[10px]" />}
           <span>{t('sidebar.actorsSection', 'Actors')}</span>
+          {actors.length > 0 && (
+            <span className="font-mono font-normal normal-case tracking-normal text-faint/80">
+              · {actors.length}
+            </span>
+          )}
         </button>
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setInviteOpen(true) }}
-          className="rounded-md p-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          className="rounded-md p-0.5 text-faint hover:bg-selected/60 hover:text-foreground"
           title={t('invite.title', 'Invite to team')}
           aria-label={t('invite.title', 'Invite to team')}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-[11px] w-[11px]" />
         </button>
       </div>
       <InviteActorDialog open={inviteOpen} onOpenChange={setInviteOpen} teamId={teamId} />
       {!collapsed && (
         <div className="flex flex-col">
           {loading && (
-            <div className="px-2 py-1 text-[11px] text-muted-foreground">{t('actors.loading', 'Loading actors...')}</div>
+            <div className="px-[9px] py-1 text-[12px] text-faint">{t('actors.loading', 'Loading actors...')}</div>
           )}
           {!loading && actors.length === 0 && (
-            <div className="px-2 py-1 text-[11px] text-muted-foreground">{t('actors.empty', 'No actors in this team yet')}</div>
+            <div className="px-[9px] py-1 text-[12px] text-faint">{t('actors.empty', 'No actors in this team yet')}</div>
           )}
           {actors.map((actor) => {
             const active = filter.kind === 'actor' && filter.actorId === actor.id
@@ -64,22 +71,34 @@ export function ActorsSection() {
                 type="button"
                 onClick={() => handleClick(actor)}
                 className={cn(
-                  'relative flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm hover:bg-muted/50',
-                  active && 'bg-muted/40 font-medium before:absolute before:left-0 before:top-1/2 before:h-[72%] before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary',
+                  // Direction B row: tight 5×9 padding, selected fill on active,
+                  // no left bar (reserved for session list cards). AGENTS.md §2.
+                  'flex w-full items-center gap-[9px] rounded-md px-[9px] py-[5px] text-left text-[12.5px] transition-colors',
+                  active
+                    ? 'bg-selected font-semibold text-foreground'
+                    : 'text-ink-2 hover:bg-selected/60',
                 )}
               >
-                <div className={cn(
-                  'relative flex h-5 w-5 shrink-0 items-center justify-center bg-muted text-[10px] font-medium text-muted-foreground',
-                  isAgent ? 'rounded' : 'rounded-full',
-                )}>
+                <div
+                  className={cn(
+                    'relative flex h-5 w-5 shrink-0 items-center justify-center text-[10px] font-semibold',
+                    isAgent ? 'rounded' : 'rounded-full',
+                  )}
+                  style={(() => {
+                    const c = actorAvatarColor(actor.id)
+                    return { background: c.bg, color: c.fg }
+                  })()}
+                >
                   {actor.display_name?.slice(0, 1).toUpperCase() || (isAgent ? <Sparkles className="h-3 w-3" /> : <UserIcon className="h-3 w-3" />)}
                   {online && (
-                    <span className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-background" />
+                    <span className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-paper" />
                   )}
                 </div>
                 <span className="min-w-0 flex-1 truncate">{actor.display_name}</span>
                 {isAgent && (
-                  <span className="shrink-0 rounded bg-violet-500/15 px-1 py-0.5 text-[9px] font-medium text-violet-600 dark:text-violet-300">AI</span>
+                  <span className="shrink-0 font-mono text-[9px] font-semibold tracking-wider text-coral">
+                    AI
+                  </span>
                 )}
               </button>
             )

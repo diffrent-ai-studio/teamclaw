@@ -5,42 +5,69 @@
 
 :root {
     --radius: 0.625rem;
-    --background: #f7f9fc;
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
+
+    /* Direction B — Editorial Calm paper palette.
+       Spec: AGENTS.md §1. */
+    --background: #fbfaf7;
+    --foreground: #1a1a14;
+    --paper: #ffffff;
+    --panel: #efece4;
+    --selected: #e7e2d6;
+    --ink-2: #3d3c34;
+    --faint: #a8a6a0;
+
+    --card: #ffffff;
+    --card-foreground: #1a1a14;
+    --popover: #ffffff;
+    --popover-foreground: #1a1a14;
+    --primary: #1a1a14;
+    --primary-foreground: #fefdfa;
+    --secondary: #efece4;
+    --secondary-foreground: #1a1a14;
+    --muted: #efece4;
+    --muted-foreground: #75736a;
+    --accent: #e7e2d6;
+    --accent-foreground: #1a1a14;
     --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    --border: rgba(26, 26, 20, 0.08);
+    --border-soft: rgba(26, 26, 20, 0.05);
+    --input: rgba(26, 26, 20, 0.08);
+    --ring: rgba(26, 26, 20, 0.18);
+
+    /* Brand coral — use sparingly. See AGENTS.md §1 "Where coral is allowed". */
+    --coral: #e85a4a;
+    --coral-soft: #f5d6cf;
+
+    /* Type stacks: Chinese-first sans, JetBrains-leaning mono. */
+    --font-sans: "PingFang SC", "Noto Sans SC", "Source Han Sans SC",
+        -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui,
+        sans-serif;
+    --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas,
+        monospace;
+
     --chart-1: oklch(0.646 0.222 41.116);
     --chart-2: oklch(0.6 0.118 184.704);
     --chart-3: oklch(0.398 0.07 227.392);
     --chart-4: oklch(0.828 0.189 84.429);
     --chart-5: oklch(0.769 0.188 70.08);
-    --sidebar: #ffffff;
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --sidebar: #efece4;
+    --sidebar-foreground: #1a1a14;
+    --sidebar-primary: #1a1a14;
+    --sidebar-primary-foreground: #fefdfa;
+    --sidebar-accent: #e7e2d6;
+    --sidebar-accent-foreground: #1a1a14;
+    --sidebar-border: rgba(26, 26, 20, 0.08);
+    --sidebar-ring: rgba(26, 26, 20, 0.18);
 }
 
 .dark {
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
+    --paper: oklch(0.205 0 0);
+    --panel: oklch(0.205 0 0);
+    --selected: oklch(0.269 0 0);
+    --ink-2: oklch(0.85 0 0);
+    --faint: oklch(0.556 0 0);
     --card: oklch(0.205 0 0);
     --card-foreground: oklch(0.985 0 0);
     --popover: oklch(0.205 0 0);
@@ -55,8 +82,11 @@
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
     --border: oklch(1 0 0 / 10%);
+    --border-soft: oklch(1 0 0 / 6%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
+    --coral: #e85a4a;
+    --coral-soft: oklch(0.45 0.13 28);
     --chart-1: oklch(0.488 0.243 264.376);
     --chart-2: oklch(0.696 0.17 162.48);
     --chart-3: oklch(0.769 0.188 70.08);
@@ -111,6 +141,16 @@
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
+    --color-coral: var(--coral);
+    --color-coral-soft: var(--coral-soft);
+    --color-paper: var(--paper);
+    --color-panel: var(--panel);
+    --color-selected: var(--selected);
+    --color-faint: var(--faint);
+    --color-ink-2: var(--ink-2);
+    --color-border-soft: var(--border-soft);
+    --font-sans: var(--font-sans);
+    --font-mono: var(--font-mono);
 }
 
 @layer base {
@@ -119,6 +159,9 @@
     }
     body {
         @apply bg-background text-foreground;
+        font-family: var(--font-sans);
+        font-feature-settings: "ss01", "cv11";
+        -webkit-font-smoothing: antialiased;
     }
     button,
     a,

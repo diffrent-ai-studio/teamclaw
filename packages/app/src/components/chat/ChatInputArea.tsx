@@ -568,6 +568,12 @@ export function ChatInputArea({
 
             <div className="flex items-center gap-2" data-onboarding-id="chat-input-submit">
               <ContextUsageBadge />
+              <span
+                aria-hidden="true"
+                className="hidden font-mono text-[11px] text-faint sm:inline"
+              >
+                ⌘↵
+              </span>
               <PromptInputSubmit
                 disabled={!inputValue.trim() && attachedFiles.length === 0 && imageFiles.length === 0}
                 status={isStreaming ? "streaming" : "ready"}

@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+For **UI / visual design** work (colors, typography, layout, message styles,
+chat input), the source-of-truth is `AGENTS.md` at the repo root. Read it
+before touching anything user-facing.
+
 ## Project Overview
 
 TeamClaw is an AI Agent Desktop Platform built with Tauri 2.0 + React 19. Three-column layout chat/collaboration tool with local AI agents, team P2P/OSS sync, and multi-channel gateways.

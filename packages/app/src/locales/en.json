@@ -2074,5 +2074,15 @@
     "copied": "Invite link copied",
     "copyFailed": "Failed to copy invite link",
     "failed": "Failed to create invite: {{msg}}"
+  },
+  "terminal": {
+    "label": "Terminal",
+    "toggle": "Toggle terminal (⌃`)",
+    "newTab": "New terminal",
+    "closeTab": "Close terminal",
+    "rename": "Rename",
+    "exited": "Process exited (code {{code}}) — press Enter to restart",
+    "spawnFailed": "Failed to start shell: {{message}}",
+    "cwdFallback": "Workspace cwd unavailable, using home directory"
   }
 }

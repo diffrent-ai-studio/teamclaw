@@ -2074,5 +2074,15 @@
     "copied": "邀请链接已复制",
     "copyFailed": "复制失败",
     "failed": "创建邀请失败：{{msg}}"
+  },
+  "terminal": {
+    "label": "终端",
+    "toggle": "切换终端 (⌃`)",
+    "newTab": "新建终端",
+    "closeTab": "关闭终端",
+    "rename": "重命名",
+    "exited": "进程已退出 (code {{code}}) — 按 Enter 重启",
+    "spawnFailed": "启动 shell 失败:{{message}}",
+    "cwdFallback": "workspace 路径不可用,已回退到 home"
   }
 }

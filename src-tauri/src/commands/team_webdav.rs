@@ -306,14 +306,7 @@ pub async fn webdav_import_config(
         other => return Err(format!("Unknown auth type: {other}")),
     };
 
-    webdav_connect(
-        payload.url,
-        auth,
-        window,
-        registry,
-        webdav_state,
-    )
-    .await?;
+    webdav_connect(payload.url, auth, window, registry, webdav_state).await?;
 
     Ok(())
 }

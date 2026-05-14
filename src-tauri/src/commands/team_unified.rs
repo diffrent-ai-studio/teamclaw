@@ -240,8 +240,7 @@ pub async fn unified_team_get_members(
     oss_state: State<'_, super::oss_sync::OssSyncState>,
     iroh_state: State<'_, super::p2p_state::IrohState>,
 ) -> Result<Vec<TeamMember>, String> {
-    let workspace_path =
-        super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
+    let workspace_path = super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     let status = super::team::check_team_status(&workspace_path);
 
     match status.mode.as_deref() {
@@ -309,8 +308,7 @@ pub async fn unified_team_add_member(
 ) -> Result<(), String> {
     validate_node_id(&member.node_id)?;
 
-    let workspace_path =
-        super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
+    let workspace_path = super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     let status = super::team::check_team_status(&workspace_path);
 
     match status.mode.as_deref() {
@@ -417,8 +415,7 @@ pub async fn unified_team_remove_member(
     oss_state: State<'_, super::oss_sync::OssSyncState>,
     iroh_state: State<'_, super::p2p_state::IrohState>,
 ) -> Result<(), String> {
-    let workspace_path =
-        super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
+    let workspace_path = super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     let status = super::team::check_team_status(&workspace_path);
 
     match status.mode.as_deref() {
@@ -545,8 +542,7 @@ pub async fn unified_team_update_member_role(
     oss_state: State<'_, super::oss_sync::OssSyncState>,
     iroh_state: State<'_, super::p2p_state::IrohState>,
 ) -> Result<(), String> {
-    let workspace_path =
-        super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
+    let workspace_path = super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     let status = super::team::check_team_status(&workspace_path);
 
     match status.mode.as_deref() {
@@ -596,8 +592,7 @@ pub async fn unified_team_get_my_role(
     oss_state: State<'_, super::oss_sync::OssSyncState>,
     iroh_state: State<'_, super::p2p_state::IrohState>,
 ) -> Result<MemberRole, String> {
-    let workspace_path =
-        super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
+    let workspace_path = super::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     let status = super::team::check_team_status(&workspace_path);
 
     match status.mode.as_deref() {

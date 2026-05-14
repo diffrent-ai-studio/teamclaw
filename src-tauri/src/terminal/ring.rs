@@ -56,7 +56,9 @@ impl RingBuffer {
 }
 
 impl Default for RingBuffer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -65,7 +67,11 @@ mod tests {
 
     fn small_ring(cap: usize) -> RingBuffer {
         // Test helper: construct ring with custom capacity.
-        RingBuffer { buf: vec![0u8; cap].into_boxed_slice(), head: 0, filled: false }
+        RingBuffer {
+            buf: vec![0u8; cap].into_boxed_slice(),
+            head: 0,
+            filled: false,
+        }
     }
 
     #[test]

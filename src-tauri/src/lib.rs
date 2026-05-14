@@ -37,14 +37,14 @@ use tauri::Manager;
 use tauri_plugin_aptabase::EventTracker;
 use tauri_plugin_global_shortcut::ShortcutState;
 
-mod local_cache;
 mod commands;
-mod terminal;
+mod local_cache;
 pub mod mqtt;
 pub mod process_util;
 pub mod proto;
 pub mod sentry_utils;
 mod telemetry;
+mod terminal;
 mod webview_recovery;
 
 /// Get the mtime of the user's shell profile file as a u64 (seconds since epoch).

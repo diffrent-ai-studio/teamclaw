@@ -32,7 +32,10 @@ mod tests {
     }
     #[test]
     fn runtime_events_format() {
-        assert_eq!(runtime_events("t1", "d1", "r1"), "amux/t1/device/d1/runtime/r1/events");
+        assert_eq!(
+            runtime_events("t1", "d1", "r1"),
+            "amux/t1/device/d1/runtime/r1/events"
+        );
     }
     #[test]
     fn device_state_format() {

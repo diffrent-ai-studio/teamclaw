@@ -27,8 +27,15 @@ impl MqttClient {
         opts.set_keep_alive(Duration::from_secs(30));
 
         let lwt_topic = super::topics::device_state(&cfg.team_id, &cfg.client_id);
-        let lwt_payload = serde_json::json!({"status":"offline"}).to_string().into_bytes();
-        opts.set_last_will(LastWill::new(lwt_topic, lwt_payload, QoS::AtLeastOnce, true));
+        let lwt_payload = serde_json::json!({"status":"offline"})
+            .to_string()
+            .into_bytes();
+        opts.set_last_will(LastWill::new(
+            lwt_topic,
+            lwt_payload,
+            QoS::AtLeastOnce,
+            true,
+        ));
 
         let (client, event_loop) = AsyncClient::new(opts, 64);
         Ok(Self {

@@ -179,7 +179,9 @@ async fn handle_team_sync_all(app: &AppHandle, _body: &[u8]) -> Result<String, S
     // introspect_api has no calling-window context (HTTP server). Falls back
     // to current_workspace in WindowRegistry.
     let registry = app.state::<super::window::WindowRegistry>();
-    let workspace = registry.current_workspace.lock()
+    let workspace = registry
+        .current_workspace
+        .lock()
         .ok()
         .and_then(|cw| cw.clone())
         .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?;
@@ -202,13 +204,15 @@ async fn handle_cron_run(app: &AppHandle, body: &[u8]) -> Result<String, String>
     let workspace_path = match v.get("workspace_path").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s.to_string(),
         _ => {
-            {
             let registry = app.state::<super::window::WindowRegistry>();
-            registry.current_workspace.lock()
+            registry
+                .current_workspace
+                .lock()
                 .ok()
                 .and_then(|cw| cw.clone())
-                .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
-        }
+                .ok_or_else(|| {
+                    "No workspace path set. Please select a workspace first.".to_string()
+                })?
         }
     };
 
@@ -239,7 +243,9 @@ async fn handle_cron_run(app: &AppHandle, body: &[u8]) -> Result<String, String>
 fn resolve_wecom_owner_id(app: &AppHandle) -> Result<String, String> {
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
-        registry.current_workspace.lock()
+        registry
+            .current_workspace
+            .lock()
             .ok()
             .and_then(|cw| cw.clone())
             .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
@@ -293,7 +299,9 @@ async fn handle_knowledge_search(app: &AppHandle, body: &[u8]) -> Result<String,
 
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
-        registry.current_workspace.lock()
+        registry
+            .current_workspace
+            .lock()
             .ok()
             .and_then(|cw| cw.clone())
             .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
@@ -322,7 +330,9 @@ async fn handle_knowledge_add(app: &AppHandle, body: &[u8]) -> Result<String, St
 
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
-        registry.current_workspace.lock()
+        registry
+            .current_workspace
+            .lock()
             .ok()
             .and_then(|cw| cw.clone())
             .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
@@ -367,7 +377,9 @@ async fn handle_knowledge_add(app: &AppHandle, body: &[u8]) -> Result<String, St
 async fn handle_knowledge_list(app: &AppHandle, _body: &[u8]) -> Result<String, String> {
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
-        registry.current_workspace.lock()
+        registry
+            .current_workspace
+            .lock()
             .ok()
             .and_then(|cw| cw.clone())
             .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
@@ -389,7 +401,9 @@ async fn handle_knowledge_delete(app: &AppHandle, body: &[u8]) -> Result<String,
 
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
-        registry.current_workspace.lock()
+        registry
+            .current_workspace
+            .lock()
             .ok()
             .and_then(|cw| cw.clone())
             .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
@@ -427,7 +441,9 @@ async fn handle_env_var_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
     // single-instance inference, which errors in multi-window mode.
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
-        registry.current_workspace.lock()
+        registry
+            .current_workspace
+            .lock()
             .ok()
             .and_then(|cw| cw.clone())
             .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
@@ -450,7 +466,9 @@ async fn handle_env_var_delete(app: &AppHandle, body: &[u8]) -> Result<String, S
 
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
-        registry.current_workspace.lock()
+        registry
+            .current_workspace
+            .lock()
             .ok()
             .and_then(|cw| cw.clone())
             .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
@@ -483,7 +501,9 @@ async fn handle_channel_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
 
     let workspace = {
         let registry = app.state::<super::window::WindowRegistry>();
-        registry.current_workspace.lock()
+        registry
+            .current_workspace
+            .lock()
             .ok()
             .and_then(|cw| cw.clone())
             .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?

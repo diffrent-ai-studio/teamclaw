@@ -40,10 +40,7 @@ pub async fn mqtt_connect(
 }
 
 #[tauri::command]
-pub async fn mqtt_subscribe(
-    bus: State<'_, MqttBus>,
-    topic: String,
-) -> Result<(), String> {
+pub async fn mqtt_subscribe(bus: State<'_, MqttBus>, topic: String) -> Result<(), String> {
     let client_guard = bus.client.lock().await;
     let client = client_guard.as_ref().ok_or("mqtt not connected")?;
     client

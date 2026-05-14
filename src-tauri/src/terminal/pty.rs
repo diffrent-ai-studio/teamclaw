@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 
-use super::ring::RingBuffer;
 use super::registry::{TerminalError, TerminalStatus};
+use super::ring::RingBuffer;
 
 const READER_BATCH_BYTES: usize = 4096;
 const READER_FLUSH_INTERVAL: Duration = Duration::from_millis(10);
@@ -48,7 +48,12 @@ impl PtyHandle {
     pub fn spawn(args: SpawnArgs, emit: EmitContext) -> Result<Arc<Self>, TerminalError> {
         let pty_system = native_pty_system();
         let pair = pty_system
-            .openpty(PtySize { rows: args.rows, cols: args.cols, pixel_width: 0, pixel_height: 0 })
+            .openpty(PtySize {
+                rows: args.rows,
+                cols: args.cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
 
         let mut cmd = CommandBuilder::new(&args.shell);
@@ -141,7 +146,11 @@ impl PtyHandle {
                 *handle.exit_code.lock().unwrap() = Some(exit_code);
                 *handle.status.lock().unwrap() = TerminalStatus::Exited;
 
-                let code = if result.is_err() { Some(-1) } else { Some(exit_code) };
+                let code = if result.is_err() {
+                    Some(-1)
+                } else {
+                    Some(exit_code)
+                };
                 (emit.emit_exit)(&exit_event, code);
             })
             .expect("failed to spawn reader thread");
@@ -160,7 +169,12 @@ impl PtyHandle {
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), TerminalError> {
         let master = self.master.lock().unwrap();
         master
-            .resize(PtySize { cols, rows, pixel_width: 0, pixel_height: 0 })
+            .resize(PtySize {
+                cols,
+                rows,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
         Ok(())
     }
@@ -173,12 +187,19 @@ impl PtyHandle {
         self.ring.lock().unwrap().snapshot()
     }
 
-    pub fn status(&self) -> TerminalStatus { *self.status.lock().unwrap() }
-    pub fn exit_code(&self) -> Option<i32> { *self.exit_code.lock().unwrap() }
+    pub fn status(&self) -> TerminalStatus {
+        *self.status.lock().unwrap()
+    }
+    pub fn exit_code(&self) -> Option<i32> {
+        *self.exit_code.lock().unwrap()
+    }
 }
 
 fn shell_takes_login_flag(shell: &str) -> bool {
-    let name = Path::new(shell).file_name().and_then(|s| s.to_str()).unwrap_or("");
+    let name = Path::new(shell)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
     matches!(name, "zsh" | "bash" | "sh" | "fish")
 }
 
@@ -188,7 +209,11 @@ mod tests {
     use super::*;
     use std::sync::mpsc;
 
-    fn make_emit() -> (EmitContext, mpsc::Receiver<(String, Vec<u8>)>, mpsc::Receiver<(String, Option<i32>)>) {
+    fn make_emit() -> (
+        EmitContext,
+        mpsc::Receiver<(String, Vec<u8>)>,
+        mpsc::Receiver<(String, Option<i32>)>,
+    ) {
         let (data_tx, data_rx) = mpsc::channel();
         let (exit_tx, exit_rx) = mpsc::channel();
         let data_tx = Mutex::new(data_tx);
@@ -224,7 +249,9 @@ mod tests {
         handle.write(b"echo hello\nexit\n").expect("write");
 
         // Collect data events until exit fires.
-        let exit_msg = exit_rx.recv_timeout(Duration::from_secs(5)).expect("exit event");
+        let exit_msg = exit_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("exit event");
         assert!(exit_msg.0.starts_with("terminal://test-1/exit"));
 
         let mut buf = Vec::new();
@@ -232,7 +259,10 @@ mod tests {
             buf.extend_from_slice(&chunk);
         }
         let text = String::from_utf8_lossy(&buf);
-        assert!(text.contains("hello"), "expected 'hello' in output, got: {text}");
+        assert!(
+            text.contains("hello"),
+            "expected 'hello' in output, got: {text}"
+        );
         assert!(matches!(handle.status(), TerminalStatus::Exited));
     }
 
@@ -258,6 +288,9 @@ mod tests {
 
         let snap = handle.snapshot();
         let text = String::from_utf8_lossy(&snap);
-        assert!(text.contains("marker_xyz"), "snapshot missing marker: {text}");
+        assert!(
+            text.contains("marker_xyz"),
+            "snapshot missing marker: {text}"
+        );
     }
 }

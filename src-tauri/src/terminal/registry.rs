@@ -42,7 +42,9 @@ pub struct Registry {
 
 impl Registry {
     pub fn new() -> Self {
-        Self { handles: RwLock::new(HashMap::new()) }
+        Self {
+            handles: RwLock::new(HashMap::new()),
+        }
     }
 
     pub fn insert(&self, id: TerminalId, handle: Arc<crate::terminal::pty::PtyHandle>) {
@@ -81,7 +83,9 @@ impl Registry {
 }
 
 impl Default for Registry {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

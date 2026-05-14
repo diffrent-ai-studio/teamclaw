@@ -316,7 +316,9 @@ pub async fn telemetry_export_team_feedback(
     let node_id = crate::commands::oss_commands::get_device_id()?;
     let hostname = gethostname::gethostname().to_string_lossy().to_string();
 
-    let workspace_path = registry.current_workspace.lock()
+    let workspace_path = registry
+        .current_workspace
+        .lock()
         .ok()
         .and_then(|cw| cw.clone())
         .ok_or_else(|| "No workspace path set.".to_string())?;
@@ -363,7 +365,9 @@ pub async fn telemetry_export_team_feedback(
 pub async fn telemetry_get_team_feedback_summary(
     registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamFeedbackSummary, String> {
-    let workspace_path = registry.current_workspace.lock()
+    let workspace_path = registry
+        .current_workspace
+        .lock()
         .ok()
         .and_then(|cw| cw.clone())
         .ok_or_else(|| "No workspace path set.".to_string())?;
@@ -480,7 +484,9 @@ pub async fn telemetry_export_leaderboard(
     let node_id = crate::commands::oss_commands::get_device_id()?;
     let hostname = gethostname::gethostname().to_string_lossy().to_string();
 
-    let workspace_path = registry.current_workspace.lock()
+    let workspace_path = registry
+        .current_workspace
+        .lock()
         .ok()
         .and_then(|cw| cw.clone())
         .ok_or_else(|| "No workspace path set.".to_string())?;
@@ -620,7 +626,9 @@ fn aggregate_workspace_stats(
 pub async fn telemetry_get_team_leaderboard(
     registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<TeamLeaderboard, String> {
-    let workspace_path = registry.current_workspace.lock()
+    let workspace_path = registry
+        .current_workspace
+        .lock()
         .ok()
         .and_then(|cw| cw.clone())
         .ok_or_else(|| "No workspace path set.".to_string())?;
@@ -655,7 +663,9 @@ pub async fn telemetry_get_member_aggregated_stats(
     member_name: String,
     registry: tauri::State<'_, crate::commands::window::WindowRegistry>,
 ) -> Result<LeaderboardStats, String> {
-    let workspace_path = registry.current_workspace.lock()
+    let workspace_path = registry
+        .current_workspace
+        .lock()
         .ok()
         .and_then(|cw| cw.clone())
         .ok_or_else(|| "No workspace path set.".to_string())?;

@@ -71,8 +71,7 @@ async fn require_instance(
     registry: &State<'_, crate::commands::window::WindowRegistry>,
     cron_state: &State<'_, CronState>,
 ) -> Result<CronInstance, String> {
-    let workspace_path =
-        crate::commands::window::current_workspace_for_window(window, registry)?;
+    let workspace_path = crate::commands::window::current_workspace_for_window(window, registry)?;
     cron_state
         .try_instance_for(&workspace_path)
         .await

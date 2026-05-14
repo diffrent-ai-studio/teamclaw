@@ -22,6 +22,7 @@ export interface UseIdeasForTeamResult {
   loading: boolean
   error: boolean
   teamId: string | null
+  refetch: () => void
 }
 
 export function useIdeasForTeam(): UseIdeasForTeamResult {
@@ -31,6 +32,7 @@ export function useIdeasForTeam(): UseIdeasForTeamResult {
   const [creators, setCreators] = React.useState<IdeaCreatorMap>(new Map())
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState(false)
+  const [refreshTick, setRefreshTick] = React.useState(0)
 
   React.useEffect(() => {
     if (teamId) return
@@ -84,9 +86,11 @@ export function useIdeasForTeam(): UseIdeasForTeamResult {
       setLoading(false)
     })()
     return () => { cancelled = true }
-  }, [teamId])
+  }, [teamId, refreshTick])
 
-  return { ideas, creators, loading, error, teamId }
+  const refetch = React.useCallback(() => setRefreshTick((n) => n + 1), [])
+
+  return { ideas, creators, loading, error, teamId, refetch }
 }
 
 function StatusBadge({ status }: { status: IdeaRow['status'] }) {

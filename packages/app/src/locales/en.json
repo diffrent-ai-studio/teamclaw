@@ -4,6 +4,7 @@
     "cancel": "Cancel",
     "confirm": "Confirm",
     "close": "Close",
+    "done": "Done",
     "yes": "Yes",
     "no": "No",
     "ok": "OK",
@@ -2038,6 +2039,35 @@
   "ideas": {
     "loading": "Loading ideas...",
     "empty": "No ideas yet",
-    "error": "Failed to load ideas"
+    "error": "Failed to load ideas",
+    "newIdea": "New idea",
+    "newIdeaDescription": "Capture an idea, problem, or proposal for the team.",
+    "titleLabel": "Title",
+    "titlePlaceholder": "Idea title",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "What's the constraint, what's the win?",
+    "createButton": "Create",
+    "created": "Idea created",
+    "createFailed": "Failed to create idea: {{msg}}"
+  },
+  "invite": {
+    "title": "Invite to team",
+    "description": "Create an invite link for a new teammate or agent.",
+    "shareDescription": "Share this link so they can join the team.",
+    "kindLabel": "Kind",
+    "kindMember": "Teammate",
+    "kindAgent": "Agent",
+    "nameLabel": "Name",
+    "namePlaceholder": "Display name",
+    "roleLabel": "Role",
+    "roleMember": "Member",
+    "roleAdmin": "Admin",
+    "linkLabel": "Invite link",
+    "expiresAt": "Expires {{date}}",
+    "createButton": "Create invite",
+    "copy": "Copy",
+    "copied": "Invite link copied",
+    "copyFailed": "Failed to copy invite link",
+    "failed": "Failed to create invite: {{msg}}"
   }
 }

@@ -4,6 +4,7 @@
     "cancel": "取消",
     "confirm": "确认",
     "close": "关闭",
+    "done": "完成",
     "yes": "是",
     "no": "否",
     "ok": "确定",
@@ -2038,6 +2039,35 @@
   "ideas": {
     "loading": "正在加载想法...",
     "empty": "暂无想法",
-    "error": "加载想法失败"
+    "error": "加载想法失败",
+    "newIdea": "新想法",
+    "newIdeaDescription": "记录一个想法、问题或提案。",
+    "titleLabel": "标题",
+    "titlePlaceholder": "想法标题",
+    "descriptionLabel": "描述",
+    "descriptionPlaceholder": "约束是什么？预期收益是什么？",
+    "createButton": "创建",
+    "created": "想法已创建",
+    "createFailed": "创建失败：{{msg}}"
+  },
+  "invite": {
+    "title": "邀请加入团队",
+    "description": "为新成员或新 Agent 创建邀请链接。",
+    "shareDescription": "把这个链接分享给对方加入团队。",
+    "kindLabel": "类型",
+    "kindMember": "成员",
+    "kindAgent": "Agent",
+    "nameLabel": "名称",
+    "namePlaceholder": "显示名称",
+    "roleLabel": "角色",
+    "roleMember": "成员",
+    "roleAdmin": "管理员",
+    "linkLabel": "邀请链接",
+    "expiresAt": "{{date}} 过期",
+    "createButton": "创建邀请",
+    "copy": "复制",
+    "copied": "邀请链接已复制",
+    "copyFailed": "复制失败",
+    "failed": "创建邀请失败：{{msg}}"
   }
 }

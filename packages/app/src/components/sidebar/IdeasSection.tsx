@@ -1,7 +1,8 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import { useIdeasForTeam, type IdeaRow } from '@/components/panel/IdeasView'
+import { CreateIdeaDialog } from '@/components/sidebar/CreateIdeaDialog'
 import { useUIStore } from '@/stores/ui'
 import { cn } from '@/lib/utils'
 
@@ -17,7 +18,8 @@ export function IdeasSection() {
   const toggle = useUIStore((s) => s.toggleIdeasSection)
   const filter = useUIStore((s) => s.sidebarFilter)
   const setFilter = useUIStore((s) => s.setSidebarFilter)
-  const { ideas, loading } = useIdeasForTeam()
+  const { ideas, loading, teamId, refetch } = useIdeasForTeam()
+  const [createOpen, setCreateOpen] = React.useState(false)
 
   const handleClickIdea = (idea: IdeaRow) => {
     setFilter({ kind: 'idea', ideaId: idea.id, title: idea.title })
@@ -25,14 +27,31 @@ export function IdeasSection() {
 
   return (
     <div className="flex flex-col">
-      <button
-        type="button"
-        onClick={toggle}
-        className="group flex w-full items-center gap-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/80 hover:text-foreground"
-      >
-        {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-        <span>{t('sidebar.ideasSection', 'Ideas')}</span>
-      </button>
+      <div className="flex items-center gap-1 pr-1">
+        <button
+          type="button"
+          onClick={toggle}
+          className="group flex flex-1 items-center gap-1 px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/80 hover:text-foreground"
+        >
+          {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          <span>{t('sidebar.ideasSection', 'Ideas')}</span>
+        </button>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setCreateOpen(true) }}
+          className="rounded-md p-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          title={t('ideas.newIdea', 'New idea')}
+          aria-label={t('ideas.newIdea', 'New idea')}
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <CreateIdeaDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        teamId={teamId}
+        onCreated={refetch}
+      />
       {!collapsed && (
         <div className="flex flex-col">
           {loading && (

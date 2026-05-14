@@ -16,6 +16,7 @@ const READER_FLUSH_INTERVAL: Duration = Duration::from_millis(10);
 pub struct PtyHandle {
     pub id: String,
     pub workspace_id: String,
+    #[allow(dead_code)]
     pub cwd: PathBuf,
     pub shell: String,
     pub pid: u32,

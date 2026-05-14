@@ -22,6 +22,7 @@ pub struct TerminalSummary {
 #[derive(Debug, thiserror::Error, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TerminalError {
+    #[allow(dead_code)]
     #[error("shell not found")]
     ShellNotFound,
     #[error("cwd not allowed: {0}")]

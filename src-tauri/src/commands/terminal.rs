@@ -131,15 +131,15 @@ fn resolve_shell(explicit: Option<String>) -> String {
     }
     #[cfg(target_os = "macos")]
     {
-        return "/bin/zsh".into();
+        "/bin/zsh".into()
     }
     #[cfg(target_os = "linux")]
     {
-        return "/bin/bash".into();
+        "/bin/bash".into()
     }
     #[cfg(target_os = "windows")]
     {
-        return "powershell.exe".into();
+        "powershell.exe".into()
     }
 }
 

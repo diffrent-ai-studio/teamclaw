@@ -47,6 +47,8 @@ import { NewSessionActorPicker } from "./NewSessionActorPicker";
 import { SessionContinueBanner } from "./SessionContinueBanner";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 import { StreamingAgentBubble } from "./StreamingAgentBubble";
+import { TerminalPanel } from "@/components/terminal/TerminalPanel";
+import { useTerminalStore } from "@/stores/terminal-store";
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -266,6 +268,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // separate bootstrapped vs ready flags collapsed into one signal.
   const workspaceBootstrapped = !!workspacePath;
   const workspaceReady = !!workspacePath;
+  const currentWorkspaceId = workspacePath ?? "";
+  const terminalOpen = useTerminalStore(
+    s => Boolean(currentWorkspaceId && s.panelOpenByWorkspace[currentWorkspaceId]),
+  );
   const setWorkspaceBootstrapped = React.useCallback((_v: boolean) => {}, []);
 
   // ── Local state ───────────────────────────────────────────────────────
@@ -1520,6 +1526,14 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             }
           />
         )
+      )}
+
+      {terminalOpen && workspacePath && (
+        <TerminalPanel
+          workspaceId={workspacePath}
+          workspacePath={workspacePath}
+          allowedRoots={[workspacePath]}
+        />
       )}
     </div>
   );

@@ -15,6 +15,8 @@ export interface CreateSessionShellArgs {
   title: string
   /** Actor IDs to add as participants alongside the creator. */
   additionalActorIds: string[]
+  /** When set, the new session row is tagged with this idea_id at insert time. */
+  ideaId?: string | null
 }
 
 export interface CreateSessionShellResult {
@@ -42,6 +44,7 @@ export async function createSessionShell(
       created_by_actor_id: args.creatorActorId,
       mode: 'collab',
       title: trimmedTitle,
+      idea_id: args.ideaId ?? null,
     })
   if (sessionErr) throw new Error(`Failed to create session: ${sessionErr.message}`)
 
@@ -62,7 +65,7 @@ export async function createSessionShell(
       title: trimmedTitle,
       mode: 'collab',
       primaryAgentId: null,
-      ideaId: null,
+      ideaId: args.ideaId ?? null,
       summary: null,
       lastMessagePreview: null,
       lastMessageAt: null,

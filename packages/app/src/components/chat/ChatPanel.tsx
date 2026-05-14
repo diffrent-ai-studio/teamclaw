@@ -1032,12 +1032,17 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       const memberIds = picks.members.map((m) => m.id);
       const agentIds = picks.agents.map((a) => a.id);
       const allAdditional = Array.from(new Set([...memberIds, ...agentIds]));
+      const draftIdeaId = useUIStore.getState().draftIdeaId;
       const { sessionId } = await createSessionShell({
         teamId: teamIdForSend,
         creatorActorId: myActor.id,
         title: titleSource,
         additionalActorIds: allAdditional,
+        ideaId: draftIdeaId,
       });
+      if (draftIdeaId) {
+        useUIStore.getState().clearDraftIdeaId();
+      }
 
       // Subscribe to the new session's live topic before publishing the
       // first message — otherwise the daemon's acp.event + message.created

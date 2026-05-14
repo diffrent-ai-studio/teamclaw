@@ -44,7 +44,6 @@ import { TrafficLights } from "@/components/ui/traffic-lights"
 import { buildSessionListActivityMap, type SessionListActivity } from "@/lib/session-list-activity"
 import { SessionSearchDialog } from "@/components/sidebar/session-search-dialog"
 import { NavRail } from "@/components/sidebar/NavRail"
-import { SessionListColumn } from "@/components/sidebar/SessionListColumn"
 
 function SessionActivityBadge({ activity }: { activity?: SessionListActivity }) {
   const { t } = useTranslation()
@@ -795,14 +794,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
         <SidebarContent className="overflow-hidden">
           {isWorkspaceUIVariant() ? (
-            <div className="flex h-full w-full min-w-0 flex-1 flex-row overflow-hidden">
-              <div className="w-[220px] shrink-0 border-r border-border/60">
-                <NavRail />
-              </div>
-              <div className="min-w-0 flex-1">
-                <SessionListColumn />
-              </div>
-            </div>
+            <NavRail />
           ) : (
             <SidebarGroup className="!px-0 !pb-0 !pt-0 min-h-0 flex-1 overflow-hidden">
               {defaultSidebarContent === 'session' && (

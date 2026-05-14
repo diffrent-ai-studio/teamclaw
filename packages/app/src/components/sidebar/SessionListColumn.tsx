@@ -7,6 +7,9 @@ import { useUIStore } from '@/stores/ui'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCronStore } from '@/stores/cron'
 import { useSessionListStore } from '@/stores/session-list-store'
+import { useSidebar } from '@/components/ui/sidebar'
+import { TrafficLights } from '@/components/ui/traffic-lights'
+import { SidebarCollapseToggle } from '@/components/app-sidebar'
 import { Button } from '@/components/ui/button'
 import { AnimatedClock } from '@/components/ui/animated-clock'
 import {
@@ -91,6 +94,8 @@ export function SessionListColumn() {
 
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const hasWorkspace = !!workspacePath
+  const { state: sidebarState } = useSidebar()
+  const sidebarCollapsed = sidebarState === 'collapsed'
 
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [renamingSessionId, setRenamingSessionId] = React.useState<string | null>(null)
@@ -310,10 +315,19 @@ export function SessionListColumn() {
   }
 
   return (
-    <div className="flex h-full flex-col min-w-0">
+    <div className="flex h-full flex-col min-w-0 border-r border-border/60 bg-sidebar">
       <SessionSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
 
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/60">
+      <div
+        className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border/60"
+        data-tauri-drag-region
+      >
+        {sidebarCollapsed && (
+          <div className="flex items-center gap-1 shrink-0">
+            <TrafficLights />
+            <SidebarCollapseToggle />
+          </div>
+        )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">{title}</div>
           <div className="truncate text-[11px] text-muted-foreground">

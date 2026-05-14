@@ -322,11 +322,13 @@ describe('AppSidebar', () => {
     expect(buttons.length).toBeGreaterThan(2)
   })
 
-  it('workspace variant renders NavRail + SessionListColumn', () => {
+  it('workspace variant renders NavRail (SessionListColumn lives outside AppSidebar)', () => {
     uiVariantMocks.workspaceShell = true
     render(<AppSidebar />)
     expect(screen.getByTestId('nav-rail')).toBeDefined()
-    expect(screen.getByTestId('session-list-column')).toBeDefined()
+    // SessionListColumn is now rendered as a sibling of AppSidebar in App.tsx,
+    // not inside the sidebar shell — so it's intentionally absent here.
+    expect(screen.queryByTestId('session-list-column')).toBeNull()
   })
 
   it('default mode renders the default bottom navigation instead of the mixed quick access list', () => {

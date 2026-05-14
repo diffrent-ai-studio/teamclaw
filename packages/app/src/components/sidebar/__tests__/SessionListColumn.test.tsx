@@ -10,13 +10,23 @@ vi.mock('@/components/sidebar/session-search-dialog', () => ({
 }))
 
 // Sidebar UI primitives call useSidebar() which requires a SidebarProvider.
-// In tests we render the column standalone, so stub these as plain wrappers.
+// In tests we render the column standalone, so stub these as plain wrappers
+// and stub useSidebar to return an expanded sidebar by default.
 vi.mock('@/components/ui/sidebar', () => ({
   SidebarMenu: ({ children }: { children: React.ReactNode }) => <ul>{children}</ul>,
   SidebarMenuItem: ({ children }: { children: React.ReactNode }) => <li>{children}</li>,
   SidebarMenuButton: ({ children, isActive: _isActive, ...rest }: React.ComponentProps<'button'> & { isActive?: boolean }) => (
     <button {...rest}>{children}</button>
   ),
+  useSidebar: () => ({ state: 'expanded', open: true, setOpen: () => {}, toggleSidebar: () => {} }),
+}))
+
+vi.mock('@/components/app-sidebar', () => ({
+  SidebarCollapseToggle: () => null,
+}))
+
+vi.mock('@/components/ui/traffic-lights', () => ({
+  TrafficLights: () => null,
 }))
 
 const mkSession = (over: Partial<{ id: string; title: string; ideaId: string | null; updatedAt: Date }>) => ({

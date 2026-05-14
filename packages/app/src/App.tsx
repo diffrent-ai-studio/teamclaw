@@ -66,6 +66,7 @@ import {
   SidebarCollapseToggle,
   SidebarSecondarySessionActions,
 } from "@/components/app-sidebar";
+import { SessionListColumn } from "@/components/sidebar/SessionListColumn";
 import { isWorkspaceUIVariant } from "@/lib/ui-variant";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -612,18 +613,14 @@ function AppContent() {
   /** Native traffic lights sit over the left column; spare inset header when left dock owns that strip. */
   const hideInsetChromeForLeftDock =
     leftDockActive && currentView !== "settings";
-  const collapsedInsetLeading = isCollapsed ? (
+  // In workspace mode, SessionListColumn always sits to the left of SidebarInset
+  // and renders its own traffic-light + collapse strip when the sidebar is
+  // closed, so the chat header should NOT re-render that strip there.
+  const collapsedInsetLeading = isCollapsed && !workspaceUIVariant ? (
     hideInsetChromeForLeftDock ? null : (
       <>
         {(!leftDockActive || currentView === "settings") && <TrafficLights />}
-        {isWorkspaceUIVariant() ? (
-          <>
-            <SidebarCollapseToggle className="mr-0.5" />
-            <SidebarSecondarySessionActions className="mr-2" newChatOnly />
-          </>
-        ) : (
-          <SidebarIconGroup className="mr-2" />
-        )}
+        <SidebarIconGroup className="mr-2" />
         <Separator
           orientation="vertical"
           className="data-[orientation=vertical]:h-4 mr-2"
@@ -1393,6 +1390,11 @@ function AppContent() {
   return (
     <>
       <AppSidebar />
+      {workspaceUIVariant && (
+        <div className="w-(--session-list-width) shrink-0 h-svh overflow-hidden">
+          <SessionListColumn />
+        </div>
+      )}
       <SidebarInset className="flex flex-row h-svh overflow-hidden relative">
         <div
           className={cn(
@@ -1619,7 +1621,8 @@ function App() {
           <SidebarProvider
             style={
               {
-                "--sidebar-width": "320px",
+                "--sidebar-width": isWorkspaceUIVariant() ? "220px" : "320px",
+                "--session-list-width": "280px",
               } as React.CSSProperties
             }
           >

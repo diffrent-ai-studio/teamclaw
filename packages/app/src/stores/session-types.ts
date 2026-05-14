@@ -152,6 +152,7 @@ export interface Session {
   parentID?: string; // Parent session ID (for child/subagent sessions)
   isArchived?: boolean;
   archivedAt?: Date;
+  ideaId?: string | null;
 }
 
 // Child session (subagent) streaming state

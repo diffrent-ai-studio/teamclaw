@@ -17,6 +17,7 @@ export interface SessionListEntry {
   last_message_at: string | null;
   last_message_preview: string | null;
   mode: "solo" | "collab" | "control";
+  idea_id: string | null;
 }
 
 function mapCacheToEntry(r: SessionRow): SessionListEntry {
@@ -27,6 +28,7 @@ function mapCacheToEntry(r: SessionRow): SessionListEntry {
     last_message_at: r.lastMessageAt ?? null,
     last_message_preview: r.lastMessagePreview ?? null,
     mode: (r.mode as SessionListEntry["mode"]) ?? "solo",
+    idea_id: r.ideaId ?? null,
   };
 }
 
@@ -84,7 +86,7 @@ export const useSessionListStore = create<State>((set) => ({
 
     let q = supabase
       .from("sessions")
-      .select("id, title, team_id, mode, last_message_at, last_message_preview, created_at, updated_at")
+      .select("id, title, team_id, mode, last_message_at, last_message_preview, created_at, updated_at, idea_id")
       // Brand-new sessions have last_message_at = null. Put them first so
       // they're immediately visible AND so per-session subscribers /
       // rows.find consumers (e.g., ChatPanel.sendIntoSession) can resolve
@@ -114,6 +116,7 @@ export const useSessionListStore = create<State>((set) => ({
       last_message_preview: string | null;
       created_at: string;
       updated_at: string;
+      idea_id: string | null;
     }>;
 
     // In non-Tauri builds (or first boot without teamId) just set rows directly
@@ -125,6 +128,7 @@ export const useSessionListStore = create<State>((set) => ({
         last_message_at: r.last_message_at,
         last_message_preview: r.last_message_preview,
         mode: (r.mode as SessionListEntry["mode"]) ?? "solo",
+        idea_id: r.idea_id ?? null,
       })), loading: false });
       return;
     }
@@ -138,7 +142,7 @@ export const useSessionListStore = create<State>((set) => ({
         title: r.title ?? null,
         mode: r.mode ?? null,
         primaryAgentId: null,
-        ideaId: null,
+        ideaId: r.idea_id ?? null,
         summary: null,
         lastMessagePreview: r.last_message_preview ?? null,
         lastMessageAt: r.last_message_at ?? null,

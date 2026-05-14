@@ -219,6 +219,7 @@ function adaptSessionRow(r: Compat): Compat {
     createdAt: ts,
     messages: [],
     parentID: null,
+    ideaId: r.idea_id ?? null,
   };
 }
 

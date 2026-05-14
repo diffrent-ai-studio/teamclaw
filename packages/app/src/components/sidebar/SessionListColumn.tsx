@@ -144,24 +144,27 @@ export function SessionListColumn() {
 
   const filteredSessions = React.useMemo(() => {
     if (filter.kind === 'all') return baseSessions
+    // For pinned/idea/actor modes, cron sessions are always hidden.
+    const nonCronTopLevel = allSessions.filter((s) => !s.parentID && !cronSessionIds.has(s.id))
+    const byRecent = (a: Session, b: Session) => b.updatedAt.getTime() - a.updatedAt.getTime()
     if (filter.kind === 'pinned') {
-      return allSessions
-        .filter((s) => !s.parentID && pinnedSessionIds.includes(s.id))
-        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      return nonCronTopLevel
+        .filter((s) => pinnedSessionIds.includes(s.id))
+        .sort(byRecent)
     }
     if (filter.kind === 'idea') {
-      return allSessions
-        .filter((s) => !s.parentID && (s as Session).ideaId === filter.ideaId)
-        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      return nonCronTopLevel
+        .filter((s) => s.ideaId === filter.ideaId)
+        .sort(byRecent)
     }
     if (filter.kind === 'actor') {
       if (!actorSessionIds) return []
-      return allSessions
-        .filter((s) => !s.parentID && actorSessionIds.has(s.id))
-        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      return nonCronTopLevel
+        .filter((s) => actorSessionIds.has(s.id))
+        .sort(byRecent)
     }
     return baseSessions
-  }, [filter, baseSessions, allSessions, pinnedSessionIds, actorSessionIds])
+  }, [filter, baseSessions, allSessions, cronSessionIds, pinnedSessionIds, actorSessionIds])
 
   const sessionActivityMap = React.useMemo(
     () =>
@@ -214,7 +217,7 @@ export function SessionListColumn() {
   }
 
   const handleSelectSession = (id: string) => useUIStore.getState().switchToSession(id)
-  const handleStartRename = (e: React.MouseEvent, id: string) => { e.stopPropagation(); setRenamingSessionId(id) }
+  const handleStartRename = (e: React.SyntheticEvent, id: string) => { e.stopPropagation(); setRenamingSessionId(id) }
   const handleRenameConfirm = async (id: string, newTitle: string) => {
     if (newTitle.trim() && newTitle !== allSessions.find((s) => s.id === id)?.title) {
       try { await updateSessionTitle(id, newTitle.trim()) }
@@ -222,8 +225,8 @@ export function SessionListColumn() {
     }
     setRenamingSessionId(null)
   }
-  const handleArchive = async (e: React.MouseEvent, id: string) => { e.stopPropagation(); await archiveSession(id) }
-  const handleTogglePinned = (e: React.MouseEvent, id: string) => { e.stopPropagation(); toggleSessionPinned(id) }
+  const handleArchive = async (e: React.SyntheticEvent, id: string) => { e.stopPropagation(); await archiveSession(id) }
+  const handleTogglePinned = (e: React.SyntheticEvent, id: string) => { e.stopPropagation(); toggleSessionPinned(id) }
 
   const renderSessionItem = (session: Session) => {
     const isHighlighted = highlightedSessionIds.includes(session.id)
@@ -288,7 +291,7 @@ export function SessionListColumn() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={(e) => handleTogglePinned(e as unknown as React.MouseEvent, session.id)}>
+            <DropdownMenuItem onClick={(e) => handleTogglePinned(e as React.SyntheticEvent, session.id)}>
               <Pin className="h-4 w-4 mr-2" />
               {isPinned ? t('sidebar.unpin', 'Unpin') : t('sidebar.pinToTop', 'Pin to top')}
             </DropdownMenuItem>
@@ -296,7 +299,7 @@ export function SessionListColumn() {
               <Pencil className="h-4 w-4 mr-2" />
               {t('sidebar.rename', 'Rename')}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={(e) => handleArchive(e as unknown as React.MouseEvent, session.id)}>
+            <DropdownMenuItem onClick={(e) => handleArchive(e as React.SyntheticEvent, session.id)}>
               <Archive className="h-4 w-4 mr-2" />
               {t('sidebar.archive', 'Archive')}
             </DropdownMenuItem>

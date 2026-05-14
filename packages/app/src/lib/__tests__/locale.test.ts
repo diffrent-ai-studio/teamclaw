@@ -91,7 +91,6 @@ function collectTranslationKeys(): string[] {
 }
 
 const RENDERED_TEXT_SCAN_FILES = [
-  'components/NodeStatusPopover.tsx',
   'components/app-sidebar.tsx',
   'components/chat/CommandPopover.tsx',
   'components/chat/MessageStarRating.tsx',

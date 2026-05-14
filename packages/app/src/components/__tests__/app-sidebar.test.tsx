@@ -198,10 +198,6 @@ vi.mock('@/components/ui/command', () => ({
   ),
 }))
 
-vi.mock('@/components/NodeStatusPopover', () => ({
-  NodeStatusPopover: ({ children }: any) => <div>{children}</div>,
-}))
-
 vi.mock('@/components/navigation/DefaultBottomNav', () => ({
   DefaultBottomNav: () => <div data-testid="default-bottom-nav">default-bottom-nav</div>,
 }))

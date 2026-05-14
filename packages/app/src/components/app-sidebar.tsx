@@ -11,7 +11,6 @@ import { useCronStore } from "@/stores/cron"
 import { useTeamModeStore } from "@/stores/team-mode"
 import { useTeamOssStore } from "@/stores/team-oss"
 import { useP2pEngineStore } from "@/stores/p2p-engine"
-import { NodeStatusPopover } from "@/components/NodeStatusPopover"
 import {
   Sidebar,
   SidebarContent,
@@ -335,56 +334,6 @@ function DefaultIdeasHeaderControls() {
   )
 }
 
-// Open the picked folder in a brand-new TeamClaw window with its own sidecar.
-function OpenInNewWindowButton() {
-  const { t } = useTranslation()
-  const [busy, setBusy] = React.useState(false)
-
-  if (!isTauri()) return null
-
-  const handleClick = async () => {
-    setBusy(true)
-    try {
-      const { open } = await import('@tauri-apps/plugin-dialog')
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: t('workspace.openInNewWindow', '在新窗口打开工作区'),
-      })
-      if (!selected || typeof selected !== 'string') return
-      const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('create_workspace_window', { workspacePath: selected })
-    } catch (error) {
-      console.error('[Window] Failed to open workspace in new window:', error)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-foreground"
-          disabled={busy}
-          onClick={handleClick}
-        >
-          {busy ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <SquarePlus className="h-3.5 w-3.5" />
-          )}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="top">
-        <p>{t('workspace.openInNewWindow', '在新窗口打开工作区')}</p>
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
 // Workspace selector button for sidebar footer
 function WorkspaceSelectorButton() {
   const { t } = useTranslation()
@@ -476,15 +425,6 @@ function WorkspaceSelectorButton() {
       </span>
     </Button>
   )
-
-  // P2P mode: wrap in NodeStatusPopover for hover details
-  if (teamMode && workspaceName && !ossConfigured) {
-    return (
-      <NodeStatusPopover>
-        {buttonContent}
-      </NodeStatusPopover>
-    )
-  }
 
   return (
     <Tooltip>
@@ -900,10 +840,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 <Settings className="h-3.5 w-3.5 shrink-0" />
                 {t('common.settings', 'Settings')}
               </Button>
-              <div className="flex items-center gap-0.5">
-                <WorkspaceSelectorButton />
-                <OpenInNewWindowButton />
-              </div>
+              <WorkspaceSelectorButton />
             </div>
           )}
 

@@ -259,6 +259,11 @@
     "newSessionBadge": "NEW",
     "messageCountShort": "{{count}} msg",
     "messageCountShort_plural": "{{count}} msgs",
+    "draftContinueBanner": "{{count}} session in progress with {{name}}",
+    "draftContinueRecent": "Recent sessions",
+    "draftWithAgentHint": "Send a message to start a session with this agent",
+    "draftWithMemberHint": "Send a message to start a session with this member",
+    "untitledSession": "(Untitled)",
     "agentSelector": {
       "noAgent": "No agent",
       "pickAgent": "Add an agent to this session first",
@@ -472,7 +477,13 @@
     "rename": "Rename",
     "showAllSessions": "Show all sessions",
     "showCronSessions": "Show scheduled sessions",
-    "searchWithShortcut": "Search (⌘K)"
+    "searchWithShortcut": "Search (⌘K)",
+    "mentions": "@Mentions",
+    "waitingOnMe": "Waiting on me",
+    "pinned": "Pinned",
+    "ideasSection": "Ideas",
+    "actorsSection": "Actors",
+    "countActiveRecent": "{{count}} active · recent first"
   },
   "setup": {
     "title": "Setup Required",

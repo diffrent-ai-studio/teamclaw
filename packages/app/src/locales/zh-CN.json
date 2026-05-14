@@ -259,6 +259,11 @@
     "newSessionBadge": "新",
     "messageCountShort": "{{count}} 条消息",
     "messageCountShort_plural": "{{count}} 条消息",
+    "draftContinueBanner": "与 {{name}} 还有 {{count}} 个进行中",
+    "draftContinueRecent": "最近会话",
+    "draftWithAgentHint": "发送消息以与该 Agent 开始会话",
+    "draftWithMemberHint": "发送消息以与该成员开始会话",
+    "untitledSession": "(未命名)",
     "agentSelector": {
       "noAgent": "未选择 Agent",
       "pickAgent": "请先把 Agent 加入此会话",
@@ -472,7 +477,13 @@
     "rename": "重命名",
     "showAllSessions": "显示全部会话",
     "showCronSessions": "显示定时会话",
-    "searchWithShortcut": "搜索 (⌘K)"
+    "searchWithShortcut": "搜索 (⌘K)",
+    "mentions": "@提及",
+    "waitingOnMe": "等待我",
+    "pinned": "已置顶",
+    "ideasSection": "想法",
+    "actorsSection": "成员",
+    "countActiveRecent": "{{count}} 个 · 按最近活动排序"
   },
   "setup": {
     "title": "需要设置",

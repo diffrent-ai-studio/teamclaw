@@ -322,6 +322,7 @@ pub fn run() {
             commands::show_in_folder,
             commands::open_with_default_app,
             commands::open_in_terminal,
+            commands::system_appearance::get_system_accent_color,
             commands::stt::stt_is_available,
             commands::stt::stt_start_listening,
             commands::stt::stt_stop_listening,

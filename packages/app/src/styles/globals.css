@@ -33,6 +33,11 @@
     --border-soft: rgba(26, 26, 20, 0.05);
     --input: rgba(26, 26, 20, 0.08);
     --ring: rgba(26, 26, 20, 0.18);
+    /* System accent — set at runtime by main.tsx from
+       NSColor.controlAccentColor on macOS. Falls back to --ring so existing
+       focus styles still work when the system value is unavailable
+       (Windows/Linux today, or non-Tauri context). */
+    --system-accent: var(--ring);
 
     /* Brand coral — use sparingly. See AGENTS.md §1 "Where coral is allowed". */
     --coral: #e85a4a;
@@ -85,6 +90,7 @@
     --border-soft: oklch(1 0 0 / 6%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
+    --system-accent: var(--ring);
     --coral: #e85a4a;
     --coral-soft: oklch(0.45 0.13 28);
     --chart-1: oklch(0.488 0.243 264.376);
@@ -163,6 +169,11 @@
         font-feature-settings: "ss01", "cv11";
         -webkit-font-smoothing: antialiased;
     }
+    /* Default cursor on chrome controls — native AppKit / Win32 don't switch
+       to the pointer hand on buttons, rows, or menu items. The pointer cursor
+       on hoverable UI is the single strongest "this is a web app" tell. We
+       keep it on content links (.tiptap a, .tiptap .wiki-link below) where
+       NSAttributedString hyperlinks actually do show it. */
     button,
     a,
     [role="button"],
@@ -178,7 +189,7 @@
     label[for],
     [onclick],
     [tabindex]:not([tabindex="-1"]) {
-        cursor: pointer;
+        cursor: default;
     }
     button:disabled,
     [role="button"][aria-disabled="true"],
@@ -215,6 +226,32 @@ input,
 [contenteditable="true"] {
     -webkit-user-select: text;
     user-select: text;
+}
+
+/* Form input focus tracks the user's system accent color where available.
+   macOS / Windows: focused fields glow with the accent the user picked in
+   System Settings. Buttons keep the brand --ring; this rule scopes the
+   override to text-entry surfaces where the convention is clearest. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+    outline: 2px solid var(--system-accent);
+    outline-offset: 1px;
+}
+
+/* Honor system "Reduce motion" preference (macOS System Settings →
+   Accessibility → Display → Reduce motion; Windows Settings → Accessibility
+   → Visual effects → Animation effects). Native apps drop transitions when
+   this is on; users who enable it expect every app to respect it. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }
 
 /* Tauri window drag region support */

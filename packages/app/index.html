@@ -72,6 +72,25 @@
         <div class="bone" style="height:14px;width:50%;margin-top:24px"></div>
       </div>
     </div>
+    <script>
+      // Font fallback prewarm — force Core Text / DirectWrite to load and cache
+      // the fallback fonts (emoji + CJK + symbols) before React mounts. Without
+      // this, the first emoji or Chinese character in an AI chat response causes
+      // a visible glyph-substitution stutter on cold start. Double rAF ensures
+      // layout + paint both complete (registering the fonts in the system cache)
+      // before the span is removed.
+      (function prewarmFontFallbacks() {
+        var span = document.createElement('span');
+        span.setAttribute('aria-hidden', 'true');
+        span.style.cssText = 'position:absolute;left:-9999px;top:0;opacity:0;pointer-events:none;font-size:16px';
+        span.textContent = '中文简体 繁體中文 日本語 한국어 😀🎉✨📦🚀💬🤖 ✓✗→←↑↓ ∑∫√';
+        document.body.appendChild(span);
+        void span.getBoundingClientRect();
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () { span.remove(); });
+        });
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

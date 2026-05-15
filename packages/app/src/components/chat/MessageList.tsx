@@ -374,7 +374,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
 
             scrollRef.current.scrollTo({
               top: scrollRef.current.scrollHeight,
-              behavior: isNewUserMsg ? "smooth" : "instant",
+              behavior: "instant",
             });
           });
         });
@@ -402,7 +402,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
             if (scrollRef.current && !userScrolledUpRef.current) {
               scrollRef.current.scrollTo({
                 top: scrollRef.current.scrollHeight,
-                behavior: "smooth",
+                behavior: "instant",
               });
             }
           });
@@ -553,7 +553,7 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
         if (scrollRef.current) {
           scrollRef.current.scrollTo({
             top: scrollRef.current.scrollHeight,
-            behavior: "smooth",
+            behavior: "instant",
           });
         }
       });

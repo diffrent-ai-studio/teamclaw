@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
+import { invoke } from '@tauri-apps/api/core'
 import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthGate } from './components/auth/AuthGate'
@@ -42,6 +43,15 @@ document.addEventListener('contextmenu', (event) => {
   if (import.meta.env.DEV && event.ctrlKey && event.shiftKey) return
   event.preventDefault()
 })
+
+// Mirror the macOS user-chosen accent color onto a CSS variable so focus
+// rings and selection states track what the rest of the OS does. Returns
+// null on Windows/Linux today; CSS falls back to the brand `--ring`.
+invoke<string | null>('get_system_accent_color')
+  .then((hex) => {
+    if (hex) document.documentElement.style.setProperty('--system-accent', hex)
+  })
+  .catch(() => { /* non-tauri context or pre-init — fall through */ })
 
 performance.mark('react-mount')
 

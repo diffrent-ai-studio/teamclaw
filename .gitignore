@@ -130,3 +130,14 @@ sre/
 .codex/
 
 build.config.json
+
+# Android
+apps/android/.gradle/
+apps/android/.idea/
+apps/android/build/
+apps/android/*/build/
+apps/android/*/*/build/
+apps/android/local.properties
+apps/android/*.iml
+apps/android/captures/
+apps/android/.kotlin/

@@ -58,15 +58,15 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/desktop -> target
 
       - name: Create stub sidecar binaries (tauri-build requires them to exist)
         run: |
-          mkdir -p src-tauri/binaries
-          touch src-tauri/binaries/teamclaw-introspect-x86_64-unknown-linux-gnu
+          mkdir -p apps/desktop/binaries
+          touch apps/desktop/binaries/teamclaw-introspect-x86_64-unknown-linux-gnu
 
       - name: Check Rust formatting
-        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+        run: cargo fmt --check --manifest-path apps/desktop/Cargo.toml
 
       - name: Run Clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+        run: cargo clippy --manifest-path apps/desktop/Cargo.toml -- -D warnings

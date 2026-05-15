@@ -94,7 +94,7 @@ export default defineConfig({
     // otherwise the Tauri window will load the wrong (blank) URL.
     strictPort: true,
     watch: {
-      ignored: ['**/src-tauri/**'],
+      ignored: ['**/apps/desktop/**'],
     },
   },
   define: {
@@ -103,7 +103,7 @@ export default defineConfig({
     'import.meta.env.VITE_UI_VARIANT': JSON.stringify((buildConfig as any).app?.uiVariant ?? ''),
     'import.meta.env.VITE_LOCALE': JSON.stringify((buildConfig as any).defaults?.locale ?? ''),
     'import.meta.env.PACKAGE_VERSION': JSON.stringify(
-      JSON.parse(readFileSync(path.join(rootDir, 'src-tauri/tauri.conf.json'), 'utf-8')).version ?? '0.0.0'
+      JSON.parse(readFileSync(path.join(rootDir, 'apps/desktop/tauri.conf.json'), 'utf-8')).version ?? '0.0.0'
     ),
   },
   // Prevent vite from obscuring rust errors

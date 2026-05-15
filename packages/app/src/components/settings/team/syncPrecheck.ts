@@ -1,7 +1,7 @@
 /**
  * Types mirroring the backend `SyncPrecheckFile` and the precheck fields on
  * `TeamGitResult`. The threshold check itself lives in Rust (see
- * `team_sync_repo` in src-tauri/src/commands/team.rs) so all sync entry points
+ * `team_sync_repo` in apps/desktop/src/commands/team.rs) so all sync entry points
  * are gated at the source.
  */
 export interface SyncPrecheckFile {

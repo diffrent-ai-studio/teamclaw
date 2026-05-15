@@ -185,7 +185,7 @@ teamclaw/
 │           ├── lib/
 │           ├── stores/
 │           └── styles/
-├── src-tauri/              # Tauri 後端
+├── apps/desktop/              # Tauri 後端
 │   └── src/
 │       └── commands/       # Rust 指令
 ├── doc/                    # 文件

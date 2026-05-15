@@ -5,11 +5,11 @@
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { Get-Location }
-if (-not (Test-Path (Join-Path $RepoRoot "src-tauri\target"))) {
-    Write-Host "[kill-opencode] No src-tauri\target found, skipping."
+if (-not (Test-Path (Join-Path $RepoRoot "apps\desktop\target"))) {
+    Write-Host "[kill-opencode] No apps\desktop\target found, skipping."
     exit 0
 }
-$TargetDir = (Resolve-Path (Join-Path $RepoRoot "src-tauri\target")).Path
+$TargetDir = (Resolve-Path (Join-Path $RepoRoot "apps\desktop\target")).Path
 
 $script:killed = 0
 Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
@@ -50,5 +50,5 @@ $killed = $script:killed
 if ($script:killed -gt 0) {
     Write-Host "[kill-opencode] Stopped $killed process(es). You can run pnpm tauri:dev:win now."
 } else {
-    Write-Host "[kill-opencode] No matching processes under target. If build still fails with 拒绝访问, close the app and run: Remove-Item -Recurse -Force src-tauri\target\debug\build\teamclaw-*"
+    Write-Host "[kill-opencode] No matching processes under target. If build still fails with 拒绝访问, close the app and run: Remove-Item -Recurse -Force apps\desktop\target\debug\build\teamclaw-*"
 }

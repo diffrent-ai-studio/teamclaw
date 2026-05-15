@@ -29,8 +29,8 @@ try {
   try { fs.unlinkSync(tempConfig); } catch (_) {}
 }
 
-const nsisDir = path.join(root, "src-tauri", "target", "release", "bundle", "nsis");
-const msiDir = path.join(root, "src-tauri", "target", "release", "bundle", "msi");
+const nsisDir = path.join(root, "apps/desktop", "target", "release", "bundle", "nsis");
+const msiDir = path.join(root, "apps/desktop", "target", "release", "bundle", "msi");
 console.log("\n[build-windows] Build completed.");
 if (fs.existsSync(nsisDir)) {
   fs.readdirSync(nsisDir).filter((f) => f.endsWith(".exe")).forEach((f) => {

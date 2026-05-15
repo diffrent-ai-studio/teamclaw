@@ -2,6 +2,7 @@
 "use strict";
 
 const { spawn } = require("child_process");
+const path = require("path");
 const { createRustBuildEnv } = require("./rust-build-env");
 const { ensureTeamclawIntrospectSidecar } = require("./ensure-introspect-sidecar");
 const { platform } = process;
@@ -34,9 +35,11 @@ if (isWindows && (sub === "dev" || sub === "build")) {
 const env = createRustBuildEnv(process.env, __dirname);
 ensureTeamclawIntrospectSidecar(env, { logPrefix: "[tauri-cli]" });
 
+const desktopDir = path.resolve(__dirname, "..", "apps", "desktop");
 const child = spawn("pnpm", ["exec", "tauri", ...args], {
   stdio: "inherit",
   shell: isWindows,
   env,
+  cwd: desktopDir,
 });
 child.on("exit", (code) => process.exit(code ?? 0));

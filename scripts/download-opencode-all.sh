@@ -5,7 +5,7 @@
 set -euo pipefail
 
 REPO="anomalyco/opencode"
-BINDIR="$(cd "$(dirname "$0")/../src-tauri/binaries" && pwd)"
+BINDIR="$(cd "$(dirname "$0")/../apps/desktop/binaries" && pwd)"
 VERSION="${1:-}"
 
 echo "📦 Downloading OpenCode for both macOS architectures..."

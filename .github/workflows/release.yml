@@ -76,7 +76,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/desktop -> target
           key: ${{ matrix.target }}
 
       - name: Install protoc (for prost_build)
@@ -90,7 +90,7 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          mkdir -p src-tauri/binaries
+          mkdir -p apps/desktop/binaries
 
           # 1) pnpm install → then frontend build (sequential chain, backgrounded)
           (
@@ -106,9 +106,9 @@ jobs:
           (
             set -e
             echo "Building teamclaw-introspect for ${{ matrix.target }}..."
-            cargo build --release --locked --manifest-path src-tauri/Cargo.toml -p teamclaw-introspect --target ${{ matrix.target }}
-            cp src-tauri/target/${{ matrix.target }}/release/teamclaw-introspect src-tauri/binaries/teamclaw-introspect-${{ matrix.target }}
-            chmod +x src-tauri/binaries/teamclaw-introspect-${{ matrix.target }}
+            cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect --target ${{ matrix.target }}
+            cp apps/desktop/target/${{ matrix.target }}/release/teamclaw-introspect apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
+            chmod +x apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
             echo "teamclaw-introspect ready"
           ) > /tmp/introspect.log 2>&1 &
           PID_INTROSPECT=$!
@@ -146,7 +146,7 @@ jobs:
           if [ "$FAILED" -ne 0 ]; then exit 1; fi
 
           echo "All parallel tasks completed"
-          ls -lh src-tauri/binaries/
+          ls -lh apps/desktop/binaries/
           ls -lh packages/app/dist/ | head -5
 
       # Skip beforeBuildCommand since frontend is already built above,
@@ -158,7 +158,7 @@ jobs:
         run: |
           python3 - <<'EOF'
           import json, os
-          with open('src-tauri/tauri.conf.json', 'r') as f:
+          with open('apps/desktop/tauri.conf.json', 'r') as f:
               conf = json.load(f)
           conf['build']['beforeBuildCommand'] = 'echo frontend already built'
           endpoints = conf.get('plugins', {}).get('updater', {}).get('endpoints', [])
@@ -169,7 +169,7 @@ jobs:
               endpoints = [e.replace('__OSS_BASE_URL__', oss_base) for e in endpoints]
           endpoints = [e for e in endpoints if '__OSS_BASE_URL__' not in e]
           conf.setdefault('plugins', {}).setdefault('updater', {})['endpoints'] = endpoints
-          with open('src-tauri/tauri.conf.json', 'w') as f:
+          with open('apps/desktop/tauri.conf.json', 'w') as f:
               json.dump(conf, f, indent=2)
           print('Final updater endpoints:')
           for e in endpoints:
@@ -242,7 +242,7 @@ jobs:
           host = os.environ['OSS_ENDPOINT'].replace('https://', '').replace('http://', '')
           oss_base = f'https://{os.environ["OSS_BUCKET"]}.{host}'
 
-          files = glob.glob(f'src-tauri/target/{target}/release/bundle/dmg/*.dmg')
+          files = glob.glob(f'apps/desktop/target/{target}/release/bundle/dmg/*.dmg')
           if not files:
               print(f'No DMG found for target {target}, skipping')
               sys.exit(0)
@@ -339,7 +339,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: |
-            ./src-tauri -> target
+            ./apps/desktop -> target
 
       - name: Install protoc (for prost_build)
         shell: bash
@@ -354,13 +354,13 @@ jobs:
 
       - name: Prepare binaries directory
         shell: bash
-        run: mkdir -p src-tauri/binaries
+        run: mkdir -p apps/desktop/binaries
 
       - name: Build teamclaw-introspect sidecar
         shell: bash
         run: |
-          cargo build --release --locked --manifest-path src-tauri/Cargo.toml -p teamclaw-introspect
-          cp src-tauri/target/release/teamclaw-introspect.exe src-tauri/binaries/teamclaw-introspect-x86_64-pc-windows-msvc.exe
+          cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect
+          cp apps/desktop/target/release/teamclaw-introspect.exe apps/desktop/binaries/teamclaw-introspect-x86_64-pc-windows-msvc.exe
           echo "teamclaw-introspect ready"
 
       # Skip beforeBuildCommand since frontend is already built above
@@ -371,7 +371,7 @@ jobs:
           OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
         run: |
           import json, os
-          with open('src-tauri/tauri.conf.json', 'r') as f:
+          with open('apps/desktop/tauri.conf.json', 'r') as f:
               conf = json.load(f)
           conf['build']['beforeBuildCommand'] = 'echo frontend already built'
           endpoints = conf.get('plugins', {}).get('updater', {}).get('endpoints', [])
@@ -382,7 +382,7 @@ jobs:
               endpoints = [e.replace('__OSS_BASE_URL__', oss_base) for e in endpoints]
           endpoints = [e for e in endpoints if '__OSS_BASE_URL__' not in e]
           conf.setdefault('plugins', {}).setdefault('updater', {})['endpoints'] = endpoints
-          with open('src-tauri/tauri.conf.json', 'w') as f:
+          with open('apps/desktop/tauri.conf.json', 'w') as f:
               json.dump(conf, f, indent=2)
           print('Final updater endpoints:')
           for e in endpoints:
@@ -450,7 +450,7 @@ jobs:
           bucket = oss2.Bucket(auth, endpoint, os.environ['OSS_BUCKET'])
           version = os.environ['GITHUB_REF_NAME']
 
-          files = glob.glob('src-tauri/target/release/bundle/nsis/*.exe')
+          files = glob.glob('apps/desktop/target/release/bundle/nsis/*.exe')
           if not files:
               print('No NSIS installer found, skipping')
               sys.exit(0)

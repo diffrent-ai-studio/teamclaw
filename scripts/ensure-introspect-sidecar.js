@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 
 /**
- * Build and install teamclaw-introspect into src-tauri/binaries/ if missing.
+ * Build and install teamclaw-introspect into apps/desktop/binaries/ if missing.
  * Must run before main cargo/tauri build: build.rs panics when the file is absent (unless CI is set).
  * @param {NodeJS.ProcessEnv} env - Use the same env as cargo (e.g. CARGO_TARGET_DIR from createRustBuildEnv)
  * @param {{ logPrefix?: string }} [opts]
@@ -16,7 +16,7 @@ function ensureTeamclawIntrospectSidecar(env, opts) {
     return;
   }
   const logPrefix = opts?.logPrefix ?? "[rust-cli]";
-  const tauriDir = path.resolve(__dirname, "..", "src-tauri");
+  const tauriDir = path.resolve(__dirname, "..", "apps/desktop");
   const target =
     env.TARGET ||
     (() => {

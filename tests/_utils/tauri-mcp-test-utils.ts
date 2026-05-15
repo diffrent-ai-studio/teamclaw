@@ -3,17 +3,37 @@
  *
  * Launches the TeamClaw app directly via process spawn, and uses tauri-mcp
  * MCP server for window queries, keyboard/mouse input, and JS execution.
- * Run from repo root: TEAMCLAW_APP_PATH defaults to src-tauri/target/debug/teamclaw.
+ * Run from repo root: TEAMCLAW_APP_PATH defaults to .cargo-target/debug/teamclaw.
  */
 
 import { execSync, spawn, type ChildProcess } from 'child_process';
-import { existsSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, join, resolve } from 'path';
 import { createConnection, type Socket } from 'net';
+
+function sharedCargoTargetBinary(): string {
+  const cwd = process.cwd();
+  const worktreeBinary = join(cwd, '.cargo-target/debug/teamclaw');
+  const gitPath = join(cwd, '.git');
+  if (!existsSync(gitPath)) return worktreeBinary;
+
+  try {
+    const content = readFileSync(gitPath, 'utf8').trim();
+    const match = content.match(/^gitdir:\s*(.+)$/);
+    if (!match) return worktreeBinary;
+
+    const gitdir = resolve(cwd, match[1]);
+    const mainRoot = dirname(resolve(gitdir, '..', '..'));
+    const sharedBinary = join(mainRoot, '.cargo-target/debug/teamclaw');
+    return existsSync(sharedBinary) ? sharedBinary : worktreeBinary;
+  } catch {
+    return worktreeBinary;
+  }
+}
 
 const TEAMCLAW_APP_PATH =
   process.env.TEAMCLAW_APP_PATH ||
-  join(process.cwd(), 'src-tauri/target/debug/teamclaw');
+  sharedCargoTargetBinary();
 
 const TAURI_MCP_SOCKET =
   process.env.TAURI_MCP_SOCKET || '/tmp/tauri-mcp.sock';
@@ -191,16 +211,17 @@ export async function launchTeamClawApp(): Promise<string> {
     throw new Error('Failed to get PID from spawned app');
   }
 
-  // Wait for socket to appear
-  for (let i = 0; i < 30; i++) {
-    await sleep(2000);
+  // Wait briefly for the debug tauri-mcp socket. If the binary launches without
+  // the debug plugin/socket, callers treat this as an unavailable app and skip.
+  for (let i = 0; i < 10; i++) {
+    await sleep(1000);
     if (existsSync(TAURI_MCP_SOCKET) && await isSocketAlive()) {
-      console.log(`[test-utils] Socket ready after ${(i + 1) * 2}s`);
-      break;
+      console.log(`[test-utils] Socket ready after ${i + 1}s`);
+      return _processId!;
     }
   }
 
-  return _processId!;
+  throw new Error(`tauri-mcp socket not ready at ${TAURI_MCP_SOCKET}`);
 }
 
 export async function stopApp(): Promise<void> {

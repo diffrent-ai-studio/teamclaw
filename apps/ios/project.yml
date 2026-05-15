@@ -1,0 +1,63 @@
+name: AMUX
+options:
+  bundleIdPrefix: tech.teamclaw
+  deploymentTarget:
+    iOS: "26.0"
+  xcodeVersion: "26"
+
+packages:
+  AMUXCore:
+    path: Packages/AMUXCore
+  AMUXUI:
+    path: Packages/AMUXUI
+  AMUXSharedUI:
+    path: Packages/AMUXSharedUI
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    from: "8.0.0"
+
+targets:
+  AMUX:
+    type: application
+    platform: iOS
+    sources:
+      - path: AMUXApp
+    dependencies:
+      - package: AMUXCore
+      - package: AMUXUI
+      - package: AMUXSharedUI
+      - package: Sentry
+        product: SentrySwiftUI
+    settings:
+      base:
+        INFOPLIST_FILE: AMUXApp/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: tech.teamclaw.mobile
+        DEVELOPMENT_TEAM: 43G5A6G9QV
+        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "5.10"
+
+  AMUXUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: AMUXUITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: tech.teamclaw.mobile.uitests
+        DEVELOPMENT_TEAM: 43G5A6G9QV
+        SWIFT_VERSION: "5.10"
+        TEST_TARGET_NAME: AMUX
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  AMUXUITests:
+    build:
+      targets:
+        AMUXUITests: test
+    test:
+      targets:
+        - AMUXUITests
+      environmentVariables:
+        AMUX_TEST_EMAIL: $(AMUX_TEST_EMAIL)
+        AMUX_TEST_PASSWORD: $(AMUX_TEST_PASSWORD)

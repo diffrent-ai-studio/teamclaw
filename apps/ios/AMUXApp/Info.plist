@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleName</key>
+    <string>AMUX</string>
+    <key>CFBundleDisplayName</key>
+    <string>AMUX</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.amux.invite</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>amux</string>
+            </array>
+        </dict>
+    </array>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <true/>
+    </dict>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>AMUX needs microphone access for voice input to send prompts to your AI agent.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>AMUX uses on-device speech recognition to convert your voice into text prompts.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>AMUX uses the camera to attach photos to prompts you send to your AI agent.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>AMUX accesses your photo library to attach images to prompts you send to your AI agent.</string>
+    <key>SUPABASE_PUBLISHABLE_KEY</key>
+    <string>sb_publishable_CJavqYCusEBD7cIebhH5tQ_K_I9AXpE</string>
+    <key>SUPABASE_URL</key>
+    <string>https://srhaytajyfrniuvnkfpd.supabase.co</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+    <key>UILaunchScreen</key>
+    <dict/>
+</dict>
+</plist>

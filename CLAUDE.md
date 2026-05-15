@@ -21,22 +21,29 @@ pnpm dev                    # Frontend only (Vite)
 pnpm tauri:dev              # Full Tauri desktop app
 pnpm rust:check             # Fast Rust compile check with shared .cargo-target
 pnpm rust:build             # Rust build with shared .cargo-target
+pnpm daemon:run             # Run amuxd from apps/daemon
+pnpm ios:run                # Build, install, and launch iOS app on booted Simulator
 
 # Build
 pnpm tauri:build            # Production build
 pnpm tauri:build:debug      # Debug build
 pnpm tauri:build:mac:all    # macOS dual-arch (ARM64 + Intel)
+pnpm daemon:build           # Build daemon
+pnpm ios:build              # Build iOS simulator app
 
 # Lint & Typecheck
 pnpm lint                   # ESLint (frontend)
 pnpm typecheck              # TypeScript strict
-cargo fmt --check --manifest-path src-tauri/Cargo.toml
-cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+cargo fmt --check --manifest-path apps/desktop/Cargo.toml
+cargo clippy --manifest-path apps/desktop/Cargo.toml -- -D warnings
 
 # Test
 pnpm test:unit              # Vitest unit tests
 pnpm test:e2e               # E2E (requires built app + tauri-mcp)
-pnpm test:e2e:smoke         # Smoke subset
+pnpm test:smoke             # Smoke subset
+pnpm daemon:test            # Daemon tests
+pnpm ios:test:core          # AMUXCore SwiftPM tests
+pnpm ios:test               # iOS UI tests
 
 # FC deploy
 bash .claude/skills/fc-deploy/deploy.sh
@@ -46,8 +53,12 @@ bash .claude/skills/fc-deploy/deploy.sh
 
 **Monorepo layout:**
 - `packages/app/` — React 19 frontend (TypeScript, Tailwind 4, Zustand, Vite)
-- `src-tauri/` — Rust/Tauri backend (commands, RAG via Tantivy, STT via Whisper, P2P via iroh)
-- `fc/` — Alibaba Cloud Function Compute (Node.js 20, serverless team API)
+- `apps/desktop/` — Rust/Tauri backend (commands, RAG via Tantivy, STT via Whisper, P2P via iroh)
+- `apps/daemon/` — amuxd daemon (ACP runtime, MQTT/Supabase bridge)
+- `apps/ios/` — iOS app, Xcode project, and Swift packages
+- `services/supabase/` — Supabase migrations, seed, and database tests
+- `services/fc/` — Alibaba Cloud Function Compute (Node.js 20, serverless team API)
+- `crates/` — shared Rust crates (`teamclaw-proto`, `teamclaw-types`, `teamclaw-transport`)
 - `tests/` — E2E tests (tauri-mcp): smoke, regression, performance, functional
 
 **Frontend key paths:**
@@ -57,9 +68,9 @@ bash .claude/skills/fc-deploy/deploy.sh
 - `packages/app/src/hooks/` — React hooks
 
 **Rust backend key paths:**
-- `src-tauri/src/commands/` — Tauri IPC commands (oss_sync, team_p2p, gateway/, cron/, etc.)
-- `src-tauri/src/rag/` — Full-text search + embeddings
-- `src-tauri/binaries/` — sidecar binaries (teamclaw-introspect, etc.)
+- `apps/desktop/src/commands/` — Tauri IPC commands (oss_sync, team_p2p, gateway/, cron/, etc.)
+- `apps/desktop/src/rag/` — Full-text search + embeddings
+- `apps/desktop/binaries/` — sidecar binaries (teamclaw-introspect, etc.)
 
 **Editor system:** Markdown (Tiptap) / HTML (Tiptap + sandbox preview) / Code (CodeMirror 6 + Shiki)
 
@@ -79,7 +90,7 @@ Single source of truth principle — **never mix content sources**:
 
 ## Versioning & Release
 
-**Version numbers** — Desktop version must match across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`.
+**Version numbers** — Desktop version must match across `package.json`, `apps/desktop/Cargo.toml`, `apps/desktop/tauri.conf.json`.
 
 **Release process:**
 1. Bump desktop version in all 3 files

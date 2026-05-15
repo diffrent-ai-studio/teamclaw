@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const rootDir = path.resolve(__dirname, '..');
-const tauriConfPath = path.join(rootDir, 'src-tauri', 'tauri.conf.json');
+const tauriConfPath = path.join(rootDir, 'apps/desktop', 'tauri.conf.json');
 
 function readJSON(filePath) {
   try {

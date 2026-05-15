@@ -34,8 +34,8 @@ try {
 }
 if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
 
-$NsisDir = Join-Path $RepoRoot "src-tauri\target\release\bundle\nsis"
-$MsiDir  = Join-Path $RepoRoot "src-tauri\target\release\bundle\msi"
+$NsisDir = Join-Path $RepoRoot "apps\desktop\target\release\bundle\nsis"
+$MsiDir  = Join-Path $RepoRoot "apps\desktop\target\release\bundle\msi"
 Write-Host ""
 Write-Host "[build-windows] Build completed." -ForegroundColor Green
 if (Test-Path $NsisDir) {

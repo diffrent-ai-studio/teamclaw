@@ -101,7 +101,7 @@ describe('E2E: Spotlight bugs (single-window)', () => {
   describe('Bug 2: Pin state persistence', () => {
     it('SpotlightState in Rust should have a pinned field with default true', () => {
       const source = readFileSync(
-        join(process.cwd(), 'src-tauri/src/commands/spotlight.rs'),
+        join(process.cwd(), 'apps/desktop/src/commands/spotlight.rs'),
         'utf-8',
       );
       expect(source).toContain('pub pinned: Mutex<bool>');
@@ -110,7 +110,7 @@ describe('E2E: Spotlight bugs (single-window)', () => {
 
     it('set_spotlight_pin should persist state in SpotlightState', () => {
       const source = readFileSync(
-        join(process.cwd(), 'src-tauri/src/commands/spotlight.rs'),
+        join(process.cwd(), 'apps/desktop/src/commands/spotlight.rs'),
         'utf-8',
       );
       expect(source).toMatch(/state\.pinned\.lock\(\).*=\s*pinned/);
@@ -147,7 +147,7 @@ describe('E2E: Spotlight bugs (single-window)', () => {
   describe('Single-window architecture', () => {
     it('Rust uses single "main" window label', () => {
       const source = readFileSync(
-        join(process.cwd(), 'src-tauri/src/commands/spotlight.rs'),
+        join(process.cwd(), 'apps/desktop/src/commands/spotlight.rs'),
         'utf-8',
       );
       // All commands reference the "main" window — no "spotlight" window label
@@ -157,7 +157,7 @@ describe('E2E: Spotlight bugs (single-window)', () => {
 
     it('get_spotlight_state returns mode field', () => {
       const source = readFileSync(
-        join(process.cwd(), 'src-tauri/src/commands/spotlight.rs'),
+        join(process.cwd(), 'apps/desktop/src/commands/spotlight.rs'),
         'utf-8',
       );
       expect(source).toContain('"mode"');
@@ -167,7 +167,7 @@ describe('E2E: Spotlight bugs (single-window)', () => {
 
     it('expand_to_main transitions from spotlight to main mode', () => {
       const source = readFileSync(
-        join(process.cwd(), 'src-tauri/src/commands/spotlight.rs'),
+        join(process.cwd(), 'apps/desktop/src/commands/spotlight.rs'),
         'utf-8',
       );
       expect(source).toContain('pub async fn expand_to_main');

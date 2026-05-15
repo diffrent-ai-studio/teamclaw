@@ -35,19 +35,24 @@ build.config.production.json
 
 
 # Tauri
-src-tauri/gen/schemas/
-src-tauri/target/
-src-tauri/binaries/*
-!src-tauri/binaries/.gitkeep
-!src-tauri/binaries/README.md
-!src-tauri/binaries/build-rag-mcp-server.sh
-!src-tauri/binaries/build-autoui-mcp-server.sh
-src-tauri/.tauri_private_key
-src-tauri/.tauri_private_key.pub
+apps/desktop/gen/schemas/
+apps/desktop/target/
+apps/desktop/binaries/*
+!apps/desktop/binaries/.gitkeep
+!apps/desktop/binaries/README.md
+!apps/desktop/binaries/build-rag-mcp-server.sh
+!apps/desktop/binaries/build-autoui-mcp-server.sh
+apps/desktop/.tauri_private_key
+apps/desktop/.tauri_private_key.pub
 
 # Testing
 coverage/
 tests/screenshots/
+apps/ios/build/
+apps/ios/DerivedData/
+apps/ios/**/.build/
+apps/ios/**/xcuserdata/
+apps/ios/**/*.xcuserstate
 
 # Python
 __pycache__/
@@ -68,7 +73,6 @@ venv/
 *.lock
 !pnpm-lock.yaml
 !/Cargo.lock
-!src-tauri/Cargo.lock
 logs
 playwright-report/
 screenshots/

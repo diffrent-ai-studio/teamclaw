@@ -19,7 +19,7 @@
 > - `VITE_MQTT_HOST`, `VITE_MQTT_PORT`, `VITE_MQTT_USERNAME`, `VITE_MQTT_PASSWORD`
 >
 > Wire format: `proto/amux.proto` + `proto/teamclaw.proto`, vendored from
-> `/Volumes/openbeta/workspace/amux/proto/`. Topics: `amux/{team}/session/{sid}/live`.
+> `proto/`. Topics: `amux/{team}/session/{sid}/live`.
 >
 > **Known Phase 1 debt to clear in Phase 2:** the Phase 1E `useSessionStore`
 > compat shim (`packages/app/src/stores/session-store.ts`) provides stub fields and
@@ -123,7 +123,7 @@ This is not needed if the app is signed and notarized with an Apple Developer ce
 # 1. Install dependencies
 pnpm install
 
-# 2. (Optional) Build local MCP sidecars — see src-tauri/binaries/README.md
+# 2. (Optional) Build local MCP sidecars — see apps/desktop/binaries/README.md
 
 # 3. Start Tauri dev
 pnpm tauri dev
@@ -148,7 +148,7 @@ Notes:
 - `.cargo-target/` is local-only and ignored by git.
 - Install `sccache` if you want compiler cache hits in addition to the shared target directory.
 
-> **MCP binaries**: For local RAG MCP use the standalone `rag-mcp-server` build (not an in-app HTTP bridge). Optional sidecar build steps are in [src-tauri/binaries/README.md](src-tauri/binaries/README.md).
+> **MCP binaries**: For local RAG MCP use the standalone `rag-mcp-server` build (not an in-app HTTP bridge). Optional sidecar build steps are in [apps/desktop/binaries/README.md](apps/desktop/binaries/README.md).
 
 ## Team Collaboration
 
@@ -227,12 +227,12 @@ TeamClaw uses a serverless backend (FC — Function Compute) to handle team regi
 
 **Self-hosting the FC backend:**
 
-The FC source is in the `fc/` directory. It requires:
+The FC source is in the `services/fc/` directory. It requires:
 - Node.js 20 runtime
 - Alibaba Cloud OSS (or S3-compatible storage) for team data
 - (Optional) LiteLLM proxy for shared AI budget management
 
-Environment variables needed: `ACCESS_KEY_ID`, `ACCESS_KEY_SECRET`, `ROLE_ARN`, `BUCKET`, `REGION`, `ENDPOINT`. See `fc/s.yaml` for the full list.
+Environment variables needed: `ACCESS_KEY_ID`, `ACCESS_KEY_SECRET`, `ROLE_ARN`, `BUCKET`, `REGION`, `ENDPOINT`. See `services/fc/s.yaml` for the full list.
 
 ### Shared Content
 
@@ -343,7 +343,7 @@ teamclaw/
 │           ├── lib/         # Utilities
 │           ├── stores/      # Zustand stores
 │           └── styles/      # Global styles
-├── src-tauri/              # Tauri backend
+├── apps/desktop/              # Tauri backend
 │   └── src/
 │       └── commands/       # Rust commands
 ├── doc/                    # Documentation

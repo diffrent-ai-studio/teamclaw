@@ -24,7 +24,7 @@ describe('Auto Update - Configuration', () => {
   const repoRoot = path.resolve(__dirname, '../..');
 
   it('tauri.conf.json has updater configuration', () => {
-    const configPath = path.resolve(repoRoot, 'src-tauri', 'tauri.conf.json');
+    const configPath = path.resolve(repoRoot, 'apps', 'desktop', 'tauri.conf.json');
     const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
     expect(config.plugins.updater).toBeDefined();
@@ -42,7 +42,7 @@ describe('Auto Update - Configuration', () => {
 
   it('build config exports updater configuration to Rust', () => {
     const buildConfigPath = path.resolve(repoRoot, 'build.config.local.json');
-    const tauriConfigPath = path.resolve(repoRoot, 'src-tauri', 'tauri.conf.json');
+    const tauriConfigPath = path.resolve(repoRoot, 'apps', 'desktop', 'tauri.conf.json');
     const buildConfig = JSON.parse(fs.readFileSync(buildConfigPath, 'utf-8'));
     const tauriConfig = JSON.parse(fs.readFileSync(tauriConfigPath, 'utf-8'));
     const buildUpdater = buildConfig.app?.updater;
@@ -58,7 +58,7 @@ describe('Auto Update - Configuration', () => {
   });
 
   it('Cargo.toml has updater and process plugins', () => {
-    const cargoPath = path.resolve(repoRoot, 'src-tauri', 'Cargo.toml');
+    const cargoPath = path.resolve(repoRoot, 'apps', 'desktop', 'Cargo.toml');
     const cargo = fs.readFileSync(cargoPath, 'utf-8');
 
     expect(cargo).toContain('tauri-plugin-updater');
@@ -66,7 +66,7 @@ describe('Auto Update - Configuration', () => {
   });
 
   it('lib.rs registers updater and process plugins', () => {
-    const libPath = path.resolve(repoRoot, 'src-tauri', 'src', 'lib.rs');
+    const libPath = path.resolve(repoRoot, 'apps', 'desktop', 'src', 'lib.rs');
     const lib = fs.readFileSync(libPath, 'utf-8');
 
     expect(lib).toContain('tauri_plugin_updater');

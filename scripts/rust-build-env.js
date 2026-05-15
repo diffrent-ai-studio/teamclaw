@@ -67,7 +67,7 @@ function createRustBuildEnv(baseEnv = process.env, scriptDir = __dirname) {
   delete env.CI;
 
   // Only override CARGO_TARGET_DIR locally; in CI, tauri-action expects
-  // the default src-tauri/target/ path for artifact discovery.
+  // the default apps/desktop/target/ path for artifact discovery.
   if (!env.CARGO_TARGET_DIR && !baseEnv.GITHUB_ACTIONS) {
     env.CARGO_TARGET_DIR = path.join(repoRoot, ".cargo-target");
   }

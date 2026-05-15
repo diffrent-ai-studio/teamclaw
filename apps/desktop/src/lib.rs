@@ -474,8 +474,6 @@ pub fn run() {
             commands::team::update_team_llm_config,
             commands::team::team_check_git_installed,
             commands::team::team_check_workspace_has_git,
-            commands::team::team_init_repo,
-            commands::team::team_git_create,
             commands::team::team_git_join,
             commands::team::team_git_join_background,
             commands::team::init_git_team_secrets,
@@ -483,9 +481,6 @@ pub fn run() {
             commands::team::team_generate_gitignore,
             commands::team::team_sync_repo,
             commands::team::team_disconnect_repo,
-            commands::team::get_team_config,
-            commands::team::save_team_config,
-            commands::team::clear_team_config,
             commands::oss_commands::get_persistent_device_id,
             commands::device_token::generate_device_token,
             #[cfg(feature = "p2p")]
@@ -533,7 +528,6 @@ pub fn run() {
             #[cfg(feature = "p2p")]
             commands::team_p2p::p2p_save_seed_config,
             commands::oss_commands::oss_create_team,
-            commands::oss_commands::oss_join_team,
             commands::oss_commands::oss_restore_sync,
             commands::oss_commands::oss_leave_team,
             commands::oss_commands::oss_sync_now,

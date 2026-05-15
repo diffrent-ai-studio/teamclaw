@@ -10,29 +10,6 @@ use crate::process_util::CommandNoWindow;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-/// Team configuration stored in teamclaw.json
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct TeamConfig {
-    pub git_url: String,
-    pub enabled: bool,
-    pub last_sync_at: Option<String>,
-    /// Personal Access Token for HTTPS authentication (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub git_token: Option<String>,
-    /// Git branch to sync (e.g. "main", "master", "dev"). If None, auto-detect.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub git_branch: Option<String>,
-    /// Team ID for shared secrets (generated on create, provided on join)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub team_id: Option<String>,
-    /// LiteLLM/FC endpoint for this team (cached from invite code or _meta/team.json).
-    /// When set, this client knows the team is registered with cloud LiteLLM and can
-    /// re-trigger background clone or sync member operations.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fc_endpoint: Option<String>,
-}
-
 /// A single model entry in the team LLM configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -303,76 +280,6 @@ pub fn resolve_workspace_path(
         return Ok(path);
     }
     get_workspace_path(window, registry)
-}
-
-/// Read team config from teamclaw.json
-fn read_team_config_from_file(workspace_path: &str) -> Result<Option<TeamConfig>, String> {
-    let config_path = format!(
-        "{}/{}/{}",
-        workspace_path,
-        crate::commands::TEAMCLAW_DIR,
-        super::CONFIG_FILE_NAME
-    );
-
-    if !Path::new(&config_path).exists() {
-        return Ok(None);
-    }
-
-    let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read {}: {}", super::CONFIG_FILE_NAME, e))?;
-
-    let json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse {}: {}", super::CONFIG_FILE_NAME, e))?;
-
-    match json.get("team") {
-        Some(team_val) => {
-            let team: TeamConfig = serde_json::from_value(team_val.clone())
-                .map_err(|e| format!("Failed to parse team config: {}", e))?;
-            Ok(Some(team))
-        }
-        None => Ok(None),
-    }
-}
-
-/// Write team config to teamclaw.json (preserving other fields)
-fn write_team_config_to_file(
-    workspace_path: &str,
-    team: Option<&TeamConfig>,
-) -> Result<(), String> {
-    let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
-    let _ = std::fs::create_dir_all(&teamclaw_dir);
-    let config_path = format!("{}/{}", teamclaw_dir, super::CONFIG_FILE_NAME);
-
-    // Read existing config or create empty object
-    let mut json: serde_json::Value = if Path::new(&config_path).exists() {
-        let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read {}: {}", super::CONFIG_FILE_NAME, e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse {}: {}", super::CONFIG_FILE_NAME, e))?
-    } else {
-        serde_json::json!({
-            "$schema": "https://opencode.ai/config.json"
-        })
-    };
-
-    // Update or remove team field
-    if let Some(team_config) = team {
-        let team_val = serde_json::to_value(team_config)
-            .map_err(|e| format!("Failed to serialize team config: {}", e))?;
-        json.as_object_mut()
-            .ok_or_else(|| format!("{} is not an object", super::CONFIG_FILE_NAME))?
-            .insert("team".to_string(), team_val);
-    } else {
-        json.as_object_mut()
-            .ok_or_else(|| format!("{} is not an object", super::CONFIG_FILE_NAME))?
-            .remove("team");
-    }
-
-    let content = serde_json::to_string_pretty(&json)
-        .map_err(|e| format!("Failed to serialize config: {}", e))?;
-
-    std::fs::write(&config_path, content)
-        .map_err(|e| format!("Failed to write {}: {}", super::CONFIG_FILE_NAME, e))
 }
 
 // Re-export TEAM_REPO_DIR from parent so existing `crate::commands::team::TEAM_REPO_DIR` paths work.
@@ -899,401 +806,6 @@ pub async fn team_check_workspace_has_git(
     })
 }
 
-/// 1.3 - Initialize team repo: clone into workspace/teamclaw-team (not workspace root)
-#[tauri::command]
-pub async fn team_init_repo(
-    git_url: String,
-    git_token: Option<String>,
-    git_branch: Option<String>,
-    llm_base_url: Option<String>,
-    llm_model: Option<String>,
-    llm_model_name: Option<String>,
-    llm_models: Option<String>,
-    workspace_path: Option<String>,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<TeamGitResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
-    let team_dir = get_team_repo_path(&workspace_path);
-
-    if Path::new(&team_dir).exists() {
-        return Err(format!(
-            "{} already exists. Remove it first or disconnect the team repo to re-initialize.",
-            TEAM_REPO_DIR
-        ));
-    }
-
-    // Build the remote URL: embed token for HTTPS URLs
-    let remote_url = match &git_token {
-        Some(token) if !token.is_empty() && is_https_url(&git_url) => {
-            embed_token_in_url(&git_url, token)
-        }
-        _ => git_url.clone(),
-    };
-
-    // Clone into workspace/teamclaw-team, optionally specifying a branch
-    let clone_args: Vec<&str> = if let Some(ref branch) = git_branch {
-        if !branch.is_empty() {
-            vec!["clone", "-b", branch.as_str(), &remote_url, TEAM_REPO_DIR]
-        } else {
-            vec!["clone", &remote_url, TEAM_REPO_DIR]
-        }
-    } else {
-        vec!["clone", &remote_url, TEAM_REPO_DIR]
-    };
-    let (ok, _, stderr) = run_clone_with_partial_fallback(&clone_args, &workspace_path)?;
-    if !ok {
-        let _ = std::fs::remove_dir_all(&team_dir);
-        return Err(format!(
-            "git clone failed (check URL and authentication): {}",
-            stderr.trim()
-        ));
-    }
-
-    // Ensure standard team directory structure exists (same as OSS/P2P)
-    // scaffold_team_dir skips non-empty dirs, so we create them explicitly after clone
-    let team_path = Path::new(&team_dir);
-    for d in &["skills", ".mcp", "knowledge", "_feedback", "_meta"] {
-        let _ = std::fs::create_dir_all(team_path.join(d));
-    }
-    let readme_path = team_path.join("README.md");
-    if !readme_path.exists() {
-        let readme = "# TeamClaw Team Drive\n\nShared team resources.\n\n## Structure\n\n- `skills/` - Shared agent skills\n- `.mcp/` - MCP server configurations\n- `knowledge/` - Shared knowledge base\n- `_feedback/` - Member feedback summaries (auto-synced)\n- `_meta/` - Shared team metadata and app-managed files\n";
-        let _ = std::fs::write(&readme_path, readme);
-    }
-    println!("[Team Init] Ensured standard team directory structure");
-
-    // Write LLM config to .teamclaw/teamclaw.json (only if user chose to host LLM)
-    let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
-    write_llm_config(&workspace_path, llm_config.as_ref())?;
-    println!(
-        "[Team Init] Wrote LLM config to {}/{}",
-        super::TEAMCLAW_DIR,
-        super::CONFIG_FILE_NAME
-    );
-
-    // Ensure _meta/members.json exists (create with self as owner if missing)
-    let meta_path = Path::new(&team_dir).join("_meta").join("members.json");
-    if !meta_path.exists() {
-        use crate::commands::team_unified::{MemberRole, TeamManifest, TeamMember};
-        let node_id = crate::commands::oss_commands::get_device_id()?;
-        let manifest = TeamManifest {
-            owner_node_id: node_id.clone(),
-            members: vec![TeamMember {
-                node_id,
-                name: String::new(),
-                role: MemberRole::Owner,
-                shortcuts_role: Vec::new(),
-                label: String::new(),
-                platform: std::env::consts::OS.to_string(),
-                arch: std::env::consts::ARCH.to_string(),
-                hostname: gethostname::gethostname().to_string_lossy().to_string(),
-                added_at: chrono::Utc::now().to_rfc3339(),
-            }],
-        };
-        if let Some(parent) = meta_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let json = serde_json::to_string_pretty(&manifest)
-            .map_err(|e| format!("Failed to serialize members.json: {}", e))?;
-        std::fs::write(&meta_path, json)
-            .map_err(|e| format!("Failed to write members.json: {}", e))?;
-        println!("[Team Init] Created _meta/members.json with self as owner");
-    }
-
-    // Sync .mcp/ from team dir into workspace opencode.json
-    match sync_team_mcp_configs_from_dir(&team_dir, &workspace_path) {
-        Ok(count) if count > 0 => {
-            println!(
-                "[Team Init] Synced {} MCP server(s) from .mcp/ to opencode.json",
-                count
-            );
-        }
-        Ok(_) => {}
-        Err(e) => {
-            println!("[Team Init] Warning: Failed to sync MCP configs: {}", e);
-        }
-    }
-
-    Ok(TeamGitResult {
-        success: true,
-        message: format!(
-            "Team repository cloned into {}/{}",
-            workspace_path, TEAM_REPO_DIR
-        ),
-        ..Default::default()
-    })
-}
-
-/// 1.3b - Create a new team: clone repo, generate team_id + team_secret, scaffold, commit & push.
-#[tauri::command]
-pub async fn team_git_create(
-    git_url: String,
-    git_token: Option<String>,
-    git_branch: Option<String>,
-    team_name: String,
-    member_name: String,
-    llm_base_url: Option<String>,
-    llm_model: Option<String>,
-    llm_model_name: Option<String>,
-    llm_models: Option<String>,
-    fc_endpoint: Option<String>,
-    workspace_path: Option<String>,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    secrets_state: State<'_, crate::commands::shared_secrets::SharedSecretsState>,
-) -> Result<TeamGitCreateResult, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
-    let team_dir = get_team_repo_path(&workspace_path);
-
-    if Path::new(&team_dir).exists() {
-        return Err(format!(
-            "{} already exists. Remove it first or disconnect the team repo to re-initialize.",
-            TEAM_REPO_DIR
-        ));
-    }
-
-    // Build the remote URL: embed token for HTTPS URLs
-    let remote_url = match &git_token {
-        Some(token) if !token.is_empty() && is_https_url(&git_url) => {
-            embed_token_in_url(&git_url, token)
-        }
-        _ => git_url.clone(),
-    };
-
-    // Clone into workspace/teamclaw-team, optionally specifying a branch
-    let clone_args: Vec<&str> = if let Some(ref branch) = git_branch {
-        if !branch.is_empty() {
-            vec!["clone", "-b", branch.as_str(), &remote_url, TEAM_REPO_DIR]
-        } else {
-            vec!["clone", &remote_url, TEAM_REPO_DIR]
-        }
-    } else {
-        vec!["clone", &remote_url, TEAM_REPO_DIR]
-    };
-    let (ok, _, stderr) = run_clone_with_partial_fallback(&clone_args, &workspace_path)?;
-    if !ok {
-        let _ = std::fs::remove_dir_all(&team_dir);
-        return Err(format!(
-            "git clone failed (check URL and authentication): {}",
-            stderr.trim()
-        ));
-    }
-
-    // Generate team_id
-    let team_id = format!("tc-{}", nanoid::nanoid!(12));
-
-    // Generate team_secret (32 random bytes → hex)
-    let mut secret_bytes = [0u8; 32];
-    getrandom::getrandom(&mut secret_bytes)
-        .map_err(|e| format!("Failed to generate random secret: {e}"))?;
-    let team_secret = hex::encode(secret_bytes);
-
-    // Scaffold standard team directories. Git doesn't track empty
-    // directories, so we drop a .gitkeep placeholder in each one — otherwise
-    // members cloning the repo only see whichever folders happened to receive
-    // a tracked file (e.g. _meta got team.json/members.json) and miss the
-    // rest of the layout.
-    let team_path = Path::new(&team_dir);
-    for d in &[
-        "skills",
-        ".mcp",
-        "knowledge",
-        "_feedback",
-        "_meta",
-        "_secrets",
-    ] {
-        let dir_path = team_path.join(d);
-        std::fs::create_dir_all(&dir_path).map_err(|e| format!("Failed to create {}: {}", d, e))?;
-        let gitkeep_path = dir_path.join(".gitkeep");
-        if !gitkeep_path.exists() {
-            std::fs::write(&gitkeep_path, "")
-                .map_err(|e| format!("Failed to write {}/.gitkeep: {}", d, e))?;
-        }
-    }
-
-    // Write README.md if missing
-    let readme_path = team_path.join("README.md");
-    if !readme_path.exists() {
-        let readme = "# TeamClaw Team Drive\n\nShared team resources.\n\n## Structure\n\n- `skills/` - Shared agent skills\n- `.mcp/` - MCP server configurations\n- `knowledge/` - Shared knowledge base\n- `_feedback/` - Member feedback summaries (auto-synced)\n- `_meta/` - Shared team metadata and app-managed files\n";
-        let _ = std::fs::write(&readme_path, readme);
-    }
-
-    // Compute HMAC verification hash
-    let secret_verify = compute_secret_verify(&team_secret)?;
-
-    // Get device node_id
-    let node_id = crate::commands::oss_commands::get_device_id()?;
-
-    // Write _meta/team.json
-    let normalized_fc_endpoint = fc_endpoint
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.trim_end_matches('/').to_string());
-    let team_meta = TeamMeta {
-        team_id: team_id.clone(),
-        team_name: team_name.clone(),
-        secret_verify,
-        created_at: chrono::Utc::now().to_rfc3339(),
-        owner_node_id: node_id.clone(),
-        fc_endpoint: normalized_fc_endpoint,
-    };
-    let team_meta_path = team_path.join("_meta").join("team.json");
-    let team_meta_json = serde_json::to_string_pretty(&team_meta)
-        .map_err(|e| format!("Failed to serialize team.json: {}", e))?;
-    std::fs::write(&team_meta_path, team_meta_json)
-        .map_err(|e| format!("Failed to write team.json: {}", e))?;
-    println!(
-        "[Team Create] Wrote _meta/team.json with team_id={}",
-        team_id
-    );
-
-    // Write _meta/members.json with self as owner
-    let git_user_name = member_name.clone();
-    {
-        use crate::commands::team_unified::{MemberRole, TeamManifest, TeamMember};
-        let manifest = TeamManifest {
-            owner_node_id: node_id.clone(),
-            members: vec![TeamMember {
-                node_id: node_id.clone(),
-                name: member_name,
-                role: MemberRole::Owner,
-                shortcuts_role: Vec::new(),
-                label: String::new(),
-                platform: std::env::consts::OS.to_string(),
-                arch: std::env::consts::ARCH.to_string(),
-                hostname: gethostname::gethostname().to_string_lossy().to_string(),
-                added_at: chrono::Utc::now().to_rfc3339(),
-            }],
-        };
-        let meta_path = team_path.join("_meta").join("members.json");
-        let json = serde_json::to_string_pretty(&manifest)
-            .map_err(|e| format!("Failed to serialize members.json: {}", e))?;
-        std::fs::write(&meta_path, json)
-            .map_err(|e| format!("Failed to write members.json: {}", e))?;
-        println!("[Team Create] Created _meta/members.json with self as owner");
-    }
-
-    // Ensure .gitignore has all required rules
-    ensure_gitignore_rules(&team_dir);
-
-    // Git add, commit, push
-    let (ok, _, stderr) = run_git(&["add", "-A"], &team_dir)?;
-    if !ok {
-        println!("[Team Create] git add warning: {}", stderr.trim());
-    }
-    // Set git user identity for this repo (so commits show the member's name)
-    let _ = run_git(&["config", "user.name", &git_user_name], &team_dir);
-    let _ = run_git(
-        &[
-            "config",
-            "user.email",
-            &format!(
-                "{}@teamclaw.local",
-                node_id.chars().take(8).collect::<String>()
-            ),
-        ],
-        &team_dir,
-    );
-    let (ok, _, stderr) = run_git(&["commit", "-m", "chore: initialize team"], &team_dir)?;
-    if !ok {
-        println!("[Team Create] git commit warning: {}", stderr.trim());
-    }
-    let branch = git_branch
-        .as_deref()
-        .filter(|b| !b.is_empty())
-        .unwrap_or("main");
-    let (ok, _, stderr) = run_git(&["push", "origin", branch], &team_dir)?;
-    if !ok {
-        // Try pushing to current HEAD branch if specified branch fails
-        let (ok2, head_out, _) = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], &team_dir)?;
-        if ok2 {
-            let head_branch = head_out.trim();
-            if head_branch != branch {
-                let (ok3, _, stderr3) = run_git(&["push", "origin", head_branch], &team_dir)?;
-                if !ok3 {
-                    println!("[Team Create] git push warning: {}", stderr3.trim());
-                }
-            } else {
-                println!("[Team Create] git push warning: {}", stderr.trim());
-            }
-        }
-    }
-
-    // Write LLM config to .teamclaw/teamclaw.json
-    let llm_config = build_llm_config(llm_base_url, llm_model, llm_model_name, llm_models);
-    write_llm_config(&workspace_path, llm_config.as_ref())?;
-    println!(
-        "[Team Create] Wrote LLM config to {}/{}",
-        super::TEAMCLAW_DIR,
-        super::CONFIG_FILE_NAME
-    );
-
-    // Save team_secret to keychain
-    crate::commands::oss_sync::save_team_secret(&workspace_path, &team_id, &team_secret)?;
-    println!("[Team Create] Saved team_secret to keychain");
-
-    // Init shared secrets
-    crate::commands::shared_secrets::init_shared_secrets(&secrets_state, &team_secret, team_path)?;
-    println!("[Team Create] Initialized shared secrets");
-
-    // Sync MCP configs
-    match sync_team_mcp_configs_from_dir(&team_dir, &workspace_path) {
-        Ok(count) if count > 0 => {
-            println!(
-                "[Team Create] Synced {} MCP server(s) from .mcp/ to opencode.json",
-                count
-            );
-        }
-        Ok(_) => {}
-        Err(e) => {
-            println!("[Team Create] Warning: Failed to sync MCP configs: {}", e);
-        }
-    }
-
-    // Fire-and-forget: bootstrap LiteLLM team + owner key via FC.
-    // Only runs for managed-Git (frontend passes fc_endpoint when managedGit=true).
-    if let Some(endpoint) = fc_endpoint
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        let url = format!(
-            "{}/managed-git/setup-litellm",
-            endpoint.trim_end_matches('/')
-        );
-        let body = serde_json::json!({
-            "teamId": team_id,
-            "teamSecret": team_secret,
-            "teamName": team_name,
-            "ownerNodeId": node_id,
-            "ownerName": git_user_name,
-        });
-        println!("[Team Create] Scheduling LiteLLM bootstrap via FC: {}", url);
-        tokio::spawn(async move {
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new());
-            match client.post(&url).json(&body).send().await {
-                Ok(r) => println!(
-                    "[Team Create] LiteLLM via FC: setup-litellm HTTP status={}",
-                    r.status()
-                ),
-                Err(e) => {
-                    eprintln!("[Team Create] LiteLLM via FC: setup-litellm request failed: {e}")
-                }
-            }
-        });
-    }
-
-    Ok(TeamGitCreateResult {
-        team_id,
-        team_secret,
-    })
-}
-
 /// Inputs to the team-join clone & member-registration work.
 struct TeamGitJoinArgs {
     git_url: String,
@@ -1794,23 +1306,14 @@ pub async fn team_sync_repo(
         .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?;
     let team_dir = get_team_repo_path(&workspace_path);
 
-    // Read saved config up-front: needed for the recovery re-clone below
-    // and for the auth/branch resolution further down.
-    let saved_config = read_team_config_from_file(&workspace_path).ok().flatten();
-
-    // Self-heal: re-clone if the team directory is missing, has no .git
-    // (user manually deleted it), or holds a corrupt/incomplete .git from
-    // a clone that was interrupted by a crash. Without this, the user gets
-    // stuck — saved config keeps the frontend in "connected" state so it
-    // never offers to re-join, but sync refuses to run.
+    // Self-heal: re-clone if the team directory is missing or has a corrupt .git.
+    // Since team config is now in Supabase (not teamclaw.json), we can no longer
+    // recover the git URL here — instruct the user to rejoin from settings.
     let team_path = Path::new(&team_dir);
     let git_dir = team_path.join(".git");
     let needs_reclone = if !git_dir.exists() {
         true
     } else {
-        // .git exists; verify the repo can resolve HEAD. A clone interrupted
-        // before any refs are written leaves a partially-populated .git that
-        // makes every subsequent git command fail. rev-parse is cheap.
         let (ok, _, _) = run_git(&["rev-parse", "--verify", "HEAD"], &team_dir).unwrap_or((
             false,
             String::new(),
@@ -1819,53 +1322,10 @@ pub async fn team_sync_repo(
         !ok
     };
     if needs_reclone {
-        let Some(config) = saved_config.as_ref() else {
-            return Err(format!(
-                "Team directory '{}' is not a usable git repository, and no saved team config is available to re-clone from. Please join the team again from settings.",
-                team_dir
-            ));
-        };
-        if config.git_url.is_empty() {
-            return Err(format!(
-                "Team directory '{}' is not a usable git repository, and the saved team config has no git URL to re-clone from. Please join the team again from settings.",
-                team_dir
-            ));
-        }
-
-        // Wipe any stale remnants so `git clone <target>` doesn't trip on a
-        // non-empty target directory.
-        if team_path.exists() {
-            std::fs::remove_dir_all(team_path)
-                .map_err(|e| format!("Failed to clean stale team dir before re-clone: {}", e))?;
-        }
-
-        let remote_url = match &config.git_token {
-            Some(token) if !token.is_empty() && is_https_url(&config.git_url) => {
-                embed_token_in_url(&config.git_url, token)
-            }
-            _ => config.git_url.clone(),
-        };
-        let branch = config
-            .git_branch
-            .as_deref()
-            .map(str::trim)
-            .filter(|b| !b.is_empty());
-        let clone_args: Vec<&str> = if let Some(b) = branch {
-            vec!["clone", "-b", b, &remote_url, TEAM_REPO_DIR]
-        } else {
-            vec!["clone", &remote_url, TEAM_REPO_DIR]
-        };
-        let (ok, _, stderr) = run_clone_with_partial_fallback(&clone_args, &workspace_path)?;
-        if !ok {
-            // Best-effort cleanup so a future sync attempt sees an empty
-            // target and re-tries the clone instead of getting stuck on a
-            // half-cloned repo.
-            let _ = std::fs::remove_dir_all(&team_dir);
-            return Err(format!(
-                "git clone failed while re-cloning team repo (check URL and authentication): {}",
-                stderr.trim()
-            ));
-        }
+        return Err(format!(
+            "Team directory '{}' is not a usable git repository. Please rejoin the team from Settings to re-clone.",
+            team_dir
+        ));
     }
 
     // Pre-sync guard: block when untracked files breach thresholds, unless forced.
@@ -1878,15 +1338,6 @@ pub async fn team_sync_repo(
                 new_files,
                 total_bytes,
             });
-        }
-    }
-
-    if let Some(ref config) = saved_config {
-        if let Some(ref token) = config.git_token {
-            if !token.is_empty() && is_https_url(&config.git_url) {
-                let auth_url = embed_token_in_url(&config.git_url, token);
-                let _ = run_git(&["remote", "set-url", "origin", &auth_url], &team_dir);
-            }
         }
     }
 
@@ -1919,34 +1370,29 @@ pub async fn team_sync_repo(
         let _ = run_git(&["commit", "-m", &msg], &team_dir);
     }
 
-    // Determine the branch to sync: saved config → current HEAD → remote default → "main"
-    let branch = saved_config
-        .as_ref()
-        .and_then(|c| c.git_branch.as_deref())
-        .filter(|b| !b.is_empty())
-        .map(|b| b.to_string())
-        .unwrap_or_else(|| {
-            let (ok, stdout, _) = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], &team_dir)
-                .unwrap_or((false, String::new(), String::new()));
-            if ok && !stdout.trim().is_empty() && stdout.trim() != "HEAD" {
-                stdout.trim().to_string()
+    // Determine the branch to sync: current HEAD → remote default → "main"
+    let branch = {
+        let (ok, stdout, _) = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], &team_dir)
+            .unwrap_or((false, String::new(), String::new()));
+        if ok && !stdout.trim().is_empty() && stdout.trim() != "HEAD" {
+            stdout.trim().to_string()
+        } else {
+            let (ok2, stdout2, _) = run_git(
+                &["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
+                &team_dir,
+            )
+            .unwrap_or((false, String::new(), String::new()));
+            if ok2 && !stdout2.trim().is_empty() {
+                stdout2
+                    .trim()
+                    .strip_prefix("origin/")
+                    .unwrap_or(stdout2.trim())
+                    .to_string()
             } else {
-                let (ok2, stdout2, _) = run_git(
-                    &["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
-                    &team_dir,
-                )
-                .unwrap_or((false, String::new(), String::new()));
-                if ok2 && !stdout2.trim().is_empty() {
-                    stdout2
-                        .trim()
-                        .strip_prefix("origin/")
-                        .unwrap_or(stdout2.trim())
-                        .to_string()
-                } else {
-                    "main".to_string()
-                }
+                "main".to_string()
             }
-        });
+        }
+    };
 
     let remote_ref = format!("origin/{}", branch);
     let (ok, _, stderr) = run_git(&["fetch", "origin"], &team_dir)?;
@@ -2036,12 +1482,6 @@ pub async fn team_sync_repo(
         );
     }
 
-    // Persist last sync timestamp to teamclaw.json so the UI can display it
-    if let Ok(Some(mut cfg)) = read_team_config_from_file(&workspace_path) {
-        cfg.last_sync_at = Some(chrono::Utc::now().to_rfc3339());
-        let _ = write_team_config_to_file(&workspace_path, Some(&cfg));
-    }
-
     let sync_detail = if conflict_resolved {
         format!(
             "Synced with origin/{} (conflict resolved, local backup in .trash/){}",
@@ -2126,42 +1566,6 @@ pub async fn get_git_team_secret(
 ) -> Result<String, String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
     crate::commands::oss_sync::load_team_secret(&workspace_path, &team_id)
-}
-
-// ─── Tauri Commands: Config Management ──────────────────────────────────────
-
-/// 2.2 - Get team config from teamclaw.json
-#[tauri::command]
-pub async fn get_team_config(
-    workspace_path: Option<String>,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<Option<TeamConfig>, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
-    read_team_config_from_file(&workspace_path)
-}
-
-/// 2.3 - Save team config to teamclaw.json
-#[tauri::command]
-pub async fn save_team_config(
-    team: TeamConfig,
-    workspace_path: Option<String>,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<(), String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
-    write_team_config_to_file(&workspace_path, Some(&team))
-}
-
-/// 2.4 - Clear team config from teamclaw.json
-#[tauri::command]
-pub async fn clear_team_config(
-    workspace_path: Option<String>,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<(), String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
-    write_team_config_to_file(&workspace_path, None)
 }
 
 // NOTE: Startup team sync is triggered from the frontend after workspace is set,

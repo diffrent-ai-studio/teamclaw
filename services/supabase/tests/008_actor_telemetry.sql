@@ -85,7 +85,54 @@ select throws_ok(
   'stranger cannot insert'
 );
 
--- Tasks 3 will extend this file with session_report assertions (8 more checks).
+-- 8. actor_session_report exists
+select pg_temp.as_user('c1111111-1111-1111-1111-111111111111');
+select has_table('public', 'actor_session_report', 'actor_session_report table exists');
+
+-- 9. Cara can insert her own report
+insert into public.actor_session_report (actor_id, team_id, tokens_used, cost_usd, model)
+  values ((select cara_actor from ctx), (select team_id from ctx), 1234, 0.05, 'sonnet');
+select pass('actor can insert own session report');
+
+-- 10. Cara cannot insert under another actor
+select throws_ok(
+  $$ insert into public.actor_session_report (actor_id, team_id, tokens_used)
+     values ('00000000-0000-0000-0000-000000000000', (select team_id from ctx), 1) $$,
+  '42501',
+  null,
+  'cannot insert report as another actor'
+);
+
+-- 11. Cara sees team reports
+select results_eq(
+  $$ select count(*)::int from public.actor_session_report where team_id = (select team_id from ctx) $$,
+  $$ values (1) $$,
+  'team member sees team reports'
+);
+
+-- 12. Dave (in team) sees reports
+select pg_temp.as_user('d2222222-2222-2222-2222-222222222222');
+select results_eq(
+  $$ select count(*)::int from public.actor_session_report where team_id = (select team_id from ctx) $$,
+  $$ values (1) $$,
+  'other team member sees team reports'
+);
+
+-- 13. Eve (stranger) sees nothing
+select pg_temp.as_user('e3333333-3333-3333-3333-333333333333');
+select is_empty(
+  $$ select 1 from public.actor_session_report where team_id = (select team_id from ctx) $$,
+  'stranger sees no reports'
+);
+
+-- 14. Eve cannot insert
+select throws_ok(
+  $$ insert into public.actor_session_report (actor_id, team_id, tokens_used)
+     values ((select cara_actor from ctx), (select team_id from ctx), 1) $$,
+  '42501',
+  null,
+  'stranger cannot insert report'
+);
 
 select * from finish();
 rollback;

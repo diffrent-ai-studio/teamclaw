@@ -3,9 +3,9 @@ import AMUXCore
 import AMUXSharedUI
 
 /// Sits between WelcomeView and LoginView. Three paths:
-///   - "Try it first" → anonymous Supabase sign-in + auto-created random team
+///   - private workspace → anonymous Supabase sign-in + auto-created random team
 ///   - "Sign in or register" → push the existing LoginView
-///   - "Have an invite link?" → paste token, anonymous sign-in, replay token
+///   - join a team → paste token, anonymous sign-in, replay token
 ///     through the existing invite-claim pipeline once RootTabView mounts
 struct ChooseAuthView: View {
     @Bindable var coordinator: AppOnboardingCoordinator
@@ -13,47 +13,45 @@ struct ChooseAuthView: View {
     @State private var showInviteSheet = false
 
     var body: some View {
-        VStack(spacing: 28) {
-            VStack(spacing: 12) {
-                Image(systemName: "rectangle.3.group")
-                    .font(.system(size: 44))
-                    .foregroundStyle(Color.amux.cinnabar)
-                Text("Welcome to Teamclaw")
-                    .font(.amuxSerif(28, weight: .regular))
-                    .foregroundStyle(Color.amux.onyx)
-                Text("Pick how you want to start.")
-                    .font(.body)
-                    .foregroundStyle(Color.amux.basalt)
-            }
-            .padding(.top, 32)
+        VStack(spacing: 0) {
+            header
+                .padding(.top, 58)
+                .padding(.horizontal, 28)
 
             Spacer(minLength: 0)
 
-            VStack(spacing: 18) {
-                authOption(
+            VStack(spacing: 12) {
+                actionRow(
                     icon: "sparkles",
-                    title: "Try it first",
-                    caption: "Anonymous workspace, no email needed.",
-                    isProminent: true
+                    title: "Create a private workspace",
+                    caption: "Start with an AI digital employee. No email needed.",
+                    isPrimary: true
                 ) {
                     Task { await coordinator.signInAnonymously() }
                 }
                 .accessibilityIdentifier("choose.anonymousButton")
 
-                authOption(
+                actionRow(
                     icon: "envelope",
                     title: "Sign in or register",
-                    caption: "Email, Apple, or Google. Saves your work across devices.",
-                    isProminent: false
+                    caption: "Use email, Apple, or Google to sync across devices.",
+                    isPrimary: false
                 ) {
                     showLogin = true
                 }
                 .accessibilityIdentifier("choose.signInButton")
-            }
-            .padding(.horizontal, 28)
 
-            inviteEntry
-                .padding(.horizontal, 28)
+                actionRow(
+                    icon: "link",
+                    title: "Join a team",
+                    caption: "Paste an invite link from a teammate.",
+                    isPrimary: false
+                ) {
+                    showInviteSheet = true
+                }
+                .disabled(coordinator.isBusy)
+            }
+            .padding(.horizontal, 24)
 
             if let err = coordinator.errorMessage {
                 Text(err)
@@ -77,73 +75,70 @@ struct ChooseAuthView: View {
         }
     }
 
-    @ViewBuilder
-    private func authOption(
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Set up Teamclaw")
+                .font(.amuxSerif(34, weight: .regular))
+                .foregroundStyle(Color.amux.onyx)
+            Text("Create your workspace or join the team that already works with your AI allies.")
+                .font(.body)
+                .foregroundStyle(Color.amux.basalt)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func actionRow(
         icon: String,
         title: String,
         caption: String,
-        isProminent: Bool,
+        isPrimary: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        VStack(spacing: 6) {
-            Button(action: action) {
-                HStack(spacing: 10) {
+        Button(action: action) {
+            HStack(spacing: 13) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(isPrimary ? Color.amux.cinnabar : Color.amux.pebble)
                     Image(systemName: icon)
-                        .font(.body.weight(.semibold))
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(isPrimary ? Color.white : Color.amux.basalt)
+                }
+                .frame(width: 38, height: 38)
+
+                VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.amux.onyx)
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(Color.amux.basalt)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.amux.slate)
             }
-            .modifier(AuthButtonStyle(isProminent: isProminent))
-            .controlSize(.large)
-            .disabled(coordinator.isBusy)
-
-            Text(caption)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(isPrimary ? Color.amux.paper : Color.amux.paper.opacity(0.76))
+                    .shadow(color: Color.amux.onyx.opacity(isPrimary ? 0.08 : 0.04),
+                            radius: isPrimary ? 18 : 10,
+                            x: 0,
+                            y: isPrimary ? 10 : 5)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(isPrimary ? Color.amux.cinnabar.opacity(0.22) : Color.amux.hairline, lineWidth: 1)
+            )
         }
-    }
-
-    private var inviteEntry: some View {
-        VStack(spacing: 14) {
-            HStack(spacing: 10) {
-                Rectangle().fill(Color.secondary.opacity(0.2)).frame(height: 0.5)
-                Text("OR")
-                    .font(.caption2.weight(.semibold))
-                    .tracking(0.5)
-                    .foregroundStyle(.tertiary)
-                Rectangle().fill(Color.secondary.opacity(0.2)).frame(height: 0.5)
-            }
-
-            Button {
-                showInviteSheet = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "link")
-                        .font(.caption.weight(.medium))
-                    Text("Have an invite link? Tap to join")
-                        .font(.subheadline.weight(.medium))
-                }
-                .foregroundStyle(.tint)
-            }
-            .buttonStyle(.plain)
-            .disabled(coordinator.isBusy)
-        }
-    }
-}
-
-private struct AuthButtonStyle: ViewModifier {
-    let isProminent: Bool
-    func body(content: Content) -> some View {
-        if isProminent {
-            content.glassProminentButtonStyle()
-        } else {
-            content.glassButtonStyle()
-        }
+        .buttonStyle(.plain)
+        .disabled(coordinator.isBusy)
     }
 }
 

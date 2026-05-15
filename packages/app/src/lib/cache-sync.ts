@@ -10,6 +10,9 @@
  *   ideas                — has updated_at ✓
  *   claims               — NOT in information_schema results → FULL-PULL ONLY (TODO: confirm schema)
  *   submissions          — NOT in information_schema results → FULL-PULL ONLY (TODO: confirm schema)
+ *   team_workspace_config     — has updated_at ✓
+ *   actor_message_feedback    — created_at only; FULL-PULL per team
+ *   actor_session_report      — created_at only; FULL-PULL per team
  */
 
 import { supabase } from "@/lib/supabase-client";

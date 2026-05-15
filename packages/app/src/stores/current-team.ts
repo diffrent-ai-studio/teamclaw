@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { supabase } from "@/lib/supabase-client";
 import { useAuthStore } from "./auth-store";
+import {
+  getTeamWorkspaceConfig,
+  type TeamWorkspaceConfig,
+} from "@/lib/team-workspace-config";
 
 export interface CurrentTeam {
   id: string;
@@ -10,6 +14,7 @@ export interface CurrentTeam {
 
 interface State {
   team: CurrentTeam | null;
+  activeWorkspaceConfig: TeamWorkspaceConfig | null;
   loading: boolean;
   saving: boolean;
   error: string | null;
@@ -20,6 +25,7 @@ interface State {
 
 export const useCurrentTeamStore = create<State>((set, get) => ({
   team: null,
+  activeWorkspaceConfig: null,
   loading: false,
   saving: false,
   error: null,
@@ -27,7 +33,7 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
   load: async () => {
     const session = useAuthStore.getState().session;
     if (!session) {
-      set({ team: null, loading: false, error: null });
+      set({ team: null, activeWorkspaceConfig: null, loading: false, error: null });
       return;
     }
 
@@ -43,8 +49,13 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
       return;
     }
     const row = data?.[0];
+    const activeTeam = row ? { id: row.id, name: row.name, slug: row.slug } : null;
+    const activeWorkspaceConfig = activeTeam
+      ? await getTeamWorkspaceConfig(activeTeam.id)
+      : null;
     set({
-      team: row ? { id: row.id, name: row.name, slug: row.slug } : null,
+      team: activeTeam,
+      activeWorkspaceConfig,
       loading: false,
     });
   },
@@ -52,7 +63,7 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
   reloadAndSwitchTo: async (teamId: string) => {
     const session = useAuthStore.getState().session;
     if (!session) {
-      set({ team: null, loading: false, error: null });
+      set({ team: null, activeWorkspaceConfig: null, loading: false, error: null });
       return;
     }
 
@@ -67,8 +78,13 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
       set({ loading: false, error: error.message });
       return;
     }
+    const activeTeam = data ? { id: data.id, name: data.name, slug: data.slug } : null;
+    const activeWorkspaceConfig = activeTeam
+      ? await getTeamWorkspaceConfig(activeTeam.id)
+      : null;
     set({
-      team: data ? { id: data.id, name: data.name, slug: data.slug } : null,
+      team: activeTeam,
+      activeWorkspaceConfig,
       loading: false,
     });
   },

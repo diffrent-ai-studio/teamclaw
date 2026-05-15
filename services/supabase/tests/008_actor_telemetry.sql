@@ -1,5 +1,5 @@
 begin;
-select plan(14);
+select plan(17);
 
 create or replace function pg_temp.as_user(p_user uuid)
 returns void language plpgsql as $$
@@ -132,6 +132,25 @@ select throws_ok(
   '42501',
   null,
   'stranger cannot insert report'
+);
+
+-- 15. View exists
+select pg_temp.as_user('c1111111-1111-1111-1111-111111111111');
+select has_view('public', 'team_leaderboard', 'team_leaderboard view exists');
+
+-- 16. Cara sees an aggregated row for herself
+select results_eq(
+  $$ select tokens_used_30d::bigint from public.team_leaderboard
+       where team_id = (select team_id from ctx) and actor_id = (select cara_actor from ctx) $$,
+  $$ values (1234::bigint) $$,
+  'leaderboard aggregates tokens_used for cara'
+);
+
+-- 17. Eve sees nothing
+select pg_temp.as_user('e3333333-3333-3333-3333-333333333333');
+select is_empty(
+  $$ select 1 from public.team_leaderboard where team_id = (select team_id from ctx) $$,
+  'stranger sees no leaderboard rows'
 );
 
 select * from finish();

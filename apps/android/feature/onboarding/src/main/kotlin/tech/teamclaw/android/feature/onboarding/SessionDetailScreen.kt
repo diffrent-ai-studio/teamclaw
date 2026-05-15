@@ -135,6 +135,7 @@ private fun SessionDetailTopBar(title: String, onBack: () -> Unit) {
 
 @Composable
 private fun MessageBubble(message: MessageRecord, isMine: Boolean) {
+    val textColor = if (isMine) androidx.compose.ui.graphics.Color.White else Hai.Onyx
     Row(modifier = Modifier.fillMaxWidth()) {
         if (isMine) Spacer(Modifier.weight(1f))
         Column(
@@ -144,11 +145,7 @@ private fun MessageBubble(message: MessageRecord, isMine: Boolean) {
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(
-                text = message.content,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (isMine) androidx.compose.ui.graphics.Color.White else Hai.Onyx,
-            )
+            MarkdownText(raw = message.content, contentColor = textColor)
         }
         if (!isMine) Spacer(Modifier.weight(1f))
     }

@@ -36,6 +36,7 @@ import tech.teamclaw.android.feature.onboarding.SessionDetailScreen
 import tech.teamclaw.android.feature.onboarding.SessionListScreen
 import tech.teamclaw.android.feature.onboarding.SettingsScreen
 import tech.teamclaw.android.feature.onboarding.SettingsViewState
+import tech.teamclaw.android.feature.onboarding.UpgradeAccountSheet
 import tech.teamclaw.android.feature.onboarding.WelcomeScreen
 
 @Composable
@@ -126,6 +127,8 @@ private fun ReadyFlow(
     var openSession by remember { mutableStateOf<SessionRecord?>(null) }
     var showMembers by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showUpgrade by remember { mutableStateOf(false) }
+    val coordState by coordinator.state.collectAsStateWithLifecycle()
     val listStore = remember(teamId) { sessionListStoreFactory(teamId) }
     val listState by listStore.state.collectAsStateWithLifecycle()
     LaunchedEffect(teamId) { listStore.reload() }
@@ -142,12 +145,27 @@ private fun ReadyFlow(
                 versionCode = versionCode,
             ),
             onBack = { showSettings = false },
-            onUpgradeAccount = { /* P7+ : open upgrade flow */ },
+            onUpgradeAccount = { showUpgrade = true },
             onSignOut = {
                 showSettings = false
                 coordinator.launch { coordinator.signOut() }
             },
         )
+        if (showUpgrade) {
+            UpgradeAccountSheet(
+                isBusy = coordState.isBusy,
+                errorMessage = coordState.errorMessage,
+                onDismiss = { showUpgrade = false },
+                onSubmit = { email, password ->
+                    coordinator.launch {
+                        coordinator.upgradeWithPassword(email, password)
+                        if (!coordinator.state.value.isAnonymous) {
+                            showUpgrade = false
+                        }
+                    }
+                },
+            )
+        }
     } else if (showMembers) {
         MembersFlow(
             coordinator = coordinator,

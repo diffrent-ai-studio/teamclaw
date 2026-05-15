@@ -36,6 +36,11 @@ class MainActivity : ComponentActivity() {
                         runCatching {
                             val token = app.coordinator.accessToken()
                             app.mqttService.connect(actorId, token)
+                            app.mqttService.bindTokenRefresh(
+                                scope = lifecycleScope,
+                                tokenRefreshes = app.coordinator.store.tokenRefreshes(),
+                                getAccessToken = { app.coordinator.accessToken() },
+                            )
                         }
                     },
                 )

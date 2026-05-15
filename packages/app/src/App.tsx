@@ -46,6 +46,7 @@ import {
   useCronInit,
   useOssSyncInit,
   useP2pAutoReconnect,
+  useOpenCodePreload,
 
   useExternalLinkHandler,
   useTauriBodyClass,
@@ -1668,8 +1669,11 @@ function App() {
 
   // Extracted hooks — initialization, setup guide, telemetry consent
   useTauriBodyClass();
-  const workspaceReady = !!useWorkspaceStore((s) => s.workspacePath);
-  const { showSetupGuide, dependencies, handleRecheck, handleSetupContinue } = useSetupGuide(workspaceReady);
+  useOpenCodePreload();
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath);
+  const openCodeReady = useWorkspaceStore((s) => s.openCodeReady);
+  const setupReady = !workspacePath || openCodeReady || !isTauri();
+  const { showSetupGuide, dependencies, handleRecheck, handleSetupContinue } = useSetupGuide(setupReady);
   const { showConsentDialog, setShowConsentDialog } = useTelemetryConsent(showSetupGuide);
 
   const spotlightContent = (

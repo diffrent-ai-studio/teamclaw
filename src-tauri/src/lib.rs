@@ -284,6 +284,7 @@ pub fn run() {
                 tauri::plugin::Builder::<tauri::Wry, ()>::new("tauri-mcp").build()
             }
         })
+        .manage(commands::opencode::OpenCodeState::default())
         .manage(commands::window::WindowRegistry::default())
         .manage(commands::filewatcher::FileWatcherState::default())
         .manage(commands::gateway::GatewayState::default())
@@ -338,6 +339,13 @@ pub fn run() {
             commands::knowledge::rag_save_config,
             commands::knowledge::rag_start_watcher,
             commands::knowledge::rag_stop_watcher,
+            commands::opencode::start_opencode,
+            commands::opencode::stop_opencode,
+            commands::opencode::clear_last_workspace,
+            commands::opencode::get_opencode_status,
+            commands::opencode::get_opencode_project_id,
+            commands::opencode::read_opencode_allowlist,
+            commands::opencode::write_opencode_allowlist,
             commands::window::create_workspace_window,
             commands::window::set_window_title,
             commands::mcp::get_mcp_config,
@@ -1074,6 +1082,11 @@ pub fn run() {
                 tauri::RunEvent::ExitRequested { .. } => {
                     if let Some(registry) = app.try_state::<std::sync::Arc<crate::terminal::Registry>>() {
                         registry.kill_all();
+                    }
+                    if let Some(oc_state) = app.try_state::<commands::opencode::OpenCodeState>() {
+                        tauri::async_runtime::block_on(async {
+                            let _ = commands::opencode::shutdown_opencode(&oc_state, None).await;
+                        });
                     }
                 }
                 _ => {}

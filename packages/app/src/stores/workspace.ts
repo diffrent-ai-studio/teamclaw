@@ -80,6 +80,14 @@ interface WorkspaceState {
   workspaceName: string | null;
   isLoadingWorkspace: boolean;
 
+  // OpenCode sidecar state. This runtime is restored for settings,
+  // automations, and gateway integrations; ChatPanel stays daemon-owned.
+  openCodeBootstrapped: boolean;
+  openCodeReady: boolean;
+  openCodeUrl: string | null;
+  setOpenCodeBootstrapped: (bootstrapped: boolean, url?: string) => void;
+  setOpenCodeReady: (ready: boolean, url?: string) => void;
+
   // Right panel state
   isPanelOpen: boolean;
   activeTab: RightPanelTab;
@@ -206,6 +214,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspacePath: null,
   workspaceName: null,
   isLoadingWorkspace: false,
+  openCodeBootstrapped: false,
+  openCodeReady: false,
+  openCodeUrl: null,
+  setOpenCodeBootstrapped: (bootstrapped: boolean, url?: string) =>
+    set(
+      bootstrapped
+        ? { openCodeBootstrapped: true, ...(url ? { openCodeUrl: url } : {}) }
+        : { openCodeBootstrapped: false, openCodeReady: false, openCodeUrl: null },
+    ),
+  setOpenCodeReady: (ready: boolean, url?: string) =>
+    set({
+      openCodeReady: ready,
+      ...(ready ? { openCodeBootstrapped: true } : {}),
+      ...(url ? { openCodeUrl: url } : {}),
+    }),
   isPanelOpen: false,
   activeTab: "shortcuts",
   fileTree: [],
@@ -297,6 +320,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     set({
       isLoadingWorkspace: true,
+      openCodeBootstrapped: false,
+      openCodeReady: false,
+      openCodeUrl: null,
       workspacePath: expandedPath,
       workspaceName: getFolderName(expandedPath),
       fileTree: [],
@@ -497,6 +523,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({
       workspacePath: null,
       workspaceName: null,
+      openCodeBootstrapped: false,
+      openCodeReady: false,
+      openCodeUrl: null,
       fileTree: [],
       expandedPaths: new Set<string>(),
       loadingPaths: new Set<string>(),

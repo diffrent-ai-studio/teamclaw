@@ -208,10 +208,12 @@ pub async fn set_config_locale(
 pub async fn start_gateway(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    let port: u16 = 0; // OpenCode removed; port unused
+    let (workspace_path, port) =
+        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
 
     println!("[Gateway] Reading config from: {}", workspace_path);
     let config = read_config(&workspace_path)?;
@@ -341,10 +343,12 @@ pub async fn save_feishu_config(
 pub async fn start_feishu_gateway(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    let port: u16 = 0; // OpenCode removed; port unused
+    let (workspace_path, port) =
+        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
 
     let config = read_config(&workspace_path)?;
     let feishu_config = config
@@ -493,10 +497,12 @@ pub async fn save_email_config(
 pub async fn start_email_gateway(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    let port: u16 = 0; // OpenCode removed; port unused
+    let (workspace_path, port) =
+        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
 
     let config = read_config(&workspace_path)?;
     let email_config = config
@@ -651,10 +657,12 @@ pub async fn save_kook_config(
 pub async fn start_kook_gateway(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    let port: u16 = 0; // OpenCode removed; port unused
+    let (workspace_path, port) =
+        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
 
     let config = read_config(&workspace_path)?;
     let kook_config = config
@@ -841,12 +849,11 @@ pub async fn save_wecom_config(
 #[tauri::command]
 pub async fn start_wecom_gateway(
     workspace_path: Option<String>,
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
-    let workspace_path = workspace_path
-        .filter(|p| !p.is_empty())
-        .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?;
-    let port: u16 = 0; // OpenCode removed; port unused
+    let (workspace_path, port) =
+        crate::commands::opencode::resolve_workspace(&opencode_state, workspace_path.as_deref())?;
 
     println!(
         "[Gateway] start_wecom_gateway called, workspace={}",
@@ -1107,10 +1114,12 @@ pub async fn save_wechat_config(
 pub async fn start_wechat_gateway(
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
     gateway_state: State<'_, GatewayState>,
 ) -> Result<(), String> {
     let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    let port: u16 = 0; // OpenCode removed; port unused
+    let (workspace_path, port) =
+        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
 
     println!(
         "[Gateway] start_wechat_gateway called, workspace={}",

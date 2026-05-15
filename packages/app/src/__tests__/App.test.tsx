@@ -72,6 +72,8 @@ vi.mock('@/lib/utils', () => ({
   isTauri: () => false,
 }))
 vi.mock('@/lib/build-config', () => ({
+  appShortName: 'teamclaw',
+  TEAM_REPO_DIR: 'teamclaw-team',
   buildConfig: {
     app: { name: 'TeamClaw' },
     features: { advancedMode: true },
@@ -81,6 +83,7 @@ vi.mock('@/components/FileEditor', () => ({ FileContentViewer: () => <div data-t
 vi.mock('@/hooks/useTrafficLightSpacer', () => ({ useNeedsTrafficLightSpacer: () => false }))
 vi.mock('@/hooks/useAppInit', () => ({
   useWorkspaceInit: () => ({ initialWorkspaceResolved: true }),
+  useOpenCodePreload: vi.fn(),
   useChannelGatewayInit: vi.fn(),
   useGitReposInit: vi.fn(),
   useCronInit: vi.fn(),

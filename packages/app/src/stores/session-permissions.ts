@@ -130,8 +130,8 @@ type SessionGet = () => SessionState;
 /**
  * Persist an "always allow" rule to the agent runtime DB so it survives restarts.
  *
- * NOTE: Tauri commands `get_opencode_project_id`, `read_opencode_allowlist`, and
- * `write_opencode_allowlist` referenced below no longer exist in src-tauri.
+ * Tauri commands `get_opencode_project_id`, `read_opencode_allowlist`, and
+ * `write_opencode_allowlist` are provided by the restored OpenCode sidecar module.
  * Calls fail silently inside try/catch — preserved as historical wiring until
  * the amuxd daemon installer ships its own allowlist persistence path.
  */

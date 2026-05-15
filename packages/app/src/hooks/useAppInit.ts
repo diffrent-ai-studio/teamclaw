@@ -25,6 +25,12 @@ import { useTeamOssStore } from "@/stores/team-oss";
 import { useTeamMembersStore } from "@/stores/team-members";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { useCronStore } from "@/stores/cron";
+import { initOpenCodeClient } from "@/lib/opencode/sdk-client";
+import {
+  startOpenCode,
+  hasPreloadFor,
+  waitForOpenCodeBootstrapped,
+} from "@/lib/opencode/preloader";
 import { getSkillDirectories, loadAllSkills } from "@/lib/git/skill-loader";
 import { appShortName, TEAMCLAW_DIR, TEAM_REPO_DIR } from "@/lib/build-config";
 
@@ -54,6 +60,9 @@ const windowParams = readWindowParams();
 export function useWorkspaceInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
   const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
+  const setOpenCodeBootstrapped = useWorkspaceStore((s) => s.setOpenCodeBootstrapped);
+  const setOpenCodeReady = useWorkspaceStore((s) => s.setOpenCodeReady);
+  const [openCodeError, setOpenCodeError] = useState<string | null>(null);
   const [initialWorkspaceResolved, setInitialWorkspaceResolved] = useState(false);
 
   // Auto-restore last workspace on launch (runs once on mount).
@@ -110,6 +119,69 @@ export function useWorkspaceInit() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Start OpenCode when a workspace is selected. The restored runtime is used
+  // by settings, automations, and external gateways; chat dispatch remains
+  // owned by the amux daemon path.
+  useEffect(() => {
+    if (!workspacePath) return;
+
+    setOpenCodeError(null);
+
+    if (!isTauri()) {
+      const url = "http://127.0.0.1:4096";
+      initOpenCodeClient({ baseUrl: url, workspacePath });
+      setOpenCodeBootstrapped(true, url);
+      setOpenCodeReady(true, url);
+      return;
+    }
+
+    const alreadyPreloading = hasPreloadFor(workspacePath);
+    if (!alreadyPreloading) {
+      setOpenCodeBootstrapped(false);
+    }
+
+    let cancelled = false;
+    const explicitPort =
+      windowParams && windowParams.workspace === workspacePath ? windowParams.port : undefined;
+
+    waitForOpenCodeBootstrapped(workspacePath, explicitPort)
+      .then((status) => {
+        if (cancelled) return;
+        initOpenCodeClient({ baseUrl: status.url, workspacePath });
+        setOpenCodeError(null);
+        setOpenCodeBootstrapped(true, status.url);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn("[OpenCode] Failed waiting for bootstrap event:", error);
+      });
+
+    startOpenCode(workspacePath, explicitPort)
+      .then((status) => {
+        if (cancelled) return;
+        initOpenCodeClient({ baseUrl: status.url, workspacePath });
+        setOpenCodeError(null);
+        setOpenCodeBootstrapped(true, status.url);
+        setOpenCodeReady(true, status.url);
+        performance.mark('opencode-ready');
+        if (performance.getEntriesByName('react-mount').length) {
+          performance.measure('startup-total', 'react-mount', 'opencode-ready');
+          const total = performance.getEntriesByName('startup-total')[0];
+          console.log(`[Startup] react→ready: ${Math.round(total.duration)}ms`);
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("[OpenCode] Failed to start server:", error);
+        setOpenCodeBootstrapped(false);
+        setOpenCodeError(String(error));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspacePath, setOpenCodeBootstrapped, setOpenCodeReady]);
 
   useEffect(() => {
     if (!workspacePath || !isTauri()) return;
@@ -243,7 +315,19 @@ export function useWorkspaceInit() {
     };
   }, [workspacePath]);
 
-  return { initialWorkspaceResolved };
+  return { initialWorkspaceResolved, openCodeError, setOpenCodeError };
+}
+
+export function useOpenCodePreload() {
+  useEffect(() => {
+    if (!isTauri()) return;
+    const savedPath = localStorage.getItem(`${appShortName}-workspace-path`);
+    if (savedPath) {
+      startOpenCode(savedPath).catch((err) =>
+        console.warn("[Preload] OpenCode pre-start failed (will retry later):", err),
+      );
+    }
+  }, []);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -252,7 +336,7 @@ export function useWorkspaceInit() {
 
 export function useChannelGatewayInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-  const workspaceReady = !!workspacePath;
+  const workspaceReady = useWorkspaceStore((s) => s.openCodeReady);
   const {
     autoStartEnabledGateways,
     loadConfig: loadChannelsConfig,
@@ -588,7 +672,7 @@ export function useP2pAutoReconnect() {
 
 export function useCronInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-  const workspaceReady = !!workspacePath;
+  const workspaceReady = useWorkspaceStore((s) => s.openCodeReady);
 
   useEffect(() => {
     if (!isTauri() || !workspacePath || !workspaceReady) return;

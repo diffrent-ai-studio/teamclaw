@@ -1,9 +1,16 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import {
+  Brain,
   Settings2,
+  MessageSquareText,
   MessageSquare,
+  Plug,
+  Sparkles,
+  UserRound,
   Users,
+  Package,
+  Clock,
   KeyRound,
   Coins,
   Shield,
@@ -42,6 +49,7 @@ const primarySections: Section[] = [
   { id: 'general', label: 'General', labelKey: 'settings.nav.general', icon: Settings2 },
   { id: 'shortcuts', label: 'Shortcuts', labelKey: 'settings.nav.shortcuts', icon: Bookmark },
   { id: 'channels', label: 'Channels', labelKey: 'settings.nav.channels', icon: MessageSquare },
+  { id: 'automation', label: 'Automation', labelKey: 'settings.nav.automation', icon: Clock },
   { id: 'team', label: 'Team', labelKey: 'settings.nav.team', icon: Users },
   { id: 'tokenUsage', label: 'Token Usage', labelKey: 'settings.nav.tokenUsage', icon: Coins },
 ]
@@ -49,8 +57,16 @@ const primarySections: Section[] = [
 // Advanced sections shown as tabs inside the Advanced view
 const advancedSections: Section[] = [
   { id: 'voice', label: 'Voice', labelKey: 'settings.nav.voice', icon: Mic },
+  { id: 'llm', label: 'LLM Model', labelKey: 'settings.nav.llm', icon: Brain },
+  { id: 'prompt', label: 'Prompt', labelKey: 'settings.nav.prompt', icon: MessageSquareText },
+  { id: 'permissions', label: 'Permissions', labelKey: 'settings.nav.permissions', icon: Shield },
+  { id: 'mcp', label: 'MCP', labelKey: 'settings.nav.mcp', icon: Plug },
   { id: 'envVars', label: 'Env Variables', labelKey: 'settings.nav.envVars', icon: KeyRound },
+  { id: 'roles', label: 'Roles', labelKey: 'settings.nav.roles', icon: UserRound },
+  { id: 'rolesSkills', label: 'Role Skills', labelKey: 'settings.nav.rolesSkills', icon: Sparkles },
+  { id: 'skills', label: 'Skills', labelKey: 'settings.nav.skills', icon: Sparkles },
   { id: 'knowledge', label: 'Knowledge Base', labelKey: 'settings.nav.knowledge', icon: BookOpen },
+  { id: 'deps', label: 'Dependencies', labelKey: 'settings.nav.deps', icon: Package },
   { id: 'privacy', label: 'Privacy & Telemetry', labelKey: 'settings.nav.privacy', icon: Shield },
   { id: 'cache', label: 'Local Cache', labelKey: 'settings.nav.cache', icon: Database },
 ]

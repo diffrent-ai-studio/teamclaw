@@ -90,6 +90,7 @@ pub async fn cron_init(
     app: AppHandle,
     window: tauri::WebviewWindow,
     registry: State<'_, crate::commands::window::WindowRegistry>,
+    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
     cron_state: State<'_, CronState>,
     gateway_state: State<'_, crate::commands::gateway::GatewayState>,
     workspace_path: Option<String>,
@@ -100,7 +101,8 @@ pub async fn cron_init(
         Some(p) => p,
         None => crate::commands::window::current_workspace_for_window(&window, &registry)?,
     };
-    let port: u16 = 0; // OpenCode removed; port unused
+    let (workspace_path, port) =
+        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
 
     // Get-or-create per-workspace instance, then stop its old scheduler
     // (if any) before reloading. This is workspace-local — peer workspaces

@@ -29,7 +29,7 @@ export type SidebarFilter =
   | { kind: 'actor'; actorId: string; displayName: string; actorType: 'member' | 'agent' }
   | { kind: 'idea'; ideaId: string; title: string }
 
-export type SettingsSection = 'general' | 'voice' | 'channels' | 'team' | 'envVars' | 'knowledge' | 'tokenUsage' | 'privacy' | 'leaderboard' | 'shortcuts' | 'cache'
+export type SettingsSection = 'llm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'team' | 'envVars' | 'skills' | 'roles' | 'rolesSkills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts' | 'cache'
 
 interface UIState {
   currentView: View

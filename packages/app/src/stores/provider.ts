@@ -4,6 +4,7 @@ import { appShortName } from '@/lib/build-config'
 import { invoke } from '@tauri-apps/api/core'
 import { workspaceScopedKey } from '@/lib/storage'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { getOpenCodeClient } from '@/lib/opencode/sdk-client'
 import { allAmuxdModels, AMUXD_AGENT_TYPES, availableModelsFor } from '@/lib/amuxd-models'
 import {
   type CustomProviderConfig,
@@ -29,12 +30,12 @@ function readSavedSelectedModel(): string | null {
   return localStorage.getItem(SELECTED_MODEL_BASE)
 }
 
-// Safe helper: agent client is not wired to the amuxd daemon yet; all
-// callers gracefully no-op when this returns null. Type is `any` so the
-// `if (!client) return` early-exits typecheck without narrowing the body.
-// TODO(amuxd): wire to daemon
 function tryGetClient(): any {
-  return null
+  try {
+    return getOpenCodeClient()
+  } catch {
+    return null
+  }
 }
 
 export interface ProviderAuthMethod {
@@ -487,24 +488,14 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     }
   },
 
-  // Select a model and sync to the agent runtime backend
+  // Select a model for the chat UI. Runtime config writes are owned by the
+  // OpenCode settings page or, for chat, the amux daemon integration.
   selectModel: async (providerId: string, modelId: string, _modelName: string) => {
     const modelKey = `${providerId}/${modelId}`
     set({ currentModelKey: modelKey })
 
     // Cache in workspace-scoped localStorage as fallback
     localStorage.setItem(selectedModelStorageKey(), modelKey)
-
-    const client = tryGetClient()
-    if (!client) return
-    try {
-      await client.updateConfig({ model: modelKey })
-    } catch (err) {
-      console.error('Failed to update model config:', err)
-      toast.error('Failed to update model', {
-        description: err instanceof Error ? err.message : 'Unknown error',
-      })
-    }
   },
 
   // Initialize all data at once

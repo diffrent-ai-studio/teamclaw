@@ -18,6 +18,7 @@ pub mod oss_commands;
 pub mod oss_sync;
 pub mod oss_types;
 pub mod p2p_state;
+pub mod opencode;
 pub mod rag_http_server;
 pub mod shared_secrets;
 pub mod shared_secrets_crypto;

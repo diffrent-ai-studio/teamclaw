@@ -1,0 +1,49 @@
+name: Android CI
+
+on:
+  pull_request:
+    paths:
+      - 'apps/android/**'
+      - '.github/workflows/android.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/android/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-home-cache-cleanup: true
+
+      - name: Assemble debug
+        working-directory: apps/android
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Unit tests
+        working-directory: apps/android
+        run: ./gradlew test --stacktrace
+
+      - name: Android Lint
+        working-directory: apps/android
+        run: ./gradlew lint --stacktrace
+
+      - name: Upload reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: |
+            apps/android/**/build/reports
+            apps/android/**/build/test-results

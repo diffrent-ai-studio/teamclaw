@@ -16,7 +16,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "teamclaw-android"
 
-// Subprojects will be populated in subsequent tasks.
-// include(":app")
-// include(":core:design", ":core:model", ":core:deeplink", ":core:network", ":core:auth")
-// include(":feature:onboarding")
+include(":core:design", ":core:model", ":core:deeplink", ":core:network", ":core:auth")
+include(":feature:onboarding")
+include(":app")

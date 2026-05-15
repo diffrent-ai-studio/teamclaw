@@ -14,15 +14,18 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import tech.teamclaw.android.core.auth.OnboardingCoordinator
 import tech.teamclaw.android.core.auth.OnboardingRoute
+import tech.teamclaw.android.core.auth.SessionDetailStore
 import tech.teamclaw.android.core.auth.SessionListStore
 import tech.teamclaw.android.core.auth.apple.AppleSignInHandler
 import tech.teamclaw.android.core.auth.google.GoogleSignInHandler
+import tech.teamclaw.android.core.model.SessionRecord
 import tech.teamclaw.android.feature.onboarding.ChooseAuthScreen
 import tech.teamclaw.android.feature.onboarding.CreateTeamScreen
 import tech.teamclaw.android.feature.onboarding.InviteJoinSheet
 import tech.teamclaw.android.feature.onboarding.LobsterSplashScreen
 import tech.teamclaw.android.feature.onboarding.LoginScreen
 import tech.teamclaw.android.feature.onboarding.OnboardingErrorScreen
+import tech.teamclaw.android.feature.onboarding.SessionDetailScreen
 import tech.teamclaw.android.feature.onboarding.SessionListScreen
 import tech.teamclaw.android.feature.onboarding.WelcomeScreen
 
@@ -32,6 +35,7 @@ fun TeamclawNavHost(
     appleHandler: AppleSignInHandler,
     googleHandler: GoogleSignInHandler,
     sessionListStoreFactory: (teamId: String) -> SessionListStore,
+    sessionDetailStoreFactory: (teamId: String, sessionId: String, currentActorId: String) -> SessionDetailStore,
 ) {
     val state by coordinator.state.collectAsStateWithLifecycle()
     val activity = LocalContext.current as ComponentActivity
@@ -60,23 +64,64 @@ fun TeamclawNavHost(
         )
         OnboardingRoute.Ready -> {
             val team = state.currentContext?.team
-            if (team == null) {
+            val actorId = state.currentContext?.memberActorId
+            if (team == null || actorId == null) {
                 LobsterSplashScreen()
             } else {
-                val store = remember(team.id) { sessionListStoreFactory(team.id) }
-                val sessionState by store.state.collectAsStateWithLifecycle()
-                LaunchedEffect(team.id) { store.reload() }
-                SessionListScreen(
+                ReadyFlow(
+                    coordinator = coordinator,
+                    teamId = team.id,
                     teamName = team.name,
-                    sessions = sessionState.sessions,
-                    isLoading = sessionState.isLoading,
-                    errorMessage = sessionState.errorMessage,
-                    onRefresh = { coordinator.launch { store.reload() } },
-                    onSessionClick = { /* P3 will open chat detail */ },
-                    onSignOut = { coordinator.launch { coordinator.signOut() } },
+                    currentActorId = actorId,
+                    sessionListStoreFactory = sessionListStoreFactory,
+                    sessionDetailStoreFactory = sessionDetailStoreFactory,
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ReadyFlow(
+    coordinator: OnboardingCoordinator,
+    teamId: String,
+    teamName: String,
+    currentActorId: String,
+    sessionListStoreFactory: (teamId: String) -> SessionListStore,
+    sessionDetailStoreFactory: (teamId: String, sessionId: String, currentActorId: String) -> SessionDetailStore,
+) {
+    var openSession by remember { mutableStateOf<SessionRecord?>(null) }
+    val listStore = remember(teamId) { sessionListStoreFactory(teamId) }
+    val listState by listStore.state.collectAsStateWithLifecycle()
+    LaunchedEffect(teamId) { listStore.reload() }
+
+    val active = openSession
+    if (active == null) {
+        SessionListScreen(
+            teamName = teamName,
+            sessions = listState.sessions,
+            isLoading = listState.isLoading,
+            errorMessage = listState.errorMessage,
+            onRefresh = { coordinator.launch { listStore.reload() } },
+            onSessionClick = { openSession = it },
+            onSignOut = { coordinator.launch { coordinator.signOut() } },
+        )
+    } else {
+        val detailStore = remember(active.id) {
+            sessionDetailStoreFactory(teamId, active.id, currentActorId)
+        }
+        val detailState by detailStore.state.collectAsStateWithLifecycle()
+        LaunchedEffect(active.id) { detailStore.reload() }
+        SessionDetailScreen(
+            title = active.title.ifBlank { "Session" },
+            currentActorId = currentActorId,
+            messages = detailState.messages,
+            isLoading = detailState.isLoading,
+            isSending = detailState.isSending,
+            errorMessage = detailState.errorMessage,
+            onSend = { text -> coordinator.launch { detailStore.send(text) } },
+            onBack = { openSession = null },
+        )
     }
 }
 

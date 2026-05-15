@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
                     appleHandler = app.appleHandler,
                     googleHandler = app.googleHandler,
                     sessionListStoreFactory = app.sessionListStoreFactory,
+                    sessionDetailStoreFactory = app.sessionDetailStoreFactory,
                 )
             }
         }

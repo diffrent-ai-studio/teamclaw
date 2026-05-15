@@ -1,0 +1,196 @@
+package tech.teamclaw.android.feature.onboarding
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import tech.teamclaw.android.core.design.Hai
+import tech.teamclaw.android.core.design.TeamclawTheme
+import tech.teamclaw.android.core.model.MessageRecord
+
+@Composable
+fun SessionDetailScreen(
+    title: String,
+    currentActorId: String,
+    messages: List<MessageRecord>,
+    isLoading: Boolean,
+    isSending: Boolean,
+    errorMessage: String?,
+    onSend: (text: String) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var draft by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
+    Column(
+        modifier = modifier.fillMaxSize().background(Hai.Mist).imePadding(),
+    ) {
+        SessionDetailTopBar(title = title, onBack = onBack)
+
+        if (!errorMessage.isNullOrEmpty()) {
+            Box(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(10.dp)).background(Hai.Cinnabar.copy(alpha = 0.10f))
+                    .padding(12.dp),
+            ) {
+                Text(errorMessage, style = MaterialTheme.typography.bodySmall, color = Hai.Onyx)
+            }
+        }
+
+        if (isLoading && messages.isEmpty()) {
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Hai.Cinnabar)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f).testTag("sessionDetail.messages"),
+                state = listState,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    horizontal = 16.dp, vertical = 12.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(items = messages, key = { it.id }) { msg ->
+                    MessageBubble(message = msg, isMine = msg.senderActorId == currentActorId)
+                }
+            }
+        }
+
+        ComposerRow(
+            value = draft,
+            isSending = isSending,
+            onChange = { draft = it },
+            onSend = {
+                onSend(draft)
+                draft = ""
+            },
+        )
+    }
+}
+
+@Composable
+private fun SessionDetailTopBar(title: String, onBack: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(onClick = onBack, modifier = Modifier.testTag("sessionDetail.backButton")) {
+            Text("Back", color = Hai.Cinnabar)
+        }
+        Text(
+            text = title.ifBlank { "Session" },
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleLarge,
+            color = Hai.Onyx,
+        )
+        Spacer(Modifier.size(72.dp))
+    }
+}
+
+@Composable
+private fun MessageBubble(message: MessageRecord, isMine: Boolean) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        if (isMine) Spacer(Modifier.weight(1f))
+        Column(
+            modifier = Modifier.widthIn(max = 320.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (isMine) Hai.Cinnabar else Hai.Paper)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = message.content,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (isMine) androidx.compose.ui.graphics.Color.White else Hai.Onyx,
+            )
+        }
+        if (!isMine) Spacer(Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun ComposerRow(
+    value: String,
+    isSending: Boolean,
+    onChange: (String) -> Unit,
+    onSend: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onChange,
+            modifier = Modifier.weight(1f).testTag("sessionDetail.composerField"),
+            placeholder = { Text("Message…") },
+            shape = RoundedCornerShape(20.dp),
+            maxLines = 4,
+        )
+        Button(
+            onClick = onSend,
+            enabled = !isSending && value.isNotBlank(),
+            shape = RoundedCornerShape(20.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Hai.Cinnabar),
+            modifier = Modifier.testTag("sessionDetail.sendButton"),
+        ) {
+            Text(if (isSending) "…" else "Send")
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun SessionDetailPreview() {
+    TeamclawTheme {
+        SessionDetailScreen(
+            title = "Plan migration",
+            currentActorId = "me",
+            messages = listOf(
+                MessageRecord("1", "s", "me", "text", "Hey", 0L, null, null),
+                MessageRecord("2", "s", "agent-1", "text", "Hi! How can I help?", 0L, null, null),
+            ),
+            isLoading = false, isSending = false, errorMessage = null,
+            onSend = {}, onBack = {},
+        )
+    }
+}

@@ -49,6 +49,7 @@ fun SessionDetailScreen(
     errorMessage: String?,
     onSend: (text: String) -> Unit,
     onBack: () -> Unit,
+    onStartVoiceInput: ((onResult: (String) -> Unit) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var draft by remember { mutableStateOf("") }
@@ -102,6 +103,13 @@ fun SessionDetailScreen(
                 onSend(draft)
                 draft = ""
             },
+            onMic = onStartVoiceInput?.let { start ->
+                {
+                    start { transcript ->
+                        draft = (if (draft.isBlank()) transcript else "$draft $transcript").trim()
+                    }
+                }
+            },
         )
     }
 }
@@ -152,6 +160,7 @@ private fun ComposerRow(
     isSending: Boolean,
     onChange: (String) -> Unit,
     onSend: () -> Unit,
+    onMic: (() -> Unit)?,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -166,6 +175,14 @@ private fun ComposerRow(
             shape = RoundedCornerShape(20.dp),
             maxLines = 4,
         )
+        if (onMic != null) {
+            TextButton(
+                onClick = onMic,
+                modifier = Modifier.testTag("sessionDetail.micButton"),
+            ) {
+                Text("🎙", style = MaterialTheme.typography.titleLarge, color = Hai.Basalt)
+            }
+        }
         Button(
             onClick = onSend,
             enabled = !isSending && value.isNotBlank(),

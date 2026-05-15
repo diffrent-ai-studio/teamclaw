@@ -45,6 +45,7 @@ fun TeamclawNavHost(
     actorStoreFactory: (teamId: String) -> ActorStore,
     versionName: String,
     versionCode: Int,
+    onStartVoiceInput: ((onResult: (String) -> Unit) -> Unit)? = null,
 ) {
     val state by coordinator.state.collectAsStateWithLifecycle()
     val activity = LocalContext.current as ComponentActivity
@@ -87,6 +88,7 @@ fun TeamclawNavHost(
                     actorStoreFactory = actorStoreFactory,
                     versionName = versionName,
                     versionCode = versionCode,
+                    onStartVoiceInput = onStartVoiceInput,
                 )
             }
         }
@@ -104,6 +106,7 @@ private fun ReadyFlow(
     actorStoreFactory: (teamId: String) -> ActorStore,
     versionName: String,
     versionCode: Int,
+    onStartVoiceInput: ((onResult: (String) -> Unit) -> Unit)? = null,
 ) {
     val teamId = team.id
     val teamName = team.name
@@ -167,6 +170,7 @@ private fun ReadyFlow(
             errorMessage = detailState.errorMessage,
             onSend = { text -> coordinator.launch { detailStore.send(text) } },
             onBack = { openSession = null },
+            onStartVoiceInput = onStartVoiceInput,
         )
     }
 }

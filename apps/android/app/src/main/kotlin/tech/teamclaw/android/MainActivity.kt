@@ -9,13 +9,16 @@ import kotlinx.coroutines.launch
 import tech.teamclaw.android.core.deeplink.DeepLink
 import tech.teamclaw.android.core.design.TeamclawTheme
 import tech.teamclaw.android.nav.TeamclawNavHost
+import tech.teamclaw.android.voice.VoiceInput
 
 class MainActivity : ComponentActivity() {
 
     private val app get() = application as TeamclawApplication
+    private lateinit var voiceInput: VoiceInput
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        voiceInput = VoiceInput(this)
         intent?.let { handleIntent(it) }
         setContent {
             TeamclawTheme {
@@ -28,6 +31,7 @@ class MainActivity : ComponentActivity() {
                     actorStoreFactory = app.actorStoreFactory,
                     versionName = BuildConfig.VERSION_NAME,
                     versionCode = BuildConfig.VERSION_CODE,
+                    onStartVoiceInput = voiceInput::listen,
                 )
             }
         }

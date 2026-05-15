@@ -15,6 +15,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -48,6 +51,8 @@ fun InviteMemberSheet(
 ) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var displayName by remember { mutableStateOf("") }
+    var agentKind by remember { mutableStateOf("") }
+    var kind by remember { mutableStateOf(InviteKind.MEMBER) }
     val clipboard: ClipboardManager = LocalClipboardManager.current
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state) {
@@ -55,16 +60,42 @@ fun InviteMemberSheet(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Invite a teammate", style = MaterialTheme.typography.titleLarge)
+            Text(
+                if (kind == InviteKind.MEMBER) "Invite a teammate" else "Invite an agent",
+                style = MaterialTheme.typography.titleLarge,
+            )
 
             if (lastInvite == null) {
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = kind == InviteKind.MEMBER,
+                        onClick = { kind = InviteKind.MEMBER },
+                        shape = SegmentedButtonDefaults.itemShape(0, 2),
+                    ) { Text("Member") }
+                    SegmentedButton(
+                        selected = kind == InviteKind.AGENT,
+                        onClick = { kind = InviteKind.AGENT },
+                        shape = SegmentedButtonDefaults.itemShape(1, 2),
+                    ) { Text("Agent") }
+                }
+
                 OutlinedTextField(
                     value = displayName, onValueChange = { displayName = it },
-                    label = { Text("Display name") },
+                    label = { Text(if (kind == InviteKind.MEMBER) "Display name" else "Agent name") },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     singleLine = true,
                 )
+
+                if (kind == InviteKind.AGENT) {
+                    OutlinedTextField(
+                        value = agentKind, onValueChange = { agentKind = it },
+                        label = { Text("Agent kind (e.g. codex, claude)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true,
+                    )
+                }
 
                 if (!errorMessage.isNullOrEmpty()) {
                     Box(
@@ -75,17 +106,21 @@ fun InviteMemberSheet(
                     }
                 }
 
+                val canSubmit = !isInviting && displayName.isNotBlank() &&
+                    (kind == InviteKind.MEMBER || agentKind.isNotBlank())
+
                 Button(
                     onClick = {
                         onSubmit(
                             InviteCreateInput(
-                                kind = InviteKind.MEMBER,
+                                kind = kind,
                                 displayName = displayName,
-                                teamRole = TeamRole.MEMBER,
+                                teamRole = if (kind == InviteKind.MEMBER) TeamRole.MEMBER else null,
+                                agentKind = if (kind == InviteKind.AGENT) agentKind.trim() else null,
                             )
                         )
                     },
-                    enabled = !isInviting && displayName.isNotBlank(),
+                    enabled = canSubmit,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Hai.Cinnabar),

@@ -32,6 +32,12 @@ class MainActivity : ComponentActivity() {
                     versionName = BuildConfig.VERSION_NAME,
                     versionCode = BuildConfig.VERSION_CODE,
                     onStartVoiceInput = voiceInput::listen,
+                    onSessionReady = { actorId ->
+                        runCatching {
+                            val token = app.coordinator.accessToken()
+                            app.mqttService.connect(actorId, token)
+                        }
+                    },
                 )
             }
         }

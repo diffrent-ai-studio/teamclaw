@@ -48,6 +48,17 @@ android {
         compose = true
         buildConfig = true
     }
+    packaging {
+        resources {
+            // HiveMQ pulls in Netty, which ships META-INF service descriptors
+            // and INDEX.LIST files that collide between netty-* artifacts.
+            excludes += "META-INF/INDEX.LIST"
+            excludes += "META-INF/io.netty.versions.properties"
+            excludes += "META-INF/native-image/**"
+            pickFirsts += "META-INF/AL2.0"
+            pickFirsts += "META-INF/LGPL2.1"
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

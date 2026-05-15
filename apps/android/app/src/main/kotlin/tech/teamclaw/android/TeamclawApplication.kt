@@ -4,6 +4,7 @@ import android.app.Application
 import io.github.jan.supabase.SupabaseClient
 import io.sentry.android.core.SentryAndroid
 import tech.teamclaw.android.core.auth.ActorStore
+import tech.teamclaw.android.core.auth.MqttService
 import tech.teamclaw.android.core.auth.OnboardingCoordinator
 import tech.teamclaw.android.core.auth.SessionDetailStore
 import tech.teamclaw.android.core.auth.SessionListStore
@@ -39,6 +40,8 @@ class TeamclawApplication : Application() {
         private set
     lateinit var actorStoreFactory: (teamId: String) -> ActorStore
         private set
+    lateinit var mqttService: MqttService
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -67,9 +70,17 @@ class TeamclawApplication : Application() {
         deepLinkParser = DeepLinkParser()
         val sessionsRepo = SupabaseSessionsRepository(supabaseClient)
         val messagesRepo = SupabaseMessagesRepository(supabaseClient)
+        mqttService = MqttService(host = "ai.ucar.cc", port = 8883, useTls = true)
         sessionListStoreFactory = { teamId -> SessionListStore(teamId, sessionsRepo) }
         sessionDetailStoreFactory = { teamId, sessionId, actorId ->
-            SessionDetailStore(teamId, sessionId, actorId, messagesRepo)
+            val topic = "amux/${teamId.ifEmpty { "teamclaw" }}/session/$sessionId/live"
+            SessionDetailStore(
+                teamId = teamId,
+                sessionId = sessionId,
+                currentActorId = actorId,
+                repository = messagesRepo,
+                realtimeSignal = mqttService.subscribeAsSignal(topic),
+            )
         }
         val actorRepo = SupabaseActorRepository(supabaseClient)
         actorStoreFactory = { teamId -> ActorStore(teamId, actorRepo) }

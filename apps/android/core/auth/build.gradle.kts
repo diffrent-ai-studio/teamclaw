@@ -23,6 +23,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.datetime)
+    implementation(libs.hivemq.mqtt.client)
     implementation(libs.appauth)
     implementation(libs.credentials)
     implementation(libs.credentials.play.services.auth)

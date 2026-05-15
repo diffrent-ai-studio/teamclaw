@@ -9,9 +9,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.launch
 import tech.teamclaw.android.core.auth.ActorStore
 import tech.teamclaw.android.core.auth.OnboardingCoordinator
 import tech.teamclaw.android.core.auth.OnboardingRoute
@@ -46,11 +49,21 @@ fun TeamclawNavHost(
     versionName: String,
     versionCode: Int,
     onStartVoiceInput: ((onResult: (String) -> Unit) -> Unit)? = null,
+    onSessionReady: (suspend (userId: String) -> Unit)? = null,
 ) {
     val state by coordinator.state.collectAsStateWithLifecycle()
     val activity = LocalContext.current as ComponentActivity
 
     LaunchedEffect(Unit) { coordinator.bootstrap() }
+
+    // Trigger MQTT connect (or any other "logged-in side-effect") once we
+    // land on Ready with a known actor. Re-fires on actor change.
+    LaunchedEffect(state.currentContext?.memberActorId) {
+        val actorId = state.currentContext?.memberActorId
+        if (actorId != null && state.route == OnboardingRoute.Ready) {
+            onSessionReady?.invoke(actorId)
+        }
+    }
 
     when (state.route) {
         OnboardingRoute.Loading -> LobsterSplashScreen()
@@ -160,7 +173,11 @@ private fun ReadyFlow(
             sessionDetailStoreFactory(teamId, active.id, currentActorId)
         }
         val detailState by detailStore.state.collectAsStateWithLifecycle()
-        LaunchedEffect(active.id) { detailStore.reload() }
+        val scope = rememberCoroutineScope()
+        LaunchedEffect(active.id) {
+            detailStore.reload()
+            detailStore.startRealtime(scope)
+        }
         SessionDetailScreen(
             title = active.title.ifBlank { "Session" },
             currentActorId = currentActorId,

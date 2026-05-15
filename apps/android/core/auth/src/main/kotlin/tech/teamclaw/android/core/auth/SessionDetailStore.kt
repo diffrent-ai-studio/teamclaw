@@ -1,20 +1,26 @@
 package tech.teamclaw.android.core.auth
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import tech.teamclaw.android.core.model.MessageRecord
 
 /**
- * Per-session message timeline. PostgREST-seeded; no MQTT yet (P3+).
- * Single source of truth for the session detail screen.
+ * Per-session message timeline. PostgREST-seeded; optionally re-fetches on
+ * each MQTT signal so agent replies appear without a manual refresh.
  */
 class SessionDetailStore(
     private val teamId: String,
     private val sessionId: String,
     private val currentActorId: String,
     private val repository: MessagesRepository,
+    /** Optional realtime signal — typically [MqttService.subscribeAsSignal]. */
+    private val realtimeSignal: Flow<Unit>? = null,
 ) {
     data class UiState(
         val messages: List<MessageRecord> = emptyList(),
@@ -25,6 +31,19 @@ class SessionDetailStore(
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
+
+    /**
+     * Start collecting realtime signals. The caller scopes the collection to
+     * the screen lifecycle — when [scope] is cancelled, the subscription
+     * dies. Idempotent; calling twice from the same scope returns the
+     * same job.
+     */
+    fun startRealtime(scope: CoroutineScope): Job? {
+        val signal = realtimeSignal ?: return null
+        return scope.launch {
+            signal.collect { reload() }
+        }
+    }
 
     suspend fun reload() {
         if (_state.value.isLoading) return

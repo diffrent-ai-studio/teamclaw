@@ -337,6 +337,7 @@ dependencies = [
  "serde",
  "serde_json",
  "teamclaw-proto",
+ "teamclaw-transport",
  "teamclaw-types",
  "tempfile",
  "thiserror 2.0.18",
@@ -12886,6 +12887,10 @@ dependencies = [
  "uuid",
  "zstd",
 ]
+
+[[package]]
+name = "teamclaw-transport"
+version = "0.1.0"
 
 [[package]]
 name = "teamclaw-types"

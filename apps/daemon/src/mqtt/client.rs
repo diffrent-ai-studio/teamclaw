@@ -1,6 +1,7 @@
 use rumqttc::{AsyncClient, EventLoop, MqttOptions, QoS, TlsConfiguration, Transport};
 use std::sync::Arc;
 use std::time::Duration;
+use teamclaw_transport::MqttBroker;
 use tracing::info;
 
 use crate::config::DaemonConfig;
@@ -69,29 +70,13 @@ impl MqttClient {
             &config.device.id[..8.min(config.device.id.len())]
         );
 
-        // Parse host, port, TLS from broker_url
-        let use_tls = config.mqtt.broker_url.starts_with("mqtts://");
-        let host_port = config
-            .mqtt
-            .broker_url
-            .trim_start_matches("mqtts://")
-            .trim_start_matches("mqtt://");
-        let (host, port) = if let Some((h, p)) = host_port.split_once(':') {
-            (
-                h.to_string(),
-                p.parse::<u16>()
-                    .unwrap_or(if use_tls { 8883 } else { 1883 }),
-            )
-        } else {
-            (host_port.to_string(), if use_tls { 8883 } else { 1883 })
-        };
-
-        let mut opts = MqttOptions::new(&client_id, &host, port);
+        let broker = MqttBroker::parse(&config.mqtt.broker_url);
+        let mut opts = MqttOptions::new(&client_id, &broker.host, broker.port);
         opts.set_credentials(actor_id, token);
         opts.set_keep_alive(Duration::from_secs(30));
         opts.set_clean_session(true);
 
-        if use_tls {
+        if broker.use_tls {
             let mut tls_config = rustls::ClientConfig::builder()
                 .dangerous()
                 .with_custom_certificate_verifier(Arc::new(client_danger::NoCertVerifier))

@@ -3,7 +3,7 @@ resolver = "2"
 members = [
   "src-tauri",
   "src-tauri/crates/*",
-  "crates/teamclaw-seed",
+  "crates/*",
   "apps/daemon",
 ]
 

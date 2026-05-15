@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { LoginScreen } from "./LoginScreen";
+import { LobsterLoader } from "./LobsterLoader";
 
 interface AuthGateProps {
   children: React.ReactNode;
@@ -19,8 +20,9 @@ export function AuthGate({ children }: AuthGateProps) {
 
   if (loading && !session) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        Loading...
+      <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-background">
+        <LobsterLoader size={120} />
+        <p className="text-[13px] text-muted-foreground">Loading…</p>
       </div>
     );
   }

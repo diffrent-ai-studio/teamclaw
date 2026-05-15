@@ -1,65 +1,127 @@
 import { useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
+import { buildConfig } from "@/lib/build-config";
+import { useAppVersion } from "@/lib/version";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export function LoginScreen() {
-  const [mode, setMode] = useState<"signIn" | "signUp">("signIn");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const { signIn, signUp, loading, errorMessage } = useAuthStore();
+  const [code, setCode] = useState("");
+  const { sendOtp, verifyOtp, resetOtp, otpEmail, loading, errorMessage } = useAuthStore();
+  const appVersion = useAppVersion();
 
-  const onSubmit = async (e: React.FormEvent) => {
+  const onSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (mode === "signIn") {
-      await signIn(email, password);
-    } else {
-      await signUp(email, password);
-    }
+    await sendOtp(email);
+  };
+
+  const onVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await verifyOtp(code);
+  };
+
+  const onBack = () => {
+    setCode("");
+    resetOtp();
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-lg border bg-card p-6 shadow">
-        <h1 className="text-xl font-semibold">{mode === "signIn" ? "Sign in to TeamClaw" : "Create your account"}</h1>
-        <div className="space-y-2">
-          <label className="block text-sm">Email</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="w-full rounded border bg-background px-3 py-2 text-sm"
-            autoFocus
-          />
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6">
+      <div className="mb-8 flex flex-col items-center gap-3">
+        <img
+          src="/logo.png"
+          alt={`${buildConfig.app.name} logo`}
+          width={128}
+          height={128}
+          className="h-20 w-20 object-contain"
+        />
+        <div className="text-center">
+          <h1 className="text-[22px] font-semibold tracking-tight text-foreground">
+            {buildConfig.app.name}
+          </h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            AI Ally · AI 搭档
+          </p>
         </div>
-        <div className="space-y-2">
-          <label className="block text-sm">Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={6}
-            className="w-full rounded border bg-background px-3 py-2 text-sm"
-          />
-        </div>
-        {errorMessage && (
-          <p className="text-sm text-red-600">{errorMessage}</p>
-        )}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+      </div>
+
+      {otpEmail ? (
+        <form
+          onSubmit={onVerify}
+          className="w-full max-w-sm space-y-5 rounded-2xl border border-border bg-paper p-7"
         >
-          {loading ? "..." : mode === "signIn" ? "Sign in" : "Create account"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode(mode === "signIn" ? "signUp" : "signIn")}
-          className="block w-full text-center text-sm text-muted-foreground hover:underline"
+          <div className="space-y-1.5">
+            <h2 className="text-[17px] font-semibold text-foreground">Enter the code</h2>
+            <p className="text-[13px] text-muted-foreground">
+              We sent an 8-digit code to <span className="font-medium text-foreground">{otpEmail}</span>.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <label className="block text-[12px] font-medium text-ink-2">Code</label>
+            <Input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+              required
+              autoFocus
+              maxLength={8}
+              className="h-11 text-center text-lg tracking-[0.35em] font-mono"
+            />
+          </div>
+          {errorMessage && <p className="text-[12px] text-destructive">{errorMessage}</p>}
+          <Button
+            type="submit"
+            disabled={loading || code.length !== 8}
+            className="h-10 w-full bg-coral text-paper hover:bg-coral/90 disabled:bg-coral/40 disabled:text-paper"
+          >
+            {loading ? "Verifying…" : "Verify"}
+          </Button>
+          <button
+            type="button"
+            onClick={onBack}
+            className="block w-full text-center text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Use a different email
+          </button>
+        </form>
+      ) : (
+        <form
+          onSubmit={onSendEmail}
+          className="w-full max-w-sm space-y-5 rounded-2xl border border-border bg-paper p-7"
         >
-          {mode === "signIn" ? "Need an account? Create one" : "Have an account? Sign in"}
-        </button>
-      </form>
+          <div className="space-y-1.5">
+            <h2 className="text-[17px] font-semibold text-foreground">Sign in</h2>
+            <p className="text-[13px] text-muted-foreground">
+              We'll email you an 8-digit code.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <label className="block text-[12px] font-medium text-ink-2">Email</label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoFocus
+              placeholder="you@example.com"
+              className="h-10"
+            />
+          </div>
+          {errorMessage && <p className="text-[12px] text-destructive">{errorMessage}</p>}
+          <Button
+            type="submit"
+            disabled={loading || !email}
+            className="h-10 w-full bg-coral text-paper hover:bg-coral/90 disabled:bg-coral/40 disabled:text-paper"
+          >
+            {loading ? "Sending…" : "Send code"}
+          </Button>
+        </form>
+      )}
+
+      <p className="mt-6 font-mono text-[11px] text-faint">v{appVersion}</p>
     </div>
   );
 }

@@ -29,6 +29,7 @@ import {
   AppWindow,
   Users,
   TerminalSquare,
+  LogOut,
 } from "lucide-react";
 // Spotlight window - lazy loaded for spotlight window label
 const SpotlightWindow = lazy(() =>
@@ -661,6 +662,8 @@ function AppContent() {
   // UI store - individual selectors
   const currentView = useUIStore((s) => s.currentView);
   const closeSettings = useUIStore((s) => s.closeSettings);
+  const authSession = useAuthStore((s) => s.session);
+  const signOut = useAuthStore((s) => s.signOut);
   const layoutMode = useUIStore((s) => s.layoutMode);
   const fileModeRightTab = useUIStore((s) => s.fileModeRightTab);
   const setFileModeRightTab = useUIStore((s) => s.setFileModeRightTab);
@@ -1245,6 +1248,34 @@ function AppContent() {
               <MessageSquarePlus className="h-4 w-4" />
               {t('settings.feedback.title', 'Send Feedback')}
             </Button>
+            {authSession && (() => {
+              const meta = authSession.user.user_metadata as Record<string, unknown> | undefined;
+              const userName =
+                (typeof meta?.full_name === 'string' && meta.full_name) ||
+                (typeof meta?.name === 'string' && meta.name) ||
+                authSession.user.email ||
+                t('common.user', 'User');
+              return (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-1 gap-1.5 text-muted-foreground hover:text-foreground"
+                    >
+                      <span className="max-w-[140px] truncate">{userName}</span>
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => { void signOut(); }}>
+                      <LogOut className="mr-2 h-4 w-4" />
+                      {t('common.signOut', 'Sign out')}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              );
+            })()}
           </header>
           <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
           <div className="flex-1 overflow-hidden">

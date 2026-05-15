@@ -147,12 +147,8 @@ export function Settings(_props?: SettingsProps) {
   return (
     <div className="flex h-full bg-background text-foreground">
       {/* Sidebar navigation */}
-      <div className="flex w-60 flex-col border-r border-border bg-panel">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3.5">
-          <Settings2 className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-[15px] font-semibold">{t('settings.title', 'Settings')}</h2>
-        </div>
-        <ScrollArea className="flex-1 overflow-hidden py-2">
+      <div className="flex w-60 flex-col border-r border-border bg-background">
+        <ScrollArea className="flex-1 overflow-hidden py-3">
           <div className="space-y-0.5 px-2">
             {filteredPrimarySections.map((section) => {
               const Icon = section.icon

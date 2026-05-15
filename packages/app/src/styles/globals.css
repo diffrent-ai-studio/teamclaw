@@ -770,6 +770,30 @@ input,
     color: var(--muted-foreground);
 }
 
+/* Lobster splash — body breathes, claws wave outward in sync (ported from iOS LobsterSplashView).
+   Anchor points 39%/61% × 70% match the wrists in the 1024×1024 source art. */
+@keyframes lobster-body-breathe {
+    from { transform: scale(1); }
+    to { transform: scale(1.035); }
+}
+@keyframes lobster-left-claw {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(-8deg); }
+}
+@keyframes lobster-right-claw {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(8deg); }
+}
+.lobster-body { animation: lobster-body-breathe 0.95s ease-in-out infinite alternate; }
+.lobster-left-claw {
+    transform-origin: 39% 70%;
+    animation: lobster-left-claw 0.95s ease-in-out infinite alternate;
+}
+.lobster-right-claw {
+    transform-origin: 61% 70%;
+    animation: lobster-right-claw 0.95s ease-in-out infinite alternate;
+}
+
 /* Shimmer text animation - Cursor-style light sweep effect */
 @keyframes shimmer-sweep {
     0% {

@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
                     sessionListStoreFactory = app.sessionListStoreFactory,
                     sessionDetailStoreFactory = app.sessionDetailStoreFactory,
                     actorStoreFactory = app.actorStoreFactory,
+                    workspaceStoreFactory = app.workspaceStoreFactory,
                     versionName = BuildConfig.VERSION_NAME,
                     versionCode = BuildConfig.VERSION_CODE,
                     onStartVoiceInput = voiceInput::listen,

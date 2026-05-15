@@ -32,10 +32,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import tech.teamclaw.android.core.design.Hai
 import tech.teamclaw.android.core.model.ActorRecord
+import tech.teamclaw.android.core.model.WorkspaceRecord
 
 data class NewSessionInput(
     val title: String,
     val agentActorId: String,
+    val workspaceId: String?,
     val firstMessage: String,
 )
 
@@ -43,6 +45,7 @@ data class NewSessionInput(
 @Composable
 fun NewSessionSheet(
     agents: List<ActorRecord>,
+    workspaces: List<WorkspaceRecord>,
     isCreating: Boolean,
     errorMessage: String?,
     onDismiss: () -> Unit,
@@ -52,6 +55,7 @@ fun NewSessionSheet(
     var title by remember { mutableStateOf("") }
     var firstMessage by remember { mutableStateOf("") }
     var selectedAgent by remember { mutableStateOf(agents.firstOrNull()) }
+    var selectedWorkspace by remember { mutableStateOf(workspaces.firstOrNull()) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state) {
         Column(
@@ -93,6 +97,22 @@ fun NewSessionSheet(
                 }
             }
 
+            if (workspaces.isNotEmpty()) {
+                Text("Workspace", style = MaterialTheme.typography.bodySmall, color = Hai.Slate)
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(items = workspaces, key = { it.id }) { ws ->
+                        WorkspaceRow(
+                            workspace = ws,
+                            isSelected = selectedWorkspace?.id == ws.id,
+                            onSelect = { selectedWorkspace = ws },
+                        )
+                    }
+                }
+            }
+
             OutlinedTextField(
                 value = firstMessage, onValueChange = { firstMessage = it },
                 label = { Text("First message") },
@@ -116,7 +136,12 @@ fun NewSessionSheet(
             Button(
                 onClick = {
                     val agent = selectedAgent ?: return@Button
-                    onSubmit(NewSessionInput(title.trim(), agent.id, firstMessage.trim()))
+                    onSubmit(NewSessionInput(
+                        title = title.trim(),
+                        agentActorId = agent.id,
+                        workspaceId = selectedWorkspace?.id,
+                        firstMessage = firstMessage.trim(),
+                    ))
                 },
                 enabled = canSubmit,
                 modifier = Modifier.fillMaxWidth().testTag("newSession.submitButton"),
@@ -125,6 +150,47 @@ fun NewSessionSheet(
             ) {
                 Text(if (isCreating) "Creating…" else "Start session")
             }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceRow(
+    workspace: WorkspaceRecord,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isSelected) Hai.Cinnabar.copy(alpha = 0.12f) else Hai.Paper)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                workspace.displayName,
+                style = MaterialTheme.typography.labelLarge, color = Hai.Onyx,
+            )
+            Text(
+                workspace.path,
+                style = MaterialTheme.typography.bodySmall, color = Hai.Basalt,
+            )
+        }
+        Button(
+            onClick = onSelect,
+            enabled = !isSelected,
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isSelected) Hai.Cinnabar else Hai.Paper,
+                disabledContainerColor = Hai.Cinnabar,
+            ),
+        ) {
+            Text(
+                if (isSelected) "Selected" else "Pick",
+                color = if (isSelected) androidx.compose.ui.graphics.Color.White else Hai.Cinnabar,
+            )
         }
     }
 }

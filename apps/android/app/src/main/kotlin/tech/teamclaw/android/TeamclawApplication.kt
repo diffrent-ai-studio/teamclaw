@@ -12,6 +12,8 @@ import tech.teamclaw.android.core.auth.SupabaseActorRepository
 import tech.teamclaw.android.core.auth.SupabaseMessagesRepository
 import tech.teamclaw.android.core.auth.SupabaseOnboardingStore
 import tech.teamclaw.android.core.auth.SupabaseSessionsRepository
+import tech.teamclaw.android.core.auth.SupabaseWorkspaceRepository
+import tech.teamclaw.android.core.auth.WorkspaceStore
 import tech.teamclaw.android.core.auth.apple.AppleSignInHandler
 import tech.teamclaw.android.core.auth.google.GoogleSignInHandler
 import tech.teamclaw.android.core.deeplink.DeepLinkParser
@@ -39,6 +41,8 @@ class TeamclawApplication : Application() {
     lateinit var sessionDetailStoreFactory: (teamId: String, sessionId: String, currentActorId: String) -> SessionDetailStore
         private set
     lateinit var actorStoreFactory: (teamId: String) -> ActorStore
+        private set
+    lateinit var workspaceStoreFactory: (teamId: String) -> WorkspaceStore
         private set
     lateinit var mqttService: MqttService
         private set
@@ -86,5 +90,7 @@ class TeamclawApplication : Application() {
         }
         val actorRepo = SupabaseActorRepository(supabaseClient)
         actorStoreFactory = { teamId -> ActorStore(teamId, actorRepo) }
+        val workspaceRepo = SupabaseWorkspaceRepository(supabaseClient)
+        workspaceStoreFactory = { teamId -> WorkspaceStore(teamId, workspaceRepo) }
     }
 }

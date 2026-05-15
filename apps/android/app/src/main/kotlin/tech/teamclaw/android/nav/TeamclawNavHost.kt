@@ -20,6 +20,7 @@ import tech.teamclaw.android.core.auth.OnboardingCoordinator
 import tech.teamclaw.android.core.auth.OnboardingRoute
 import tech.teamclaw.android.core.auth.SessionDetailStore
 import tech.teamclaw.android.core.auth.SessionListStore
+import tech.teamclaw.android.core.auth.WorkspaceStore
 import tech.teamclaw.android.core.auth.apple.AppleSignInHandler
 import tech.teamclaw.android.core.auth.google.GoogleSignInHandler
 import tech.teamclaw.android.core.model.SessionRecord
@@ -48,6 +49,7 @@ fun TeamclawNavHost(
     sessionListStoreFactory: (teamId: String, currentActorId: String) -> SessionListStore,
     sessionDetailStoreFactory: (teamId: String, sessionId: String, currentActorId: String) -> SessionDetailStore,
     actorStoreFactory: (teamId: String) -> ActorStore,
+    workspaceStoreFactory: (teamId: String) -> WorkspaceStore,
     versionName: String,
     versionCode: Int,
     onStartVoiceInput: ((onResult: (String) -> Unit) -> Unit)? = null,
@@ -101,6 +103,7 @@ fun TeamclawNavHost(
                     sessionListStoreFactory = sessionListStoreFactory,
                     sessionDetailStoreFactory = sessionDetailStoreFactory,
                     actorStoreFactory = actorStoreFactory,
+                    workspaceStoreFactory = workspaceStoreFactory,
                     versionName = versionName,
                     versionCode = versionCode,
                     onStartVoiceInput = onStartVoiceInput,
@@ -119,6 +122,7 @@ private fun ReadyFlow(
     sessionListStoreFactory: (teamId: String, currentActorId: String) -> SessionListStore,
     sessionDetailStoreFactory: (teamId: String, sessionId: String, currentActorId: String) -> SessionDetailStore,
     actorStoreFactory: (teamId: String) -> ActorStore,
+    workspaceStoreFactory: (teamId: String) -> WorkspaceStore,
     versionName: String,
     versionCode: Int,
     onStartVoiceInput: ((onResult: (String) -> Unit) -> Unit)? = null,
@@ -137,9 +141,12 @@ private fun ReadyFlow(
     val listState by listStore.state.collectAsStateWithLifecycle()
     val actorStore = remember(teamId) { actorStoreFactory(teamId) }
     val actorState by actorStore.state.collectAsStateWithLifecycle()
+    val workspaceStore = remember(teamId) { workspaceStoreFactory(teamId) }
+    val workspaceState by workspaceStore.state.collectAsStateWithLifecycle()
     LaunchedEffect(teamId) {
         listStore.reload()
         actorStore.reload()
+        workspaceStore.reload()
     }
     LaunchedEffect(listState.justCreatedSessionId) {
         val id = listState.justCreatedSessionId ?: return@LaunchedEffect
@@ -205,6 +212,7 @@ private fun ReadyFlow(
         if (showNewSession) {
             NewSessionSheet(
                 agents = actorState.actors.filter { it.isAgent },
+                workspaces = workspaceState.workspaces,
                 isCreating = listState.isCreating,
                 errorMessage = listState.errorMessage,
                 onDismiss = { showNewSession = false },

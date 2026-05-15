@@ -34,7 +34,7 @@ class TeamclawApplication : Application() {
         private set
     lateinit var deepLinkParser: DeepLinkParser
         private set
-    lateinit var sessionListStoreFactory: (teamId: String) -> SessionListStore
+    lateinit var sessionListStoreFactory: (teamId: String, currentActorId: String) -> SessionListStore
         private set
     lateinit var sessionDetailStoreFactory: (teamId: String, sessionId: String, currentActorId: String) -> SessionDetailStore
         private set
@@ -71,7 +71,9 @@ class TeamclawApplication : Application() {
         val sessionsRepo = SupabaseSessionsRepository(supabaseClient)
         val messagesRepo = SupabaseMessagesRepository(supabaseClient)
         mqttService = MqttService(host = "ai.ucar.cc", port = 8883, useTls = true)
-        sessionListStoreFactory = { teamId -> SessionListStore(teamId, sessionsRepo) }
+        sessionListStoreFactory = { teamId, actorId ->
+            SessionListStore(teamId, actorId, sessionsRepo, messagesRepo)
+        }
         sessionDetailStoreFactory = { teamId, sessionId, actorId ->
             val topic = "amux/${teamId.ifEmpty { "teamclaw" }}/session/$sessionId/live"
             SessionDetailStore(

@@ -31,6 +31,7 @@ import tech.teamclaw.android.feature.onboarding.InviteMemberSheet
 import tech.teamclaw.android.feature.onboarding.LobsterSplashScreen
 import tech.teamclaw.android.feature.onboarding.LoginScreen
 import tech.teamclaw.android.feature.onboarding.MembersScreen
+import tech.teamclaw.android.feature.onboarding.NewSessionSheet
 import tech.teamclaw.android.feature.onboarding.OnboardingErrorScreen
 import tech.teamclaw.android.feature.onboarding.SessionDetailScreen
 import tech.teamclaw.android.feature.onboarding.SessionListScreen
@@ -44,7 +45,7 @@ fun TeamclawNavHost(
     coordinator: OnboardingCoordinator,
     appleHandler: AppleSignInHandler,
     googleHandler: GoogleSignInHandler,
-    sessionListStoreFactory: (teamId: String) -> SessionListStore,
+    sessionListStoreFactory: (teamId: String, currentActorId: String) -> SessionListStore,
     sessionDetailStoreFactory: (teamId: String, sessionId: String, currentActorId: String) -> SessionDetailStore,
     actorStoreFactory: (teamId: String) -> ActorStore,
     versionName: String,
@@ -115,7 +116,7 @@ private fun ReadyFlow(
     team: TeamSummary,
     isAnonymous: Boolean,
     currentActorId: String,
-    sessionListStoreFactory: (teamId: String) -> SessionListStore,
+    sessionListStoreFactory: (teamId: String, currentActorId: String) -> SessionListStore,
     sessionDetailStoreFactory: (teamId: String, sessionId: String, currentActorId: String) -> SessionDetailStore,
     actorStoreFactory: (teamId: String) -> ActorStore,
     versionName: String,
@@ -128,10 +129,24 @@ private fun ReadyFlow(
     var showMembers by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showUpgrade by remember { mutableStateOf(false) }
+    var showNewSession by remember { mutableStateOf(false) }
     val coordState by coordinator.state.collectAsStateWithLifecycle()
-    val listStore = remember(teamId) { sessionListStoreFactory(teamId) }
+    val listStore = remember(teamId, currentActorId) {
+        sessionListStoreFactory(teamId, currentActorId)
+    }
     val listState by listStore.state.collectAsStateWithLifecycle()
-    LaunchedEffect(teamId) { listStore.reload() }
+    val actorStore = remember(teamId) { actorStoreFactory(teamId) }
+    val actorState by actorStore.state.collectAsStateWithLifecycle()
+    LaunchedEffect(teamId) {
+        listStore.reload()
+        actorStore.reload()
+    }
+    LaunchedEffect(listState.justCreatedSessionId) {
+        val id = listState.justCreatedSessionId ?: return@LaunchedEffect
+        showNewSession = false
+        listStore.clearJustCreated()
+        openSession = listState.sessions.firstOrNull { it.id == id }
+    }
 
     val active = openSession
     if (showSettings) {
@@ -184,8 +199,26 @@ private fun ReadyFlow(
             onSessionClick = { openSession = it },
             onMembers = { showMembers = true },
             onSettings = { showSettings = true },
+            onNewSession = { showNewSession = true },
             onSignOut = { coordinator.launch { coordinator.signOut() } },
         )
+        if (showNewSession) {
+            NewSessionSheet(
+                agents = actorState.actors.filter { it.isAgent },
+                isCreating = listState.isCreating,
+                errorMessage = listState.errorMessage,
+                onDismiss = { showNewSession = false },
+                onSubmit = { input ->
+                    coordinator.launch {
+                        listStore.createSession(
+                            title = input.title,
+                            agentActorId = input.agentActorId,
+                            firstMessage = input.firstMessage,
+                        )
+                    }
+                },
+            )
+        }
     } else {
         val detailStore = remember(active.id) {
             sessionDetailStoreFactory(teamId, active.id, currentActorId)

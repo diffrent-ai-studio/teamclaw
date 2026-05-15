@@ -39,6 +39,7 @@ fun SessionListScreen(
     onSessionClick: (SessionRecord) -> Unit,
     onMembers: () -> Unit,
     onSettings: () -> Unit,
+    onNewSession: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -51,6 +52,7 @@ fun SessionListScreen(
             onRefresh = onRefresh,
             onMembers = onMembers,
             onSettings = onSettings,
+            onNewSession = onNewSession,
         )
 
         if (!errorMessage.isNullOrEmpty()) {
@@ -91,6 +93,7 @@ private fun SessionListTopBar(
     onRefresh: () -> Unit,
     onMembers: () -> Unit,
     onSettings: () -> Unit,
+    onNewSession: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     Row(
@@ -108,6 +111,12 @@ private fun SessionListTopBar(
             Text("Actors", color = Hai.Cinnabar)
         }
         TextButton(onClick = onRefresh) { Text("Refresh", color = Hai.Cinnabar) }
+        TextButton(
+            onClick = onNewSession,
+            modifier = Modifier.testTag("sessionList.newSessionButton"),
+        ) {
+            Text("+ New", color = Hai.Cinnabar, style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 
@@ -166,7 +175,8 @@ private fun SessionListPreview() {
                 ),
             ),
             isLoading = false, errorMessage = null,
-            onRefresh = {}, onSessionClick = {}, onSignOut = {}, onMembers = {}, onSettings = {},
+            onRefresh = {}, onSessionClick = {}, onSignOut = {}, onMembers = {},
+            onSettings = {}, onNewSession = {},
         )
     }
 }

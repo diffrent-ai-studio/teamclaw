@@ -42,10 +42,19 @@ class SessionDetailStore(
          *  Persists across reloads since the palette is a property of the agent,
          *  not of any one turn. */
         val availableCommands: List<SlashCommand> = emptyList(),
+        /** Latest ACP status per runtime — drives the header indicator dot. */
+        val agentStatusByRuntime: Map<String, DecodedEvent.AgentLifeStatus> = emptyMap(),
         val isLoading: Boolean = false,
         val isSending: Boolean = false,
         val errorMessage: String? = null,
-    )
+    ) {
+        /** Single status for the header. Picks ERROR > STARTING > ACTIVE > IDLE
+         *  > STOPPED > UNKNOWN across runtimes — the most attention-grabbing
+         *  state wins. */
+        val headerStatus: DecodedEvent.AgentLifeStatus
+            get() = agentStatusByRuntime.values.maxByOrNull { it.headerPriority }
+                ?: DecodedEvent.AgentLifeStatus.UNKNOWN
+    }
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -71,6 +80,13 @@ class SessionDetailStore(
                     when (event) {
                         is DecodedEvent.AvailableCommands ->
                             _state.update { it.copy(availableCommands = event.commands) }
+                        is DecodedEvent.StatusChange ->
+                            _state.update {
+                                it.copy(
+                                    agentStatusByRuntime = it.agentStatusByRuntime +
+                                        (event.runtimeId to event.current),
+                                )
+                            }
                         else ->
                             _state.update { it.copy(liveEvents = mergeEvent(it.liveEvents, event)) }
                     }
@@ -158,3 +174,16 @@ class SessionDetailStore(
         }
     }
 }
+
+/** "How prominent should this status be in the header" — ERROR wins so a
+ *  failed agent is unmissable, then STARTING (yellow attention), then the
+ *  steady states. */
+internal val DecodedEvent.AgentLifeStatus.headerPriority: Int
+    get() = when (this) {
+        DecodedEvent.AgentLifeStatus.ERROR -> 5
+        DecodedEvent.AgentLifeStatus.STARTING -> 4
+        DecodedEvent.AgentLifeStatus.ACTIVE -> 3
+        DecodedEvent.AgentLifeStatus.IDLE -> 2
+        DecodedEvent.AgentLifeStatus.STOPPED -> 1
+        DecodedEvent.AgentLifeStatus.UNKNOWN -> 0
+    }

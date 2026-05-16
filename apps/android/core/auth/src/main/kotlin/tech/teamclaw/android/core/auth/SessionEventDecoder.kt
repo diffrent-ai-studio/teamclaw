@@ -1,6 +1,7 @@
 package tech.teamclaw.android.core.auth
 
 import amux.AcpEvent
+import amux.AgentStatus
 import amux.Envelope
 import amux.TodoItem as ProtoTodoItem
 import tech.teamclaw.android.core.model.SlashCommand
@@ -83,6 +84,20 @@ sealed interface DecodedEvent {
     }
 
     enum class TodoStatus { PENDING, IN_PROGRESS, COMPLETED }
+
+    /**
+     * Latest agent ACP status. Drives the chat header indicator dot.
+     */
+    data class StatusChange(
+        override val runtimeId: String,
+        override val timestampMs: Long,
+        override val sequence: Long,
+        val previous: AgentLifeStatus,
+        val current: AgentLifeStatus,
+    ) : DecodedEvent
+
+    /** Subset of proto AgentStatus the UI cares about. */
+    enum class AgentLifeStatus { UNKNOWN, STARTING, ACTIVE, IDLE, ERROR, STOPPED }
 
     /**
      * Snapshot of the agent's slash-command palette. Each AcpAvailableCommands
@@ -181,6 +196,13 @@ object SessionEventDecoder {
                 },
             )
         }
+        event.status_change?.let {
+            return DecodedEvent.StatusChange(
+                runtimeId, timestampMs, sequence,
+                previous = mapAgentStatus(it.old_status),
+                current = mapAgentStatus(it.new_status),
+            )
+        }
         return DecodedEvent.Unknown(
             runtimeId, timestampMs, sequence,
             variantTag = "acp_event",
@@ -191,5 +213,14 @@ object SessionEventDecoder {
         ProtoTodoItem.Status.PENDING -> DecodedEvent.TodoStatus.PENDING
         ProtoTodoItem.Status.IN_PROGRESS -> DecodedEvent.TodoStatus.IN_PROGRESS
         ProtoTodoItem.Status.COMPLETED -> DecodedEvent.TodoStatus.COMPLETED
+    }
+
+    private fun mapAgentStatus(status: AgentStatus): DecodedEvent.AgentLifeStatus = when (status) {
+        AgentStatus.AGENT_STATUS_UNKNOWN -> DecodedEvent.AgentLifeStatus.UNKNOWN
+        AgentStatus.AGENT_STATUS_STARTING -> DecodedEvent.AgentLifeStatus.STARTING
+        AgentStatus.AGENT_STATUS_ACTIVE -> DecodedEvent.AgentLifeStatus.ACTIVE
+        AgentStatus.AGENT_STATUS_IDLE -> DecodedEvent.AgentLifeStatus.IDLE
+        AgentStatus.AGENT_STATUS_ERROR -> DecodedEvent.AgentLifeStatus.ERROR
+        AgentStatus.AGENT_STATUS_STOPPED -> DecodedEvent.AgentLifeStatus.STOPPED
     }
 }

@@ -50,6 +50,7 @@ fun SessionDetailScreen(
     liveEvents: List<DecodedEvent> = emptyList(),
     mentionCandidates: List<ActorRecord>,
     slashCommands: List<SlashCommand> = emptyList(),
+    agentStatus: DecodedEvent.AgentLifeStatus = DecodedEvent.AgentLifeStatus.UNKNOWN,
     isLoading: Boolean,
     isSending: Boolean,
     errorMessage: String?,
@@ -74,7 +75,7 @@ fun SessionDetailScreen(
     Column(
         modifier = modifier.fillMaxSize().background(Hai.Mist).imePadding(),
     ) {
-        SessionDetailTopBar(title = title, onBack = onBack)
+        SessionDetailTopBar(title = title, status = agentStatus, onBack = onBack)
 
         if (!errorMessage.isNullOrEmpty()) {
             Box(
@@ -154,6 +155,32 @@ fun SessionDetailScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun AgentStatusDot(status: DecodedEvent.AgentLifeStatus) {
+    val (color, label) = when (status) {
+        DecodedEvent.AgentLifeStatus.ERROR -> Hai.CinnabarDeep to "error"
+        DecodedEvent.AgentLifeStatus.STARTING -> Hai.Cinnabar to "starting"
+        DecodedEvent.AgentLifeStatus.ACTIVE -> Hai.Sage to "active"
+        DecodedEvent.AgentLifeStatus.IDLE -> Hai.Sage to "idle"
+        DecodedEvent.AgentLifeStatus.STOPPED -> Hai.Slate to "stopped"
+        DecodedEvent.AgentLifeStatus.UNKNOWN -> Hai.Slate.copy(alpha = 0.4f) to ""
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            Modifier.size(10.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(color)
+                .testTag("sessionDetail.agentStatusDot"),
+        )
+        if (label.isNotBlank()) {
+            Text(label, style = MaterialTheme.typography.bodySmall, color = Hai.Basalt)
+        }
     }
 }
 
@@ -261,6 +288,7 @@ private fun LiveEventBubble(event: DecodedEvent) {
         is DecodedEvent.PermissionRequest -> Hai.Cinnabar
         is DecodedEvent.TodoUpdate -> Hai.Basalt
         is DecodedEvent.AvailableCommands -> Hai.Slate
+        is DecodedEvent.StatusChange -> Hai.Slate
         is DecodedEvent.Unknown -> Hai.Slate
     }
     val (badge, body) = when (event) {
@@ -277,6 +305,7 @@ private fun LiveEventBubble(event: DecodedEvent) {
         is DecodedEvent.PermissionRequest -> "Permission" to event.description
         is DecodedEvent.TodoUpdate -> "Tasks" to "${event.items.size} item${if (event.items.size == 1) "" else "s"}"
         is DecodedEvent.AvailableCommands -> "Commands" to "${event.commands.size} available"
+        is DecodedEvent.StatusChange -> "Status" to "${event.previous.name.lowercase()} → ${event.current.name.lowercase()}"
         is DecodedEvent.Error -> "Error" to event.message
         is DecodedEvent.Unknown -> "Event" to event.variantTag
     }
@@ -339,7 +368,11 @@ private fun replaceSlashAtCursor(text: String, commandName: String): String {
 }
 
 @Composable
-private fun SessionDetailTopBar(title: String, onBack: () -> Unit) {
+private fun SessionDetailTopBar(
+    title: String,
+    status: DecodedEvent.AgentLifeStatus,
+    onBack: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -353,7 +386,8 @@ private fun SessionDetailTopBar(title: String, onBack: () -> Unit) {
             style = MaterialTheme.typography.titleLarge,
             color = Hai.Onyx,
         )
-        Spacer(Modifier.size(72.dp))
+        AgentStatusDot(status = status)
+        Spacer(Modifier.size(16.dp))
     }
 }
 

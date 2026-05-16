@@ -507,6 +507,13 @@ impl WeChatGateway {
         Ok(())
     }
 
+    /// Consuming shutdown used by the amuxd channel manager.
+    pub async fn shutdown(self) {
+        if let Err(e) = self.stop().await {
+            eprintln!("[WeChat] shutdown: {e}");
+        }
+    }
+
     async fn run_poll_loop(&self, mut shutdown_rx: oneshot::Receiver<()>) {
         let config = self.config.read().await.clone();
         let mut get_updates_buf = config.sync_buf.unwrap_or_default();

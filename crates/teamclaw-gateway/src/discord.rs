@@ -858,6 +858,15 @@ impl DiscordGateway {
         }
     }
 
+    /// Consuming shutdown used by the amuxd channel manager.
+    /// Delegates to `stop()`; failures are logged but not propagated since
+    /// the manager is tearing the gateway down anyway.
+    pub async fn shutdown(self) {
+        if let Err(e) = self.stop().await {
+            eprintln!("[Discord] shutdown: {e}");
+        }
+    }
+
     /// Test if a token is valid
     pub async fn test_token(token: &str) -> Result<String, String> {
         let http = Http::new(token);

@@ -472,6 +472,13 @@ impl EmailGateway {
         Ok(())
     }
 
+    /// Consuming shutdown used by the amuxd channel manager.
+    pub async fn shutdown(self) {
+        if let Err(e) = self.stop().await {
+            eprintln!("[Email] shutdown: {e}");
+        }
+    }
+
     pub async fn gmail_authorize(
         client_id: &str,
         client_secret: &str,

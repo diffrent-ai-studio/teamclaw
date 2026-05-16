@@ -69,11 +69,11 @@ pub struct DiscordChannel {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WeComChannel {
     pub enabled: bool,
-    pub corp_id: String,
-    pub agent_id: String,
+    /// WeCom bot id (QR-bound bot mode used by `teamclaw_gateway::wecom`).
+    pub bot_id: String,
     pub secret: String,
-    pub token: String,
-    pub encoding_aes_key: String,
+    #[serde(default)]
+    pub encoding_aes_key: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -165,14 +165,12 @@ broker_url = "tcp://localhost:1883"
 
 [channels.wecom]
 enabled = true
-corp_id = "c1"
-agent_id = "a1"
+bot_id = "b1"
 secret = "s"
-token = "t"
 encoding_aes_key = "k"
 "#;
         let cfg: DaemonConfig = toml::from_str(toml_src).unwrap();
         assert!(cfg.channels.wecom.is_some());
-        assert_eq!(cfg.channels.wecom.as_ref().unwrap().corp_id, "c1");
+        assert_eq!(cfg.channels.wecom.as_ref().unwrap().bot_id, "b1");
     }
 }

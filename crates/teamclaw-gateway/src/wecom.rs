@@ -676,6 +676,13 @@ impl WeComGateway {
         Ok(())
     }
 
+    /// Consuming shutdown used by the amuxd channel manager.
+    pub async fn shutdown(self) {
+        if let Err(e) = self.stop().await {
+            eprintln!("[WeCom] shutdown: {e}");
+        }
+    }
+
     async fn run_gateway_loop(
         &self,
         bot_id: String,

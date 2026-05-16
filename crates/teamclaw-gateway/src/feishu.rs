@@ -547,6 +547,13 @@ impl FeishuGateway {
         tm.refresh_token().await?;
         Ok("Credentials valid".to_string())
     }
+
+    /// Consuming shutdown used by the amuxd channel manager.
+    pub async fn shutdown(self) {
+        if let Err(e) = self.stop().await {
+            eprintln!("[Feishu] shutdown: {e}");
+        }
+    }
 }
 
 impl Clone for FeishuGateway {

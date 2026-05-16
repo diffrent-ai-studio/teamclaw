@@ -248,6 +248,13 @@ impl KookGateway {
         Ok(())
     }
 
+    /// Consuming shutdown used by the amuxd channel manager.
+    pub async fn shutdown(self) {
+        if let Err(e) = self.stop().await {
+            eprintln!("[KOOK] shutdown: {e}");
+        }
+    }
+
     /// Main gateway loop: connect, handle events, reconnect on failure
     async fn run_gateway_loop(
         &self,

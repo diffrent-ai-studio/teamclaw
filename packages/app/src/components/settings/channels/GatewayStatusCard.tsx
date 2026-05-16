@@ -4,6 +4,7 @@
  * Used by all channel settings.
  */
 import * as React from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Loader2,
@@ -13,9 +14,11 @@ import {
   ChevronDown,
   ChevronRight,
   BookOpen,
+  AlertTriangle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SettingCard, ToggleSwitch, StatusBadge } from './shared'
+import { listChannels, AmuxdUnreachableError } from '@/lib/amuxd-channels'
 
 export interface GatewayStatusCardProps {
   /** The channel icon component */
@@ -54,6 +57,11 @@ export interface GatewayStatusCardProps {
   onOpenWizard?: () => void
   /** Collapsible content */
   children?: React.ReactNode
+  /**
+   * Override: explicitly signal that amuxd is unreachable (e.g. from store
+   * state). When omitted the card probes `listChannels()` itself on mount.
+   */
+  amuxdUnreachable?: boolean
 }
 
 export function GatewayStatusCard({
@@ -75,11 +83,58 @@ export function GatewayStatusCard({
   startDisabled,
   onOpenWizard,
   children,
+  amuxdUnreachable: amuxdUnreachableProp,
 }: GatewayStatusCardProps) {
   const { t } = useTranslation()
 
+  // Track amuxd reachability. If the parent already knows (via the store's
+  // error state), it can pass `amuxdUnreachable` directly and skip the probe.
+  const [amuxdUnreachableLocal, setAmuxdUnreachableLocal] = useState(false)
+
+  useEffect(() => {
+    // Only probe when the parent hasn't supplied an explicit value.
+    if (amuxdUnreachableProp !== undefined) return
+
+    let cancelled = false
+    listChannels()
+      .then(() => {
+        if (!cancelled) setAmuxdUnreachableLocal(false)
+      })
+      .catch((err) => {
+        if (!cancelled && err instanceof AmuxdUnreachableError) {
+          setAmuxdUnreachableLocal(true)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [amuxdUnreachableProp])
+
+  const amuxdUnreachable =
+    amuxdUnreachableProp !== undefined ? amuxdUnreachableProp : amuxdUnreachableLocal
+
   return (
     <SettingCard>
+      {/* amuxd unreachable banner */}
+      {amuxdUnreachable && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 mb-4 text-sm text-destructive"
+        >
+          <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-semibold">{t('settings.channels.amuxdNotRunning', 'amuxd not running')}</p>
+            <p className="mt-0.5 text-destructive/80">
+              {t(
+                'settings.channels.amuxdNotRunningDesc',
+                'Channel features require amuxd. Start it with',
+              )}{' '}
+              <code className="rounded bg-destructive/20 px-1 font-mono text-xs">pnpm daemon:run</code>{' '}
+              {t('settings.channels.amuxdNotRunningOrInstall', 'or install it as a service.')}
+            </p>
+          </div>
+        </div>
+      )}
       {/* Header Row - always visible */}
       <div className="flex items-center justify-between">
         <button

@@ -3,6 +3,10 @@
 pub mod acp;
 pub use acp::{AcpError, AcpHandle, AcpTurnOutcome, AmuxSessionId};
 
+pub mod binding;
+pub mod supabase_store;
+pub use supabase_store::{ChannelStore, EnsureSessionOutcome, StoreError};
+
 pub mod config;
 pub mod discord;
 pub mod email;

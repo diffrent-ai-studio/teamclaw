@@ -16,6 +16,7 @@ final class ActorStoreTests: XCTestCase {
         ActorRecord(
             id: id, teamID: "t-1", actorType: "member",
             userID: "u-1", invitedByActorID: nil, displayName: name,
+            avatarURL: "https://example.com/avatar.jpg",
             lastActiveAt: Date(), createdAt: Date(), updatedAt: Date(),
             memberStatus: "active", teamRole: "member",
             agentKind: nil, agentStatus: nil
@@ -31,6 +32,16 @@ final class ActorStoreTests: XCTestCase {
         XCTAssertEqual(store.actors.count, 1)
         let cached = try ctx.fetch(FetchDescriptor<CachedActor>())
         XCTAssertEqual(cached.count, 1)
+    }
+
+    func testReloadPersistsAvatarURL() async throws {
+        let ctx = try makeContext()
+        let repo = MockActorRepository()
+        await repo.configure(actors: [sampleMember()])
+        let store = ActorStore(teamID: "t-1", repository: repo, modelContext: ctx)
+        await store.reload()
+        let cached = try XCTUnwrap(ctx.fetch(FetchDescriptor<CachedActor>()).first)
+        XCTAssertEqual(cached.avatarURL, "https://example.com/avatar.jpg")
     }
 
     func testReloadFailureSetsError() async throws {
@@ -128,5 +139,28 @@ private actor MockActorRepository: ActorRepository {
     func heartbeat() async throws { heartbeatCallCount += 1 }
     func removeActor(actorID: String) async throws {
         if let e = nextError { nextError = nil; throw e }
+    }
+    func uploadAvatar(actorID: String, imageData: Data, contentType: String) async throws -> String {
+        if let e = nextError { nextError = nil; throw e }
+        return "https://example.com/avatar.jpg"
+    }
+    func updateCurrentActorProfile(actorID: String, displayName: String, avatarURL: String?) async throws -> ActorRecord {
+        if let e = nextError { nextError = nil; throw e }
+        return ActorRecord(
+            id: actorID,
+            teamID: "t-1",
+            actorType: "member",
+            userID: "u-1",
+            invitedByActorID: nil,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            lastActiveAt: Date(),
+            createdAt: Date(),
+            updatedAt: Date(),
+            memberStatus: "active",
+            teamRole: "member",
+            agentKind: nil,
+            agentStatus: nil
+        )
     }
 }

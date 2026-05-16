@@ -7,6 +7,7 @@ public struct ActorRecord: Codable, Equatable, Hashable, Identifiable, Sendable 
     public let userID: String?
     public let invitedByActorID: String?
     public let displayName: String
+    public let avatarURL: String?
     public let lastActiveAt: Date?
     public let createdAt: Date
     public let updatedAt: Date
@@ -20,14 +21,14 @@ public struct ActorRecord: Codable, Equatable, Hashable, Identifiable, Sendable 
     public init(
         id: String, teamID: String, actorType: String,
         userID: String?, invitedByActorID: String?,
-        displayName: String, lastActiveAt: Date?,
+        displayName: String, avatarURL: String? = nil, lastActiveAt: Date?,
         createdAt: Date, updatedAt: Date,
         memberStatus: String?, teamRole: String?,
         agentKind: String?, agentStatus: String?
     ) {
         self.id = id; self.teamID = teamID; self.actorType = actorType
         self.userID = userID; self.invitedByActorID = invitedByActorID
-        self.displayName = displayName; self.lastActiveAt = lastActiveAt
+        self.displayName = displayName; self.avatarURL = avatarURL; self.lastActiveAt = lastActiveAt
         self.createdAt = createdAt; self.updatedAt = updatedAt
         self.memberStatus = memberStatus; self.teamRole = teamRole
         self.agentKind = agentKind; self.agentStatus = agentStatus

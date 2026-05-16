@@ -31,6 +31,30 @@ public final class ConnectedAgentsStore {
     public var hasOnlineAgent: Bool {
         agents.contains(where: \.isOnline)
     }
+
+    @discardableResult
+    public func shareToTeam(agentID: String) async -> Bool {
+        do {
+            try await repository.shareAgentToTeam(agentID: agentID)
+            await reload()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    @discardableResult
+    public func makePersonal(agentID: String) async -> Bool {
+        do {
+            try await repository.makeAgentPersonal(agentID: agentID)
+            await reload()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
 }
 
 @Observable
@@ -57,7 +81,7 @@ public final class AgentAuthorizedHumansStore {
         defer { isLoading = false }
         do {
             async let humansTask = repository.listAuthorizedHumans(agentID: agentID)
-            async let canManageTask = repository.canManageAuthorizedHumans(teamID: teamID)
+            async let canManageTask = repository.canManageAuthorizedHumans(agentID: agentID)
             humans = try await humansTask
             canManage = try await canManageTask
             errorMessage = nil

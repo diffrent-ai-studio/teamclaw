@@ -16,7 +16,7 @@ exception
 end;
 $$;
 
-select plan(41);
+select plan(47);
 
 select lives_ok(
 $$
@@ -46,6 +46,15 @@ $$,
 'agent prompt helper exists'
 );
 
+select ok(
+  has_function_privilege(
+    'authenticated',
+    'public.update_current_actor_profile(uuid,text,text)',
+    'EXECUTE'
+  ),
+  'authenticated can execute actor profile update rpc'
+);
+
 select policies_are('public', 'teams', array[
   'teams_select_if_member'
 ]);
@@ -62,8 +71,8 @@ select policies_are('public', 'messages', array[
 ]);
 
 select policies_are('public', 'agent_member_access', array[
-  'agent_member_access_select_if_team_member',
-  'agent_member_access_manage_if_admin'
+  'agent_member_access_select_if_agent_owner_or_self',
+  'agent_member_access_manage_if_agent_owner'
 ]);
 
 select policies_are('public', 'agent_runtimes', array[
@@ -110,11 +119,12 @@ values (
   'Workspace One'
 );
 
-insert into public.agents (id, default_workspace_id, created_by_member_id, agent_kind, status)
+insert into public.agents (id, default_workspace_id, owner_member_id, visibility, agent_kind, status)
 values (
   '10000000-0000-0000-0000-0000000000a1',
   '30000000-0000-0000-0000-000000000001',
   '10000000-0000-0000-0000-000000000001',
+  'team',
   'codex',
   'active'
 );
@@ -183,6 +193,57 @@ select ok(
 set local role authenticated;
 set local request.jwt.claim.role = 'authenticated';
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
+
+select lives_ok(
+  $sql$
+    select public.update_current_actor_profile(
+      '10000000-0000-0000-0000-000000000001',
+      'Renamed Member',
+      'https://example.com/avatar.jpg'
+    )
+  $sql$,
+  'current user can update own actor profile'
+);
+
+select is(
+  (select display_name from public.actors where id = '10000000-0000-0000-0000-000000000001'),
+  'Renamed Member',
+  'profile update stores display name'
+);
+
+select is(
+  (select avatar_url from public.actor_directory where id = '10000000-0000-0000-0000-000000000001'),
+  'https://example.com/avatar.jpg',
+  'actor_directory exposes updated avatar url'
+);
+
+select ok(
+  pg_temp.raises_sqlstate(
+    $sql$
+      select public.update_current_actor_profile(
+        '10000000-0000-0000-0000-000000000002',
+        'Spoofed Member',
+        null
+      )
+    $sql$,
+    '42501'
+  ),
+  'current user cannot update another actor profile'
+);
+
+select ok(
+  pg_temp.raises_sqlstate(
+    $sql$
+      select public.update_current_actor_profile(
+        '10000000-0000-0000-0000-000000000001',
+        '   ',
+        null
+      )
+    $sql$,
+    '23514'
+  ),
+  'actor profile update rejects blank display names'
+);
 
 select is(
   app.current_member_id(),
@@ -395,8 +456,8 @@ set local request.jwt.claim.role = 'authenticated';
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000003';
 
 select ok(
-  app.can_prompt_agent('10000000-0000-0000-0000-0000000000a1'::uuid),
-  'active team admin can prompt team agent'
+  not app.can_prompt_agent('10000000-0000-0000-0000-0000000000a1'::uuid),
+  'active team admin without grant cannot prompt team agent'
 );
 
 reset role;

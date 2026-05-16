@@ -10,10 +10,16 @@ public protocol AgentAccessRepository: Sendable {
     func listAuthorizedHumans(agentID: String) async throws -> [AgentAuthorizedHuman]
 
     /// Whether the current auth user can manage agent-member access for a team.
-    func canManageAuthorizedHumans(teamID: String) async throws -> Bool
+    func canManageAuthorizedHumans(agentID: String) async throws -> Bool
 
     /// Grant access for a member on an agent, upserting if the relationship already exists.
     func grantAuthorizedHuman(agentID: String, memberID: String, permissionLevel: String) async throws
+
+    /// Make an owned personal agent visible in the team Actors directory.
+    func shareAgentToTeam(agentID: String) async throws
+
+    /// Hide an owned team agent from the Actors directory and revoke non-owner grants.
+    func makeAgentPersonal(agentID: String) async throws
 
     /// Resolve the current daemon device for a specific agent.
     func deviceID(for agentID: String) async throws -> String?
@@ -63,7 +69,7 @@ public actor SupabaseAgentAccessRepository: AgentAccessRepository {
             .value
         async let agentRowsTask: [AgentKindRow] = client
             .from("agents")
-            .select("id, agent_kind, device_id")
+            .select("id, agent_kind, device_id, visibility, owner_member_id")
             .in("id", values: agentIDs)
             .execute()
             .value
@@ -75,14 +81,16 @@ public actor SupabaseAgentAccessRepository: AgentAccessRepository {
 
         return accessRows.compactMap { row in
             guard let actor = actorByID[row.agentID] else { return nil }
-            let agent = agentByID[row.agentID]
+            guard let agent = agentByID[row.agentID] else { return nil }
             return ConnectedAgent(
                 id: row.agentID,
                 displayName: actor.displayName,
-                agentKind: agent?.agentKind ?? "",
+                agentKind: agent.agentKind,
                 permissionLevel: row.permissionLevel,
                 lastActiveAt: actor.lastActiveAt,
-                deviceID: agent?.deviceID
+                deviceID: agent.deviceID,
+                visibility: agent.visibility,
+                isOwner: agent.ownerMemberID == myActorID
             )
         }
         .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
@@ -120,9 +128,15 @@ public actor SupabaseAgentAccessRepository: AgentAccessRepository {
         .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
-    public func canManageAuthorizedHumans(teamID: String) async throws -> Bool {
-        guard let member = try await currentMemberRow(teamID: teamID) else { return false }
-        return member.teamRole == "owner" || member.teamRole == "admin"
+    public func canManageAuthorizedHumans(agentID: String) async throws -> Bool {
+        guard let member = try await currentMemberRow(teamID: nil) else { return false }
+        let rows: [AgentOwnerRow] = try await client
+            .from("agents")
+            .select("id, owner_member_id")
+            .eq("id", value: agentID)
+            .execute()
+            .value
+        return rows.first?.ownerMemberID == member.id
     }
 
     public func grantAuthorizedHuman(agentID: String, memberID: String, permissionLevel: String) async throws {
@@ -144,10 +158,22 @@ public actor SupabaseAgentAccessRepository: AgentAccessRepository {
             .execute()
     }
 
+    public func shareAgentToTeam(agentID: String) async throws {
+        _ = try await client
+            .rpc("share_agent_to_team", params: AgentIDRPCParams(agentID: agentID))
+            .execute()
+    }
+
+    public func makeAgentPersonal(agentID: String) async throws {
+        _ = try await client
+            .rpc("make_agent_personal", params: AgentIDRPCParams(agentID: agentID))
+            .execute()
+    }
+
     public func deviceID(for agentID: String) async throws -> String? {
         let rows: [AgentKindRow] = try await client
             .from("agents")
-            .select("id, agent_kind, device_id")
+            .select("id, agent_kind, device_id, visibility, owner_member_id")
             .eq("id", value: agentID)
             .execute()
             .value
@@ -156,7 +182,7 @@ public actor SupabaseAgentAccessRepository: AgentAccessRepository {
 
     public func teamAgentCount(teamID: String) async throws -> Int {
         let rows: [AgentIDOnlyRow] = try await client
-            .from("actors")
+            .from("actor_directory")
             .select("id")
             .eq("team_id", value: teamID)
             .eq("actor_type", value: "agent")
@@ -246,15 +272,33 @@ private struct AgentKindRow: Decodable, Sendable {
     let id: String
     let agentKind: String
     let deviceID: String?
+    let visibility: String
+    let ownerMemberID: String
     enum CodingKeys: String, CodingKey {
         case id
         case agentKind = "agent_kind"
         case deviceID = "device_id"
+        case visibility
+        case ownerMemberID = "owner_member_id"
     }
 }
 
 private struct AgentIDOnlyRow: Decodable, Sendable {
     let id: String
+}
+
+private struct AgentOwnerRow: Decodable, Sendable {
+    let id: String
+    let ownerMemberID: String
+    enum CodingKeys: String, CodingKey {
+        case id
+        case ownerMemberID = "owner_member_id"
+    }
+}
+
+private struct AgentIDRPCParams: Encodable, Sendable {
+    let agentID: String
+    enum CodingKeys: String, CodingKey { case agentID = "p_agent_id" }
 }
 
 private struct HumanActorRow: Decodable, Sendable {

@@ -72,9 +72,13 @@ private actor InMemoryAgentAccessRepository: AgentAccessRepository {
         authorizedHumans
     }
 
-    func canManageAuthorizedHumans(teamID: String) async throws -> Bool {
+    func canManageAuthorizedHumans(agentID: String) async throws -> Bool {
         canManageValue
     }
+
+    func shareAgentToTeam(agentID: String) async throws {}
+
+    func makeAgentPersonal(agentID: String) async throws {}
 
     func deviceID(for agentID: String) async throws -> String? {
         nil

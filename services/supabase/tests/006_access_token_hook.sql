@@ -274,10 +274,14 @@ begin
     (v_team_b, 'mix-b-' || left(v_team_b::text,8), 'Mix B');
   insert into public.actors (id, team_id, actor_type, display_name, user_id) values
     (v_act_m, v_team_a, 'member', 'Member in A', v_user),
+    ('10000000-0000-0000-0000-0000000000bb', v_team_b, 'member', 'Owner in B', null),
     (v_act_a, v_team_b, 'agent',  'Agent in B',  v_user);
   insert into public.members (id, status) values (v_act_m, 'active');
-  insert into public.agents  (id, agent_kind, status) values (v_act_a, 'claude', 'active');
+  insert into public.members (id, status) values ('10000000-0000-0000-0000-0000000000bb', 'active');
   insert into public.team_members (team_id, member_id, role) values (v_team_a, v_act_m, 'owner');
+  insert into public.team_members (team_id, member_id, role) values (v_team_b, '10000000-0000-0000-0000-0000000000bb', 'owner');
+  insert into public.agents  (id, owner_member_id, visibility, agent_kind, status)
+    values (v_act_a, '10000000-0000-0000-0000-0000000000bb', 'team', 'claude', 'active');
 
   v_out := public.amux_access_token_hook(
     jsonb_build_object(

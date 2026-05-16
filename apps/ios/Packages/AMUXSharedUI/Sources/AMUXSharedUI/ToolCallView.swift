@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import AMUXCore
 
@@ -11,8 +12,9 @@ public enum ToolIcons {
         if n.contains("write") || n.contains("edit") { return "doc.text" }
         if n.contains("read") { return "doc" }
         if n.contains("bash") || n.contains("shell") || n.contains("terminal") { return "terminal" }
-        if n.contains("search") || n.contains("grep") || n.contains("glob") { return "magnifyingglass" }
-        if n.contains("idea") || n.contains("task") { return "lightbulb" }
+        if n.contains("search") || n.contains("grep") || n.contains("glob") || n.contains("find") { return "magnifyingglass" }
+        if n.contains("skill") || n.contains("command") { return "wand.and.stars" }
+        if n.contains("idea") || n.contains("task") || n.contains("todo") { return "lightbulb" }
         if n.contains("web") { return "globe" }
         return "wrench"
     }
@@ -22,6 +24,81 @@ public enum ToolIcons {
             return String(name[range.upperBound...].prefix(30))
         }
         return String(name.prefix(30))
+    }
+}
+
+public enum ToolDisplay {
+    public static func summary(for description: String) -> String? {
+        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "{}", trimmed != "null" else { return nil }
+
+        if let object = parseJSON(trimmed) {
+            return summarizeJSON(object)
+        }
+        return truncate(trimmed.replacingOccurrences(of: "\n", with: " "), to: 80)
+    }
+
+    private static func parseJSON(_ text: String) -> Any? {
+        guard let data = text.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data)
+    }
+
+    private static func summarizeJSON(_ object: Any) -> String? {
+        if let dict = object as? [String: Any] {
+            let preferred = [
+                "file_path", "filepath", "path", "file", "filename",
+                "query", "pattern", "q", "command", "cmd",
+                "skill", "skill_name", "name", "url"
+            ]
+            var pairs: [(String, String)] = []
+            for key in preferred {
+                if let value = dict[key], let rendered = renderScalar(value) {
+                    pairs.append((displayKey(key), rendered))
+                }
+            }
+            if pairs.isEmpty {
+                pairs = dict.keys.sorted().compactMap { key in
+                    guard let rendered = renderScalar(dict[key] as Any) else { return nil }
+                    return (displayKey(key), rendered)
+                }
+            }
+            guard !pairs.isEmpty else { return nil }
+            return pairs.prefix(2)
+                .map { "\($0.0): \(truncate($0.1, to: 48))" }
+                .joined(separator: " · ")
+        }
+        if let array = object as? [Any] {
+            return "\(array.count) items"
+        }
+        return renderScalar(object).map { truncate($0, to: 80) }
+    }
+
+    private static func renderScalar(_ value: Any) -> String? {
+        switch value {
+        case let value as String:
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed.replacingOccurrences(of: "\n", with: " ")
+        case let value as NSNumber:
+            return value.stringValue
+        case let value as [Any]:
+            return "\(value.count) items"
+        case let value as [String: Any]:
+            if let path = value["path"] ?? value["file_path"] ?? value["name"] {
+                return renderScalar(path)
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    private static func displayKey(_ key: String) -> String {
+        key.replacingOccurrences(of: "_", with: " ")
+    }
+
+    private static func truncate(_ text: String, to limit: Int) -> String {
+        guard text.count > limit else { return text }
+        return String(text.prefix(limit - 1)) + "…"
     }
 }
 
@@ -35,8 +112,11 @@ public struct ToolCallView: View {
     @State private var isExpanded = false
 
     private var hasDetails: Bool {
-        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && trimmed != "{}" && trimmed != "null"
+        ToolDisplay.summary(for: description) != nil
+    }
+
+    private var detailSummary: String? {
+        ToolDisplay.summary(for: description)
     }
 
     public init(toolName: String, toolId: String, description: String, status: String) {
@@ -52,16 +132,19 @@ public struct ToolCallView: View {
                 if hasDetails { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }
             } label: {
                 HStack(spacing: 6) {
-                    if hasDetails {
+                    ZStack {
                         Image(systemName: "chevron.right")
                             .font(.caption2)
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
                             .foregroundStyle(.secondary)
+                            .opacity(hasDetails ? 1 : 0)
                     }
+                    .frame(width: 14)
 
                     Image(systemName: ToolIcons.icon(for: toolName))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .frame(width: 16)
 
                     Text(ToolIcons.shortName(for: toolName.isEmpty ? toolId : toolName))
                         .font(.caption)
@@ -69,8 +152,8 @@ public struct ToolCallView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
-                    if hasDetails && !isExpanded {
-                        Text(description)
+                    if let detailSummary, !isExpanded {
+                        Text(detailSummary)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -80,6 +163,7 @@ public struct ToolCallView: View {
                     Spacer()
 
                     statusIndicator
+                        .frame(width: 16)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
@@ -140,8 +224,11 @@ public struct CompactToolLine: View {
     private var succeeded: Bool { event.success != false }
 
     private var hasDetails: Bool {
-        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && trimmed != "{}" && trimmed != "null"
+        ToolDisplay.summary(for: description) != nil
+    }
+
+    private var detailSummary: String? {
+        ToolDisplay.summary(for: description)
     }
 
     public init(event: AgentEvent) {
@@ -154,15 +241,25 @@ public struct CompactToolLine: View {
                 Image(systemName: succeeded ? "checkmark" : "xmark")
                     .font(.system(size: 9))
                     .foregroundStyle(succeeded ? .green : .red)
+                    .frame(width: 14)
 
                 Image(systemName: ToolIcons.icon(for: toolName))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                    .frame(width: 16)
 
                 Text(ToolIcons.shortName(for: toolName.isEmpty ? (event.toolId ?? "") : toolName))
                     .font(.caption)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
+
+                if let detailSummary {
+                    Text(detailSummary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
 
                 Spacer()
             }

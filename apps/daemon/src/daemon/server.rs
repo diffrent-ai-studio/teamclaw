@@ -1524,23 +1524,49 @@ impl DaemonServer {
                     }
                 }
             }
-            subscriber::IncomingMessage::TeamclawNotify {
-                device_id: _,
-                payload,
-            } => match crate::proto::teamclaw::Notify::decode(payload.as_slice()) {
-                Ok(n) => {
-                    if n.event_type == "membership.refresh" && !n.refresh_hint.is_empty() {
-                        if let Some(tc) = &mut self.teamclaw {
-                            if let Err(err) = tc.refresh_membership_subscriptions().await {
-                                warn!(?err, session_id = %n.refresh_hint, "failed to refresh membership subscriptions after notify");
+            subscriber::IncomingMessage::TeamclawNotify { device_id, payload } => {
+                match crate::proto::teamclaw::Notify::decode(payload.as_slice()) {
+                    Ok(n) => {
+                        if n.event_type == "membership.refresh" && !n.refresh_hint.is_empty() {
+                            match self
+                                .supabase
+                                .fetch_session_with_participants(&n.refresh_hint)
+                                .await
+                            {
+                                Ok(snap) => {
+                                    if let Some(tc) = &mut self.teamclaw {
+                                        if let Err(err) = tc
+                                            .insert_session_from_supabase(
+                                                &snap.session,
+                                                &snap.participants,
+                                            )
+                                            .await
+                                        {
+                                            warn!(
+                                                ?err,
+                                                device_id = %device_id,
+                                                session_id = %n.refresh_hint,
+                                                "failed to ingest Supabase session after membership.refresh notify"
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(err) => {
+                                    warn!(
+                                        ?err,
+                                        device_id = %device_id,
+                                        session_id = %n.refresh_hint,
+                                        "failed to fetch Supabase session after membership.refresh notify"
+                                    );
+                                }
                             }
                         }
                     }
+                    Err(err) => {
+                        warn!(?err, "failed to decode device/notify payload as Notify");
+                    }
                 }
-                Err(err) => {
-                    warn!(?err, "failed to decode device/notify payload as Notify");
-                }
-            },
+            }
         }
     }
 

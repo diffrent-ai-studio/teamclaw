@@ -68,4 +68,6 @@ public protocol ActorRepository: Sendable {
     func claimInvite(token: String) async throws -> ClaimResult
     func heartbeat() async throws
     func removeActor(actorID: String) async throws
+    func uploadAvatar(actorID: String, imageData: Data, contentType: String) async throws -> String
+    func updateCurrentActorProfile(actorID: String, displayName: String, avatarURL: String?) async throws -> ActorRecord
 }

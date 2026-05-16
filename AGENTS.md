@@ -289,6 +289,21 @@ The user-facing rule is "适度区分 — 清晰但不抢眼". Concretely:
   panel, background, or selected? If you can't answer, you probably need a
   new token; raise it before adding ad-hoc colors.
 
+### Supabase schema changes
+
+- For any live Supabase schema/RLS/RPC change, use the configured Supabase
+  MCP first. Do not silently switch to `supabase db push`, `psql`, REST
+  calls, or ad-hoc scripts when the user asked for MCP.
+- If the Supabase MCP is not exposed in the current Codex tool list, or it is
+  configured but unusable because auth is unsupported/missing, say that
+  explicitly and stop for MCP setup instead of pretending the live database
+  was changed.
+- Keep the matching migration and pgTAP test under `services/supabase/` even
+  when applying the same SQL through MCP, so local and live schemas do not
+  diverge.
+- After applying via MCP, verify the changed columns/functions/policies with
+  a read-only MCP query before telling the user the live schema is updated.
+
 ---
 
 ## 7. Out-of-scope (yet)

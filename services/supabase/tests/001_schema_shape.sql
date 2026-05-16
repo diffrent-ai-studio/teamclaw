@@ -16,7 +16,7 @@ exception
 end;
 $$;
 
-select plan(58);
+select plan(61);
 
 select has_schema('app');
 select has_table('public', 'teams');
@@ -34,6 +34,7 @@ select has_table('public', 'messages');
 select has_table('public', 'agent_runtimes');
 
 select col_type_is('public', 'actors', 'last_active_at', 'timestamp with time zone');
+select col_type_is('public', 'actors', 'avatar_url', 'text');
 select col_type_is('public', 'members', 'id', 'uuid');
 select col_type_is('public', 'agents', 'id', 'uuid');
 select col_type_is('public', 'workspaces', 'agent_id', 'uuid');
@@ -101,9 +102,10 @@ values (
   'Scoped Agent'
 );
 
-insert into public.agents (id, agent_kind, status)
+insert into public.agents (id, owner_member_id, agent_kind, status)
 values (
   '10000000-0000-0000-0000-000000000003',
+  '10000000-0000-0000-0000-000000000002',
   'amuxd',
   'active'
 );
@@ -246,11 +248,16 @@ declare
 begin
   insert into public.teams (id, slug, name) values (v_team, 'dup-ws', 'dup-ws');
   insert into public.actors (id, team_id, actor_type, display_name)
-    values (v_agent_a, v_team, 'agent', 'a'),
+    values ('10000000-0000-0000-0000-0000000000aa', v_team, 'member', 'owner'),
+           (v_agent_a, v_team, 'agent', 'a'),
            (v_agent_b, v_team, 'agent', 'b');
-  insert into public.agents (id, agent_kind, status) values
-    (v_agent_a, 'claude', 'active'),
-    (v_agent_b, 'claude', 'active');
+  insert into public.members (id, status)
+    values ('10000000-0000-0000-0000-0000000000aa', 'active');
+  insert into public.team_members (team_id, member_id, role)
+    values (v_team, '10000000-0000-0000-0000-0000000000aa', 'owner');
+  insert into public.agents (id, owner_member_id, agent_kind, status) values
+    (v_agent_a, '10000000-0000-0000-0000-0000000000aa', 'claude', 'active'),
+    (v_agent_b, '10000000-0000-0000-0000-0000000000aa', 'claude', 'active');
 
   -- Same name on two different agents in the same team must now be allowed.
   insert into public.workspaces (team_id, agent_id, name) values (v_team, v_agent_a, 'amux');
@@ -281,6 +288,8 @@ select fk_ok('public', 'actors', 'invited_by_actor_id', 'public', 'actors', 'id'
 select has_table('public', 'team_invites');
 select hasnt_table('public', 'daemon_invites');
 select has_view('public',  'actor_directory');
+select has_column('public', 'actor_directory', 'avatar_url');
+select has_function('public', 'update_current_actor_profile', array['uuid', 'text', 'text']);
 select hasnt_column('public', 'members', 'user_id');
 select hasnt_column('public', 'agents',  'created_by_member_id');
 

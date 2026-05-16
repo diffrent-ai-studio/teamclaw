@@ -5,6 +5,7 @@ public enum ActorRepositoryError: LocalizedError {
     case missingDisplayName
     case missingAgentKind
     case missingTeamRole
+    case unsupportedAvatarContentType(String)
     case emptyResponse(String)
 
     public var errorDescription: String? {
@@ -12,6 +13,8 @@ public enum ActorRepositoryError: LocalizedError {
         case .missingDisplayName: return "Display name is required."
         case .missingAgentKind:   return "Agent kind is required."
         case .missingTeamRole:    return "Team role is required."
+        case .unsupportedAvatarContentType(let contentType):
+            return "Unsupported avatar content type: \(contentType)."
         case .emptyResponse(let fn): return "\(fn) returned no rows."
         }
     }
@@ -40,7 +43,7 @@ public actor SupabaseActorRepository: ActorRepository {
             .from("actor_directory")
             .select("""
                 id, team_id, actor_type, user_id, invited_by_actor_id,
-                display_name, last_active_at, created_at, updated_at,
+                display_name, avatar_url, last_active_at, created_at, updated_at,
                 member_status, team_role, agent_kind, agent_status
             """)
             .eq("team_id", value: teamID)
@@ -98,11 +101,74 @@ public actor SupabaseActorRepository: ActorRepository {
             .rpc("remove_team_actor", params: RemoveActorParams(actorID: actorID))
             .execute()
     }
+
+    public func uploadAvatar(actorID: String, imageData: Data, contentType: String) async throws -> String {
+        let ext: String
+        switch contentType.lowercased() {
+        case "image/jpeg", "image/jpg": ext = "jpg"
+        case "image/png": ext = "png"
+        case "image/webp": ext = "webp"
+        default: throw ActorRepositoryError.unsupportedAvatarContentType(contentType)
+        }
+
+        let stamp = Int(Date().timeIntervalSince1970)
+        let path = "\(actorID)/avatar-\(stamp).\(ext)"
+        try await client.storage
+            .from("avatars")
+            .upload(
+                path,
+                data: imageData,
+                options: FileOptions(
+                    cacheControl: "31536000",
+                    contentType: contentType,
+                    upsert: true
+                )
+            )
+
+        return try client.storage
+            .from("avatars")
+            .getPublicURL(path: path)
+            .absoluteString
+    }
+
+    public func updateCurrentActorProfile(
+        actorID: String,
+        displayName: String,
+        avatarURL: String?
+    ) async throws -> ActorRecord {
+        let displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !displayName.isEmpty else { throw ActorRepositoryError.missingDisplayName }
+
+        let rows: [ActorDirectoryRow] = try await client
+            .rpc("update_current_actor_profile", params: UpdateProfileParams(
+                actorID: actorID,
+                displayName: displayName,
+                avatarURL: avatarURL
+            ))
+            .execute()
+            .value
+
+        guard let row = rows.first else {
+            throw ActorRepositoryError.emptyResponse("update_current_actor_profile")
+        }
+        return row.record
+    }
 }
 
 private struct RemoveActorParams: Encodable {
     let actorID: String
     enum CodingKeys: String, CodingKey { case actorID = "p_actor_id" }
+}
+
+private struct UpdateProfileParams: Encodable {
+    let actorID: String
+    let displayName: String
+    let avatarURL: String?
+    enum CodingKeys: String, CodingKey {
+        case actorID = "p_actor_id"
+        case displayName = "p_display_name"
+        case avatarURL = "p_avatar_url"
+    }
 }
 
 // MARK: - Wire types
@@ -126,7 +192,7 @@ private struct ClaimInviteParams: Encodable {
 private struct ActorDirectoryRow: Decodable, Sendable {
     let id: String; let teamID: String; let actorType: String
     let userID: String?; let invitedByActorID: String?
-    let displayName: String; let lastActiveAt: Date?
+    let displayName: String; let avatarURL: String?; let lastActiveAt: Date?
     let createdAt: Date; let updatedAt: Date
     let memberStatus: String?; let teamRole: String?
     let agentKind: String?;   let agentStatus: String?
@@ -135,7 +201,7 @@ private struct ActorDirectoryRow: Decodable, Sendable {
         case id
         case teamID = "team_id", actorType = "actor_type", userID = "user_id"
         case invitedByActorID = "invited_by_actor_id"
-        case displayName = "display_name", lastActiveAt = "last_active_at"
+        case displayName = "display_name", avatarURL = "avatar_url", lastActiveAt = "last_active_at"
         case createdAt = "created_at", updatedAt = "updated_at"
         case memberStatus = "member_status", teamRole = "team_role"
         case agentKind = "agent_kind", agentStatus = "agent_status"
@@ -144,7 +210,7 @@ private struct ActorDirectoryRow: Decodable, Sendable {
         ActorRecord(
             id: id, teamID: teamID, actorType: actorType,
             userID: userID, invitedByActorID: invitedByActorID,
-            displayName: displayName, lastActiveAt: lastActiveAt,
+            displayName: displayName, avatarURL: avatarURL, lastActiveAt: lastActiveAt,
             createdAt: createdAt, updatedAt: updatedAt,
             memberStatus: memberStatus, teamRole: teamRole,
             agentKind: agentKind, agentStatus: agentStatus

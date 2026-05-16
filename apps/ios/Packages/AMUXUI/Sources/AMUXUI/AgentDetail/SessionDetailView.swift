@@ -104,15 +104,11 @@ public struct SessionDetailView: View {
                 // robust and matches the user's expectation that pulling
                 // the chat reveals more chat.
                 .scrollDismissesKeyboard(.immediately)
-                // Anchor first layout at the bottom natively so a session
-                // with hundreds of messages doesn't visibly scroll through
-                // the whole history on appear. Previously we called
-                // `proxy.scrollTo("bottom")` in `.onAppear`, which animated
-                // a scroll across the entire LazyVStack while rows were
-                // still being realized — felt frantic. `defaultScrollAnchor`
-                // (iOS 17+) skips that traversal: layout starts pinned to
-                // the bottom and content above is reachable by dragging up.
-                .defaultScrollAnchor(.bottom)
+                // Start long histories at the bottom without changing the
+                // alignment of short threads. The unscoped overload also
+                // bottom-aligns content smaller than the viewport, which
+                // makes a one-message session sit above the composer.
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
                 .onChange(of: viewModel.feedItems.count) {
                     // New user prompts, new agent replies, and new active
                     // stream cards all change feedItems.count — that's the

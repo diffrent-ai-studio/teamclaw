@@ -56,12 +56,13 @@ insert into public.workspaces (id, team_id, created_by_member_id, agent_id, name
 values
   ('30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 'amux', '/workspaces/amux');
 
-insert into public.agents (id, default_workspace_id, created_by_member_id, agent_kind, capabilities, status)
+insert into public.agents (id, default_workspace_id, owner_member_id, visibility, agent_kind, capabilities, status)
 values
   (
     '20000000-0000-0000-0000-000000000001',
     '30000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000001',
+    'team',
     'amuxd',
     '{"supported_backends":["claude","codex","opencode"]}'::jsonb,
     'active'

@@ -10,7 +10,7 @@ import SwiftData
 /// 2. Introduce a new schema version that points at the live models.
 /// 3. Register a migration stage for the transition.
 public enum AMUXSchemaV1: VersionedSchema {
-    public static var versionIdentifier: Schema.Version { Schema.Version(1, 10, 0) }
+    public static var versionIdentifier: Schema.Version { Schema.Version(1, 11, 0) }
 
     public static var models: [any PersistentModel.Type] {
         [

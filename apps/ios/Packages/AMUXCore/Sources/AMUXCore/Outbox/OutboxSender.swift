@@ -173,6 +173,13 @@ public actor OutboxSender {
         let ctx = ModelContext(modelContainer)
         guard let row = ctx.model(for: rowID) as? OutboxMessage else { return }
         let msgPrefix = String(messageID.prefix(8))
+        guard row.state == .pending else {
+            outboxLogger.notice("outbox attempt skipped msgId=\(msgPrefix, privacy: .public) state=\(row.stateRaw, privacy: .public)")
+            return
+        }
+        if let next = row.nextAttemptAt, next > Date() {
+            return
+        }
 
         // 1. Mark inFlight so a UI bound to state shows the spinner
         //    while the publish round-trip is in flight. We re-fetch

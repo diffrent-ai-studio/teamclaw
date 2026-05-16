@@ -116,8 +116,8 @@ public final class TeamclawService {
             // Per-daemon notify+rpcRes subscriptions. Re-synced on agents-store
             // mutations so newly-resolved daemons start receiving notify and
             // RPC responses without a manual reconnect.
-            await self.resyncDaemonSubscriptions()
             await self.rehydrateForegroundSessionSubscriptions(on: mqtt)
+            await self.resyncDaemonSubscriptions()
 
             self.agentObserverTask = Task { [weak self] in
                 guard let self else { return }
@@ -665,6 +665,10 @@ public final class TeamclawService {
             ))
             teamclawLogger.notice("sendMessage[\(sidPrefix, privacy: .public)] msgId=\(msgIdPrefix, privacy: .public) supabase persist OK")
         } catch {
+            if isDuplicateMessageKeyError(error) {
+                teamclawLogger.notice("sendMessage[\(sidPrefix, privacy: .public)] msgId=\(msgIdPrefix, privacy: .public) supabase persist duplicate; treating as OK")
+                return
+            }
             teamclawLogger.error("sendMessage[\(sidPrefix, privacy: .public)] msgId=\(msgIdPrefix, privacy: .public) supabase persist FAILED: \(String(describing: error), privacy: .public)")
             throw SendMessageError.persistFailed(String(describing: error))
         }
@@ -700,8 +704,17 @@ public final class TeamclawService {
             ))
             teamclawLogger.notice("sendMessage[\(sidPrefix, privacy: .public)] msgId=\(msgIdPrefix, privacy: .public) supabase persist OK")
         } catch {
+            if isDuplicateMessageKeyError(error) {
+                teamclawLogger.notice("sendMessage[\(sidPrefix, privacy: .public)] msgId=\(msgIdPrefix, privacy: .public) supabase persist duplicate; treating as OK")
+                return
+            }
             teamclawLogger.warning("sendMessage[\(sidPrefix, privacy: .public)] msgId=\(msgIdPrefix, privacy: .public) supabase persist FAILED: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    private func isDuplicateMessageKeyError(_ error: Error) -> Bool {
+        let description = String(describing: error)
+        return description.contains("23505") && description.contains("messages_pkey")
     }
 
     public func makeCreateSessionRequest(

@@ -45,7 +45,9 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["teamclaw"]
+        "schemes": [
+          "teamclaw"
+        ]
       }
     },
     "shell": {

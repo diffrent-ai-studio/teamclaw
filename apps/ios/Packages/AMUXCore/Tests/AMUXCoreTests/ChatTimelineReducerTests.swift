@@ -357,6 +357,41 @@ struct ReducerHistoryCrossDedupeTests {
         #expect(state.entries[0].supabaseMessageID == "sb-1")
     }
 
+    @Test("history seed merges local prompt by outbox id before content")
+    func historyMergesLocalPromptByOutboxId() {
+        var state = TimelineState(entries: [
+            TimelineEntry(
+                eventType: "user_prompt",
+                text: "same",
+                isComplete: true,
+                senderActorID: "user-1",
+                timestamp: Date(timeIntervalSince1970: 1),
+                outboxMessageID: "msg-old"
+            ),
+            TimelineEntry(
+                eventType: "user_prompt",
+                text: "same",
+                isComplete: true,
+                senderActorID: "user-1",
+                timestamp: Date(timeIntervalSince1970: 2),
+                outboxMessageID: "msg-new"
+            )
+        ])
+
+        ChatTimelineReducer.apply(
+            .historyMessage(HistoryInput(supabaseMessageID: "msg-new",
+                                         kind: .userPrompt,
+                                         senderActorID: "user-1",
+                                         content: "same",
+                                         createdAt: Date(timeIntervalSince1970: 3))),
+            to: &state
+        )
+
+        #expect(state.entries.count == 2)
+        #expect(state.entries[0].supabaseMessageID == nil)
+        #expect(state.entries[1].supabaseMessageID == "msg-new")
+    }
+
     @Test("re-seeding the same supabase id is idempotent")
     func reSeedIdempotent() {
         var state = TimelineState()

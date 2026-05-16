@@ -102,6 +102,10 @@ public final class SessionDetailViewModel {
     /// mention; all agents will receive the message (broadcast semantics on
     /// the daemon side). Populated by bootstrapChips / toggleAgentChip.
     public private(set) var agentChipSelection: Set<String> = []
+    /// Once the user explicitly changes the chip bar or picks an @ mention,
+    /// refreshes must preserve that choice. Otherwise the single-agent
+    /// auto-light rule reselects the agent immediately after the user clears it.
+    private var userEditedAgentChipSelection = false
     /// Ordered list of agent participants shown in the chip bar. Populated
     /// by bootstrapChips from the session's participant list + runtime states.
     public private(set) var agentChipParticipants: [AgentChipParticipant] = []
@@ -229,6 +233,57 @@ public final class SessionDetailViewModel {
         feedItems = buildFeedItems(events, streamingAgentIDs: streamingAgentSet)
     }
 
+    private func sortEventsForDisplay() {
+        events.sort {
+            if $0.timestamp != $1.timestamp { return $0.timestamp < $1.timestamp }
+            if $0.sequence != $1.sequence { return $0.sequence < $1.sequence }
+            return $0.id < $1.id
+        }
+        rebuildIndexes()
+    }
+
+    private func pruneDuplicateRuntimeEvents(modelContext: ModelContext) {
+        struct Candidate {
+            let index: Int
+            let score: Int
+        }
+
+        var bestByKey: [String: Candidate] = [:]
+        var duplicateIndexes = Set<Int>()
+
+        for (index, event) in events.enumerated() {
+            guard event.sequence > 0, event.eventType != "user_prompt" else { continue }
+            let key = [
+                String(event.sequence),
+                event.eventType,
+                event.senderActorID ?? "",
+                event.toolId ?? "",
+                event.text ?? ""
+            ].joined(separator: "\u{1f}")
+            let score = (event.supabaseMessageId == nil ? 0 : 4)
+                + (event.isComplete ? 2 : 0)
+                + (event.success == nil ? 0 : 1)
+
+            if let current = bestByKey[key] {
+                if score > current.score {
+                    duplicateIndexes.insert(current.index)
+                    bestByKey[key] = Candidate(index: index, score: score)
+                } else {
+                    duplicateIndexes.insert(index)
+                }
+            } else {
+                bestByKey[key] = Candidate(index: index, score: score)
+            }
+        }
+
+        guard !duplicateIndexes.isEmpty else { return }
+        for index in duplicateIndexes.sorted(by: >) {
+            modelContext.delete(events[index])
+            events.remove(at: index)
+        }
+        try? modelContext.save()
+    }
+
     // MARK: - Chip-bar bootstrap + selection
 
     /// Populate chip participants from the session's participant list and
@@ -268,6 +323,7 @@ public final class SessionDetailViewModel {
 
     /// Toggle the selected state of one chip. Called from the chip-bar tap handler.
     public func toggleAgentChip(_ agentID: String) {
+        userEditedAgentChipSelection = true
         if agentChipSelection.contains(agentID) { agentChipSelection.remove(agentID) }
         else { agentChipSelection.insert(agentID) }
     }
@@ -277,6 +333,7 @@ public final class SessionDetailViewModel {
     /// chip-bar toolbar above the composer remains the surface for turning
     /// agents off.
     public func lightAgentChip(_ agentID: String) {
+        userEditedAgentChipSelection = true
         agentChipSelection.insert(agentID)
     }
 
@@ -343,6 +400,7 @@ public final class SessionDetailViewModel {
 
     /// Replace the entire chip selection. Used by Task 16 view integration.
     public func setAgentChipSelection(_ selection: Set<String>) {
+        userEditedAgentChipSelection = true
         self.agentChipSelection = selection
     }
 
@@ -387,7 +445,10 @@ public final class SessionDetailViewModel {
         // chip selection). If the bar is currently empty AND there's
         // exactly one agent in the session, pre-engage them so the
         // first message routes without the user manually @-picking.
-        if agentChipSelection.isEmpty, snapshot.agents.count == 1, let only = snapshot.agents.first {
+        if !userEditedAgentChipSelection,
+           agentChipSelection.isEmpty,
+           snapshot.agents.count == 1,
+           let only = snapshot.agents.first {
             agentChipSelection = [only.id]
         }
 
@@ -925,10 +986,11 @@ public final class SessionDetailViewModel {
         let scope = eventScopeKey
         let descriptor = FetchDescriptor<AgentEvent>(
             predicate: #Predicate { $0.agentId == scope },
-            sortBy: [SortDescriptor(\.sequence)]
+            sortBy: [SortDescriptor(\.timestamp), SortDescriptor(\.sequence)]
         )
         events = (try? modelContext.fetch(descriptor)) ?? []
-        rebuildIndexes()
+        pruneDuplicateRuntimeEvents(modelContext: modelContext)
+        sortEventsForDisplay()
         // Rehydrate the reducer's state from persisted events so
         // future applies dedup against prior session history.
         rehydrateTimelineStateFromEvents()
@@ -989,8 +1051,9 @@ public final class SessionDetailViewModel {
             return
         }
         let subscribeTopic = MQTTTopics.sessionLive(teamID: teamID, sessionID: session.sessionId)
-        task = Task { [weak self] in
-            guard let self else { return }
+        let mqtt = self.mqtt
+        let hub = self.hub
+        task = Task { @MainActor [weak self, mqtt, hub, subscribeTopic, modelContext] in
             // Outer loop: each iteration represents a fresh MQTT connection lifecycle.
             // When the inner stream finishes (e.g. after disconnect clears continuations),
             // we loop back, wait for reconnect, resubscribe, and trigger an incremental
@@ -1026,10 +1089,11 @@ public final class SessionDetailViewModel {
                 // double-display can happen for sessions that have BOTH
                 // Supabase rows AND daemon history; acceptable trade-off
                 // until we add cross-source content dedupe.
-                await self.seedFromSupabaseMessages(modelContext: modelContext)
-                try? await self.requestIncrementalSync(modelContext: modelContext)
+                await self?.seedFromSupabaseMessages(modelContext: modelContext)
+                try? await self?.requestIncrementalSync(modelContext: modelContext)
 
                 for await msg in stream {
+                    guard let self else { return }
                     guard let live = try? Teamclaw_LiveEventEnvelope(serializedBytes: msg.payload)
                     else { continue }
 
@@ -1392,8 +1456,7 @@ public final class SessionDetailViewModel {
                 try? await requestHistoryPage(afterSequence: batch.nextAfterSequence)
             }
         } else {
-            events.sort { $0.sequence < $1.sequence }
-            rebuildIndexes()
+            sortEventsForDisplay()
             recomputeGroups()
             syncGeneration &+= 1
             isSyncing = false
@@ -1657,6 +1720,11 @@ public final class SessionDetailViewModel {
     private func applyTimelineInput(_ input: TimelineInput,
                                     modelContext: ModelContext) -> Bool {
         ChatTimelineReducer.apply(input, to: &timelineState)
+        timelineState.entries.sort {
+            if $0.timestamp != $1.timestamp { return $0.timestamp < $1.timestamp }
+            if $0.sequence != $1.sequence { return $0.sequence < $1.sequence }
+            return $0.id < $1.id
+        }
         // Mirror the reducer's per-agent buffers + slash commands so
         // the view's existing @Observable bindings stay correct.
         streamingTextByAgent = timelineState.streamingTextByAgent
@@ -1705,7 +1773,8 @@ public final class SessionDetailViewModel {
                 timestamp: event.timestamp,
                 model: event.model,
                 supabaseMessageID: event.supabaseMessageId,
-                outboxMessageID: event.outboxMessageID
+                outboxMessageID: event.outboxMessageID,
+                turnID: event.turnID
             )
         }
         timelineState.streamingTextByAgent = [:]

@@ -1,10 +1,13 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
+import UIKit
 import AMUXSharedUI
 import AMUXCore
 
 public struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     /// Injected by AMUXApp's `ContentView` via `.environment(onboarding)`.
     /// Read at this scope to gate the anonymous-upgrade banner. Marked
     /// optional so the (unused) macOS shell or any host that forgets to
@@ -20,6 +23,7 @@ public struct SettingsView: View {
 
     @State private var showSignOutConfirm = false
     @State private var showUpgradeSheet = false
+    @State private var showEditProfileSheet = false
 
     /// Cached actor row for the current member, used to source the
     /// identity-card display name without an extra RPC.
@@ -60,10 +64,7 @@ public struct SettingsView: View {
     }
 
     private var initials: String {
-        let parts = displayName
-            .split(whereSeparator: { $0.isWhitespace })
-            .compactMap { $0.first }
-        return String(parts.prefix(2)).uppercased()
+        ProfileAvatarView.initials(for: displayName)
     }
 
     public var body: some View {
@@ -103,6 +104,21 @@ public struct SettingsView: View {
                     UpgradeAccountSheet(coordinator: onboarding)
                 }
             }
+            .sheet(isPresented: $showEditProfileSheet) {
+                if let actorID = currentActorID {
+                    EditProfileSheet(
+                        actorID: actorID,
+                        initialDisplayName: displayName == "—" ? "" : displayName,
+                        initialAvatarURL: currentActor?.avatarURL,
+                        teamName: activeTeam?.name,
+                        onSaved: { record in
+                            ActorCacheSynchronizer.upsert(record, modelContext: modelContext)
+                            try? modelContext.save()
+                        }
+                    )
+                    .presentationDetents([.medium])
+                }
+            }
             .task {
                 await loadTeam()
                 await connectedAgentsStore?.reload()
@@ -114,41 +130,49 @@ public struct SettingsView: View {
     // MARK: - Identity card
 
     private var identityCard: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle().fill(Color.amux.cinnabar)
-                Text(initials.isEmpty ? "·" : initials)
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color.amux.paper)
-                    .tracking(-0.4)
-            }
-            .frame(width: 56, height: 56)
+        Button {
+            guard currentActorID != nil else { return }
+            showEditProfileSheet = true
+        } label: {
+            HStack(spacing: 14) {
+                ProfileAvatarView(
+                    displayName: displayName,
+                    avatarURL: currentActor?.avatarURL,
+                    size: 56,
+                    fontSize: 20
+                )
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(displayName)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color.amux.onyx)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(displayName)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color.amux.onyx)
+                        .lineLimit(1)
 
-                if let team = activeTeam {
-                    HStack(spacing: 6) {
-                        roleBadge(team.role)
-                        Text("Team · \(team.name)")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color.amux.basalt.opacity(0.75))
-                            .lineLimit(1)
+                    if let team = activeTeam {
+                        HStack(spacing: 6) {
+                            roleBadge(team.role)
+                            Text("Team · \(team.name)")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color.amux.basalt.opacity(0.75))
+                                .lineLimit(1)
+                        }
+                    } else if onboarding?.isAnonymous == true {
+                        Text("Anonymous session")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color.amux.basalt)
                     }
-                } else if onboarding?.isAnonymous == true {
-                    Text("Anonymous session")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.amux.basalt)
                 }
+                Spacer(minLength: 8)
+                Image(systemName: "pencil")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.amux.basalt.opacity(0.75))
             }
-            Spacer(minLength: 8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(SettingsCardBackground())
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(SettingsCardBackground())
+        .buttonStyle(.plain)
+        .disabled(currentActorID == nil)
         .padding(.horizontal, 16)
     }
 
@@ -201,15 +225,16 @@ public struct SettingsView: View {
 
     private var connectedAgentsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SettingsSectionLabel("Connected Agents")
+            SettingsSectionLabel("Connected personal agents")
             VStack(spacing: 0) {
                 if let store = connectedAgentsStore {
-                    if store.agents.isEmpty && !store.isLoading {
+                    let personalAgents = store.agents.filter { $0.visibility == "personal" }
+                    if personalAgents.isEmpty && !store.isLoading {
                         emptyAgentsRow
                     } else {
-                        ForEach(Array(store.agents.enumerated()), id: \.element.id) { idx, agent in
+                        ForEach(Array(personalAgents.enumerated()), id: \.element.id) { idx, agent in
                             connectedAgentRow(agent)
-                            if idx != store.agents.count - 1 {
+                            if idx != personalAgents.count - 1 {
                                 Rectangle().fill(Color.amux.hairline).frame(height: 0.5)
                                     .padding(.leading, 14)
                             }
@@ -237,7 +262,7 @@ public struct SettingsView: View {
 
     private func connectedAgentRow(_ agent: ConnectedAgent) -> some View {
         let dotColor: Color = agent.isOnline ? Color.amux.sage : Color.amux.slate
-        let metaParts: [String] = [agent.agentKind, agent.permissionLevel]
+        let metaParts: [String] = [agent.agentKind, agent.permissionLevel, agent.visibility]
             .filter { !$0.isEmpty }
         let meta = metaParts.joined(separator: " · ")
         return HStack(spacing: 10) {
@@ -257,6 +282,13 @@ public struct SettingsView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
+            if agent.isOwner {
+                Button("Share to team") {
+                    Task { await connectedAgentsStore?.shareToTeam(agentID: agent.id) }
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: 13, weight: .semibold))
+            }
             Text(agent.isOnline ? "Online" : "Offline")
                 .font(.system(size: 13))
                 .foregroundStyle(dotColor)
@@ -270,7 +302,7 @@ public struct SettingsView: View {
             Text("No agents connected to you yet.")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color.amux.onyx)
-            Text("Ask a teammate with admin access to authorize one, or invite a new daemon from the Actors tab.")
+            Text("Personal agents registered from your devices will appear here.")
                 .font(.footnote)
                 .foregroundStyle(Color.amux.basalt)
         }
@@ -389,6 +421,233 @@ public struct SettingsView: View {
         } catch {
             teamLoadError = error.localizedDescription
         }
+    }
+}
+
+private struct EditProfileSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let actorID: String
+    let initialDisplayName: String
+    let initialAvatarURL: String?
+    let teamName: String?
+    let onSaved: (ActorRecord) -> Void
+
+    @State private var displayName: String
+    @State private var avatarURL: String?
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var selectedAvatarImage: UIImage?
+    @State private var selectedAvatarData: Data?
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    init(
+        actorID: String,
+        initialDisplayName: String,
+        initialAvatarURL: String?,
+        teamName: String?,
+        onSaved: @escaping (ActorRecord) -> Void
+    ) {
+        self.actorID = actorID
+        self.initialDisplayName = initialDisplayName
+        self.initialAvatarURL = initialAvatarURL
+        self.teamName = teamName
+        self.onSaved = onSaved
+        _displayName = State(initialValue: initialDisplayName)
+        _avatarURL = State(initialValue: initialAvatarURL)
+    }
+
+    private var trimmedName: String {
+        displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSave: Bool {
+        !trimmedName.isEmpty && !isSaving
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 18) {
+                VStack(spacing: 10) {
+                    avatarPreview
+                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                        Text("Change Photo")
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundStyle(Color.amux.cinnabar)
+                    }
+                    .disabled(isSaving)
+
+                    if let teamName {
+                        Text(teamName)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.amux.basalt.opacity(0.75))
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.top, 10)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Display Name")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(0.6)
+                        .foregroundStyle(Color.amux.basalt.opacity(0.7))
+                    TextField("Your name", text: $displayName)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .font(.system(size: 16))
+                        .foregroundStyle(Color.amux.onyx)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 11)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.amux.paper)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(Color.amux.hairline, lineWidth: 0.5)
+                                )
+                        )
+                }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(Color.amux.cinnabarDeep)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+            .background(Color.amux.mist.ignoresSafeArea())
+            .navigationTitle("Edit Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSaving ? "Saving" : "Save") {
+                        Task { await save() }
+                    }
+                    .disabled(!canSave)
+                }
+            }
+            .onChange(of: selectedPhoto) { _, item in
+                Task { await loadPhoto(item) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var avatarPreview: some View {
+        if let selectedAvatarImage {
+            Image(uiImage: selectedAvatarImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 86, height: 86)
+                .clipShape(Circle())
+        } else {
+            ProfileAvatarView(
+                displayName: trimmedName.isEmpty ? initialDisplayName : trimmedName,
+                avatarURL: avatarURL,
+                size: 86,
+                fontSize: 30
+            )
+        }
+    }
+
+    @MainActor
+    private func loadPhoto(_ item: PhotosPickerItem?) async {
+        guard let item else { return }
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data),
+                  let jpeg = image.jpegData(compressionQuality: 0.82) else {
+                errorMessage = "Could not load that image."
+                return
+            }
+            selectedAvatarImage = image
+            selectedAvatarData = jpeg
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func save() async {
+        guard canSave else { return }
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+
+        do {
+            let repo = try SupabaseActorRepository()
+            var nextAvatarURL = avatarURL
+            if let selectedAvatarData {
+                nextAvatarURL = try await repo.uploadAvatar(
+                    actorID: actorID,
+                    imageData: selectedAvatarData,
+                    contentType: "image/jpeg"
+                )
+            }
+            let record = try await repo.updateCurrentActorProfile(
+                actorID: actorID,
+                displayName: trimmedName,
+                avatarURL: nextAvatarURL
+            )
+            onSaved(record)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct ProfileAvatarView: View {
+    let displayName: String
+    let avatarURL: String?
+    let size: CGFloat
+    let fontSize: CGFloat
+
+    static func initials(for displayName: String) -> String {
+        let parts = displayName
+            .split(whereSeparator: { $0.isWhitespace })
+            .compactMap { $0.first }
+        return String(parts.prefix(2)).uppercased()
+    }
+
+    private var initials: String {
+        Self.initials(for: displayName)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Color.amux.cinnabar)
+            if let avatarURL, let url = URL(string: avatarURL) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    default:
+                        initialsText
+                    }
+                }
+            } else {
+                initialsText
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+    }
+
+    private var initialsText: some View {
+        Text(initials.isEmpty ? "·" : initials)
+            .font(.system(size: fontSize, weight: .bold))
+            .foregroundStyle(Color.amux.paper)
+            .tracking(-0.4)
     }
 }
 

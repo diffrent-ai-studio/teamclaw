@@ -415,11 +415,15 @@ struct ThinkingBlockView: View {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .font(.caption2)
+                    ZStack {
+                        Image(systemName: "chevron.right")
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                            .font(.caption2)
+                    }
+                    .frame(width: 14)
                     Image(systemName: "brain")
                         .font(.caption)
+                        .frame(width: 16)
                     Text("Thinking")
                         .font(.caption)
                         .fontWeight(.medium)

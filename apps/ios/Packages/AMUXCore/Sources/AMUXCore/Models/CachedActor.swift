@@ -9,6 +9,7 @@ public final class CachedActor {
     public var userId: String?
     public var invitedByActorId: String?
     public var displayName: String
+    public var avatarURL: String?
     public var lastActiveAt: Date?
     public var createdAt: Date
     public var updatedAt: Date
@@ -20,14 +21,14 @@ public final class CachedActor {
     public init(
         actorId: String, teamId: String, actorType: String,
         userId: String? = nil, invitedByActorId: String? = nil,
-        displayName: String, lastActiveAt: Date? = nil,
+        displayName: String, avatarURL: String? = nil, lastActiveAt: Date? = nil,
         createdAt: Date = .now, updatedAt: Date = .now,
         memberStatus: String? = nil, teamRole: String? = nil,
         agentKind: String? = nil, agentStatus: String? = nil
     ) {
         self.actorId = actorId; self.teamId = teamId; self.actorType = actorType
         self.userId = userId; self.invitedByActorId = invitedByActorId
-        self.displayName = displayName; self.lastActiveAt = lastActiveAt
+        self.displayName = displayName; self.avatarURL = avatarURL; self.lastActiveAt = lastActiveAt
         self.createdAt = createdAt; self.updatedAt = updatedAt
         self.memberStatus = memberStatus; self.teamRole = teamRole
         self.agentKind = agentKind; self.agentStatus = agentStatus

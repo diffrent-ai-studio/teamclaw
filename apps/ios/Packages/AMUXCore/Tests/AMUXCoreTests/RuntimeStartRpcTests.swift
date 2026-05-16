@@ -55,7 +55,7 @@ final class RuntimeStartRpcTests: XCTestCase {
     private func configuredService(
         mqtt: MQTTService,
         teamId: String = "team1"
-    ) throws -> TeamclawService {
+    ) async throws -> TeamclawService {
         let service = TeamclawService()
         let container = try makeModelContainer()
         service.configureRuntimeForTesting(
@@ -65,6 +65,8 @@ final class RuntimeStartRpcTests: XCTestCase {
             modelContainer: container,
             connectedAgentsStore: nil
         )
+        await service.hubRef?.start()
+        await Task.yield()
         return service
     }
 
@@ -79,7 +81,7 @@ final class RuntimeStartRpcTests: XCTestCase {
                 await captured.set(payload)
             }
         )
-        let service = try configuredService(mqtt: mqtt)
+        let service = try await configuredService(mqtt: mqtt)
 
         async let outcome = service.runtimeStartRpc(
             targetDeviceID: "dev-a",
@@ -130,7 +132,7 @@ final class RuntimeStartRpcTests: XCTestCase {
                 await captured.set(payload)
             }
         )
-        let service = try configuredService(mqtt: mqtt)
+        let service = try await configuredService(mqtt: mqtt)
 
         async let outcome = service.runtimeStartRpc(
             targetDeviceID: "dev-a",
@@ -177,7 +179,7 @@ final class RuntimeStartRpcTests: XCTestCase {
                 await captured.set(payload)
             }
         )
-        let service = try configuredService(mqtt: mqtt)
+        let service = try await configuredService(mqtt: mqtt)
 
         async let outcome = service.runtimeStartRpc(
             targetDeviceID: "dev-a",

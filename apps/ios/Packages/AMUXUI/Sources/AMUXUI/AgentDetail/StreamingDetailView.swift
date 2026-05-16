@@ -142,12 +142,9 @@ public struct StreamingDetailView: View {
                 }
                 .padding(.top, 8)
             }
-            // Anchor first layout at the bottom natively (iOS 17+) so a
-            // turn with many tool-use / thinking rows doesn't animate a
-            // scroll through the whole turn on appear. The previous
-            // `.onAppear { proxy.scrollTo(...) }` traversed the LazyVStack
-            // while rows were still realizing — looked frantic.
-            .defaultScrollAnchor(.bottom)
+            // Start long turns at the bottom without bottom-aligning short
+            // turns inside the viewport.
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
             .onChange(of: snapshot.events.count) {
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("detail-bottom", anchor: .bottom) }
             }

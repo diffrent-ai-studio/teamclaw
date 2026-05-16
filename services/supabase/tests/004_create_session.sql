@@ -15,9 +15,10 @@ begin
     (v_member, v_team, 'member', 'me'),
     (v_agent, v_team, 'agent', 'ci');
   insert into public.members (id, user_id, status) values (v_member, v_member, 'active');
-  insert into public.agents (id, agent_kind, status) values (v_agent, 'claude', 'active');
   insert into public.team_members (team_id, member_id, role)
     values (v_team, v_member, 'owner');
+  insert into public.agents (id, owner_member_id, visibility, agent_kind, status)
+    values (v_agent, v_member, 'team', 'claude', 'active');
   insert into public.ideas (id, team_id, created_by_actor_id, title, status)
     values (v_idea, v_team, v_member, 'fix bug', 'open');
 

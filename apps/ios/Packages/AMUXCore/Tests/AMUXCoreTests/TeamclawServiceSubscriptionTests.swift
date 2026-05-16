@@ -13,8 +13,10 @@ final class TeamclawServiceSubscriptionTests: XCTestCase {
         init(agents: [ConnectedAgent]) { self.agents = agents }
         func listConnectedAgents(teamID: String) async throws -> [ConnectedAgent] { agents }
         func listAuthorizedHumans(agentID: String) async throws -> [AgentAuthorizedHuman] { [] }
-        func canManageAuthorizedHumans(teamID: String) async throws -> Bool { false }
+        func canManageAuthorizedHumans(agentID: String) async throws -> Bool { false }
         func grantAuthorizedHuman(agentID: String, memberID: String, permissionLevel: String) async throws {}
+        func shareAgentToTeam(agentID: String) async throws {}
+        func makeAgentPersonal(agentID: String) async throws {}
         func deviceID(for agentID: String) async throws -> String? {
             agents.first(where: { $0.id == agentID })?.deviceID
         }
@@ -34,6 +36,18 @@ final class TeamclawServiceSubscriptionTests: XCTestCase {
         let store = ConnectedAgentsStore(teamID: "team1", repository: repo)
         await store.reload()
         return store
+    }
+
+    private func waitForSubscribedTopic(
+        _ topic: String,
+        in mqtt: MQTTService,
+        attempts: Int = 20
+    ) async -> Bool {
+        for _ in 0..<attempts {
+            if mqtt.subscribedTopics.contains(topic) { return true }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        return mqtt.subscribedTopics.contains(topic)
     }
 
     func testStartRehydratesForegroundSessionSubscriptionsOnNewMQTTRuntime() async throws {
@@ -72,14 +86,16 @@ final class TeamclawServiceSubscriptionTests: XCTestCase {
         )
 
         await Task.yield()
-        try await Task.sleep(for: .milliseconds(50))
+        let liveTopic = MQTTTopics.sessionLive(teamID: "team1", sessionID: "sess-1")
+        let didSubscribeLiveTopic = await waitForSubscribedTopic(liveTopic, in: restartedMQTT)
+        XCTAssertTrue(didSubscribeLiveTopic)
 
         XCTAssertEqual(
             Set(restartedMQTT.subscribedTopics),
             Set([
                 MQTTTopics.deviceNotify(teamID: "team1", deviceID: "device1"),
                 MQTTTopics.deviceRpcResponse(teamID: "team1", deviceID: "device1"),
-                MQTTTopics.sessionLive(teamID: "team1", sessionID: "sess-1"),
+                liveTopic,
             ])
         )
         XCTAssertEqual(service.foregroundSessionIDs, ["sess-1"])

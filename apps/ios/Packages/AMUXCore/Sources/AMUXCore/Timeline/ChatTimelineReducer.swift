@@ -251,6 +251,23 @@ public enum ChatTimelineReducer {
         }
         let eventType: String = input.kind == .output ? "output" : "user_prompt"
 
+        // Local outbox merge: iOS uses the Supabase message id as the
+        // outbox message id for the optimistic prompt row. When the
+        // history seed returns that row, merge by this stable id before
+        // falling back to content matching. This avoids collapsing the
+        // wrong bubble when the user sends the same text twice.
+        if let idx = state.entries.firstIndex(where: {
+            $0.outboxMessageID == input.supabaseMessageID || $0.id == input.supabaseMessageID
+        }) {
+            state.entries[idx].supabaseMessageID = input.supabaseMessageID
+            if state.entries[idx].model == nil { state.entries[idx].model = input.model }
+            if state.entries[idx].turnID == nil { state.entries[idx].turnID = input.turnID }
+            if state.entries[idx].timestamp > input.createdAt {
+                state.entries[idx].timestamp = input.createdAt
+            }
+            return
+        }
+
         // Cross-source dedupe: if the same content already exists
         // (live stream finalised before the history seed ran), backfill
         // the supabaseMessageID onto the existing entry rather than

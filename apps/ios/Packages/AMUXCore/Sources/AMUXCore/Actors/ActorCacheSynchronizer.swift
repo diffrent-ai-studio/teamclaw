@@ -18,6 +18,7 @@ public enum ActorCacheSynchronizer {
             existing.userId           = record.userID
             existing.invitedByActorId = record.invitedByActorID
             existing.displayName      = record.displayName
+            existing.avatarURL        = record.avatarURL
             existing.lastActiveAt     = record.lastActiveAt
             existing.createdAt        = record.createdAt
             existing.updatedAt        = record.updatedAt
@@ -31,6 +32,7 @@ public enum ActorCacheSynchronizer {
                 actorType: record.actorType, userId: record.userID,
                 invitedByActorId: record.invitedByActorID,
                 displayName: record.displayName,
+                avatarURL: record.avatarURL,
                 lastActiveAt: record.lastActiveAt,
                 createdAt: record.createdAt, updatedAt: record.updatedAt,
                 memberStatus: record.memberStatus, teamRole: record.teamRole,

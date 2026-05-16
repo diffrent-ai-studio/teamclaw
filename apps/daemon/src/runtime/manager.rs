@@ -524,6 +524,164 @@ impl RuntimeManager {
             .get(runtime_id)
             .and_then(|h| h.supabase_runtime_row_id.clone())
     }
+
+    // ── Gateway adapter hooks ────────────────────────────────────────────────
+    //
+    // The methods below are called from the `channels::AmuxdAcpHandle`
+    // (impl of `teamclaw_gateway::AcpHandle`) so a gateway can drive an
+    // in-process ACP agent without speaking to opencode's HTTP server.
+
+    /// Look up an agent runtime by its ACP session id (the 36-char uuid
+    /// returned by `session/new` and stored on `RuntimeHandle.acp_session_id`).
+    /// Returns the daemon-side 8-char `agent_id` key used by `send_prompt`.
+    pub fn agent_id_by_acp_session(&self, acp_session_id: &str) -> Option<String> {
+        if acp_session_id.is_empty() {
+            return None;
+        }
+        self.agents
+            .iter()
+            .find(|(_, h)| h.acp_session_id == acp_session_id)
+            .map(|(id, _)| id.clone())
+    }
+
+    /// Spawn an ACP-backed agent for a freshly-bound gateway conversation.
+    /// Used by `AmuxdAcpHandle::create_session`. The returned String is the
+    /// agent's `acp_session_id`, which the gateway persists on its `Binding`.
+    pub async fn create_gateway_session(
+        &mut self,
+        _team_id: &str,
+        binding: &str,
+        _title: &str,
+    ) -> crate::error::Result<String> {
+        // Gateway sessions don't yet have a "real" workspace concept — they
+        // run against a freshly-created scratch dir so the ACP process has a
+        // valid cwd. Future work can wire this through `default_workspace_id`
+        // on the agent's `agents` row.
+        let worktree = format!(
+            "/tmp/amuxd-gateway-{}",
+            Uuid::new_v4().to_string()[..8].to_string()
+        );
+        std::fs::create_dir_all(&worktree).map_err(|e| {
+            crate::error::AmuxError::Agent(format!(
+                "create_gateway_session: mkdir {worktree}: {e}"
+            ))
+        })?;
+
+        let workspace_id = format!("gateway:{binding}");
+        let agent_id = self
+            .spawn_agent(
+                amux::AgentType::ClaudeCode,
+                &worktree,
+                "",
+                &workspace_id,
+                None,
+                None,
+            )
+            .await?;
+
+        let acp_sid = self
+            .agents
+            .get(&agent_id)
+            .map(|h| h.acp_session_id.clone())
+            .unwrap_or_default();
+
+        if acp_sid.is_empty() {
+            return Err(crate::error::AmuxError::Agent(
+                "create_gateway_session: adapter did not report acp_session_id".into(),
+            ));
+        }
+        Ok(acp_sid)
+    }
+
+    /// Send a prompt to the agent identified by `acp_session_id` and block
+    /// until that turn's `AgentReply` text is available (or the 5-minute
+    /// timeout elapses). Used by `AmuxdAcpHandle::send_prompt`.
+    pub async fn send_prompt_and_await_reply(
+        &mut self,
+        acp_session_id: &str,
+        prompt: &str,
+    ) -> crate::error::Result<String> {
+        let agent_id = self
+            .agent_id_by_acp_session(acp_session_id)
+            .ok_or_else(|| {
+                crate::error::AmuxError::Agent(format!(
+                    "no agent for acp_session_id {acp_session_id}"
+                ))
+            })?;
+
+        // Use send_prompt_raw to bypass the pending_silent drain — the
+        // gateway already framed the prompt with sender context.
+        self.send_prompt_raw(&agent_id, prompt).await?;
+
+        // Drive the per-runtime aggregator off the agent's event channel
+        // until an `AgentReply` is emitted at Active→Idle. Hard cap so a
+        // wedged backend can't pin a gateway worker forever.
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs(5 * 60);
+
+        loop {
+            if std::time::Instant::now() >= deadline {
+                return Err(crate::error::AmuxError::Agent(
+                    "ACP turn timed out".into(),
+                ));
+            }
+
+            // Wait for at least one event before draining.
+            let next = {
+                let handle = self.agents.get_mut(&agent_id).ok_or_else(|| {
+                    crate::error::AmuxError::Agent(format!(
+                        "agent {agent_id} disappeared while awaiting reply"
+                    ))
+                })?;
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                tokio::time::timeout(remaining, handle.event_rx.recv()).await
+            };
+
+            let event = match next {
+                Ok(Some(ev)) => ev,
+                Ok(None) => {
+                    return Err(crate::error::AmuxError::Agent(
+                        "ACP event channel closed before reply".into(),
+                    ));
+                }
+                Err(_) => {
+                    return Err(crate::error::AmuxError::Agent(
+                        "ACP turn timed out".into(),
+                    ));
+                }
+            };
+
+            // Feed the event into the aggregator and check whether an
+            // AgentReply has been finalised (i.e. Active→Idle).
+            let emitted = self
+                .aggregators
+                .get_mut(&agent_id)
+                .map(|agg| agg.ingest(&event))
+                .unwrap_or_default();
+
+            for m in emitted {
+                if matches!(
+                    m.kind,
+                    crate::proto::teamclaw::MessageKind::AgentReply
+                ) {
+                    return Ok(m.content);
+                }
+            }
+        }
+    }
+
+    /// Inject context for the agent without driving a turn. Stub for now —
+    /// the underlying ACP adapter doesn't support a no-reply prompt yet, and
+    /// the gateway call sites don't currently invoke this path. Returns Ok
+    /// so the trait contract is satisfied.
+    pub async fn inject_context(
+        &self,
+        _acp_session_id: &str,
+        _sender_display: &str,
+        _text: &str,
+    ) -> crate::error::Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

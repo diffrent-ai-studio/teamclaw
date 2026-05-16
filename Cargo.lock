@@ -336,6 +336,7 @@ dependencies = [
  "rustls 0.22.4",
  "serde",
  "serde_json",
+ "teamclaw-gateway",
  "teamclaw-proto",
  "teamclaw-transport",
  "teamclaw-types",

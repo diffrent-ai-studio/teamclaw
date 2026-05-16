@@ -13,6 +13,7 @@ rumqttc = "0.24"
 # Protobuf
 prost = { workspace = true }
 prost-types = { workspace = true }
+teamclaw-gateway = { path = "../../crates/teamclaw-gateway" }
 teamclaw-proto = { path = "../../crates/teamclaw-proto" }
 teamclaw-transport = { path = "../../crates/teamclaw-transport" }
 teamclaw-types = { path = "../../crates/teamclaw-types" }

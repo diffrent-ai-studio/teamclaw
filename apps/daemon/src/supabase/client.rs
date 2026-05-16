@@ -681,6 +681,227 @@ impl SupabaseClient {
         Ok(())
     }
 
+    // ── Gateway-store hooks ─────────────────────────────────────────────────
+    //
+    // These four methods back `channels::AmuxdChannelStore`, the daemon's
+    // impl of `teamclaw_gateway::ChannelStore`. They follow the same
+    // PostgREST REST + RPC patterns as the rest of this client.
+
+    /// Upsert an `actors` row of type `external` keyed on
+    /// `(team_id, source, source_id)`. Returns the actor's UUID.
+    pub async fn rpc_upsert_external_actor(
+        &self,
+        team_id: &str,
+        source: &str,
+        source_id: &str,
+        display_name: &str,
+    ) -> SupabaseResult<String> {
+        #[derive(Serialize)]
+        struct Req<'a> {
+            p_team_id: &'a str,
+            p_source: &'a str,
+            p_source_id: &'a str,
+            p_display_name: &'a str,
+        }
+        let body: serde_json::Value = self
+            .rpc(
+                "upsert_external_actor",
+                &Req {
+                    p_team_id: team_id,
+                    p_source: source,
+                    p_source_id: source_id,
+                    p_display_name: display_name,
+                },
+            )
+            .await?;
+        // The RPC returns the actor UUID directly (scalar) — PostgREST
+        // serialises it as a bare string when the function returns a
+        // single scalar.
+        if let Some(s) = body.as_str() {
+            return Ok(s.to_string());
+        }
+        // Tolerate set-returning shape just in case: `[{"actor_id": "..."}]`.
+        if let Some(arr) = body.as_array() {
+            if let Some(first) = arr.first() {
+                if let Some(id) = first
+                    .get("actor_id")
+                    .or_else(|| first.get("id"))
+                    .and_then(|v| v.as_str())
+                {
+                    return Ok(id.to_string());
+                }
+            }
+        }
+        Err(SupabaseError::Rpc {
+            code: None,
+            message: format!("upsert_external_actor: unexpected response {body}"),
+        })
+    }
+
+    /// Resolve (or create) the `sessions` row for a gateway binding.
+    /// Returns `(session_id, acp_session_id, created)`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn rpc_ensure_gateway_session(
+        &self,
+        team_id: &str,
+        binding: &str,
+        title: &str,
+        primary_agent_actor_id: &str,
+        owner_member_actor_ids: &[String],
+        participant_actor_ids: &[String],
+    ) -> SupabaseResult<(String, String, bool)> {
+        #[derive(Serialize)]
+        struct Req<'a> {
+            p_team_id: &'a str,
+            p_binding: &'a str,
+            p_title: &'a str,
+            p_primary_agent_actor_id: &'a str,
+            p_owner_member_actor_ids: &'a [String],
+            p_participant_actor_ids: &'a [String],
+        }
+        #[derive(Deserialize)]
+        struct Row {
+            session_id: String,
+            acp_session_id: String,
+            created: bool,
+        }
+        let rows: Vec<Row> = self
+            .rpc(
+                "ensure_gateway_session",
+                &Req {
+                    p_team_id: team_id,
+                    p_binding: binding,
+                    p_title: title,
+                    p_primary_agent_actor_id: primary_agent_actor_id,
+                    p_owner_member_actor_ids: owner_member_actor_ids,
+                    p_participant_actor_ids: participant_actor_ids,
+                },
+            )
+            .await?;
+        let row = rows.into_iter().next().ok_or_else(|| SupabaseError::Rpc {
+            code: None,
+            message: "ensure_gateway_session: empty response".into(),
+        })?;
+        Ok((row.session_id, row.acp_session_id, row.created))
+    }
+
+    /// Insert one row into `public.messages` from a gateway message. Returns
+    /// the new row's UUID. Idempotent on `(session_id, external_id)` — a
+    /// re-delivery of the same provider message returns the existing id.
+    pub async fn insert_gateway_message(
+        &self,
+        session_id: &str,
+        sender_actor_id: &str,
+        content: &str,
+        external_message_id: Option<&str>,
+    ) -> SupabaseResult<String> {
+        let token = self.access_token().await?;
+        // `team_id` is required on `messages` and enforced by the
+        // `enforce_core_team_integrity` trigger. The daemon's session is in
+        // its own team, so we pull from the config.
+        let team_id = self.cfg.team_id.clone();
+        let mut body = serde_json::json!({
+            "team_id": team_id,
+            "session_id": session_id,
+            "sender_actor_id": sender_actor_id,
+            "kind": "text",
+            "content": content,
+            "metadata": {},
+        });
+        if let Some(ext) = external_message_id {
+            body["external_id"] = serde_json::Value::String(ext.to_string());
+        }
+
+        // Prefer `on_conflict=session_id,external_id` so a re-delivery
+        // returns the existing row instead of erroring out. PostgREST
+        // requires the column tuple as a query parameter; we only enable
+        // the on-conflict path when `external_id` is provided (the partial
+        // unique index only covers non-null external_ids).
+        let (url, prefer) = if external_message_id.is_some() {
+            (
+                format!(
+                    "{}/rest/v1/messages?on_conflict=session_id,external_id",
+                    self.cfg.url
+                ),
+                "resolution=merge-duplicates,return=representation",
+            )
+        } else {
+            (
+                format!("{}/rest/v1/messages", self.cfg.url),
+                "return=representation",
+            )
+        };
+
+        let resp = self
+            .http
+            .post(&url)
+            .header("apikey", &self.cfg.anon_key)
+            .header("Prefer", prefer)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(SupabaseError::Rpc {
+                code: Some(status.as_u16().to_string()),
+                message: format!("insert_gateway_message: {text}"),
+            });
+        }
+        let rows: Vec<serde_json::Value> = resp.json().await.unwrap_or_default();
+        let id = rows
+            .first()
+            .and_then(|r| r.get("id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| SupabaseError::Rpc {
+                code: None,
+                message: "insert_gateway_message: no id in response".into(),
+            })?;
+        Ok(id)
+    }
+
+    /// Add (or ignore-if-present) a participant on `session_participants`.
+    /// Idempotent — the unique `(session_id, actor_id)` index makes the
+    /// `on_conflict` UPSERT a no-op when the row already exists.
+    pub async fn upsert_session_participant(
+        &self,
+        session_id: &str,
+        actor_id: &str,
+    ) -> SupabaseResult<()> {
+        let token = self.access_token().await?;
+        let url = format!(
+            "{}/rest/v1/session_participants?on_conflict=session_id,actor_id",
+            self.cfg.url
+        );
+        let body = serde_json::json!({
+            "session_id": session_id,
+            "actor_id": actor_id,
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .header("apikey", &self.cfg.anon_key)
+            .header(
+                "Prefer",
+                "resolution=ignore-duplicates,return=minimal",
+            )
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(SupabaseError::Rpc {
+                code: Some(status.as_u16().to_string()),
+                message: format!("upsert_session_participant: {text}"),
+            });
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_message(
         &self,

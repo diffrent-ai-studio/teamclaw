@@ -1,3 +1,4 @@
+mod channels;
 mod cli;
 mod collab;
 mod config;

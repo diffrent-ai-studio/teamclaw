@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{error, info, warn};
 
@@ -65,7 +65,22 @@ pub struct DaemonServer {
 /// `cmd` strings written by `cli::process::send_control`.
 #[derive(Debug)]
 enum SockCommand {
+    /// Tear down the running channel manager and rebuild from the latest
+    /// `daemon.toml`. One-way (no reply).
     ChannelReload,
+    /// Reply with a JSON `[{platform, enabled, connected, last_error}, ...]`
+    /// snapshot of the six supported channels. `reply_tx` carries the JSON
+    /// body back to the listener task so it can write it to the sock client.
+    ChannelStatus {
+        reply_tx: oneshot::Sender<String>,
+    },
+    /// Replace `daemon_config.channels.<platform>` with the JSON in `config_json`,
+    /// persist to `daemon.toml`, and reload the channel manager so the change
+    /// takes effect. One-way (no reply).
+    ChannelSave {
+        platform: String,
+        config_json: String,
+    },
     Unknown(String),
 }
 
@@ -258,6 +273,116 @@ impl DaemonServer {
         self.config = fresh_cfg.clone();
         self.channel_mgr = self.build_and_start_channel_manager(fresh_cfg).await;
         info!("channel-reload: ok");
+    }
+
+    /// Build the JSON response payload for the `channel-status` sock command.
+    /// Walks the six known channel platforms and reports each one's
+    /// `enabled` (from `daemon.toml`) and `connected` (running gateway slot
+    /// is `Some(_)`). `last_error` is always `None` for now — richer per-
+    /// channel error tracking is intentionally out of scope here.
+    async fn channel_status_payload(&self) -> String {
+        #[derive(serde::Serialize)]
+        struct ChannelStatus {
+            platform: &'static str,
+            enabled: bool,
+            connected: bool,
+            last_error: Option<String>,
+        }
+
+        let cfg = &self.config.channels;
+        let enabled_flag = |platform: &str| -> bool {
+            match platform {
+                "discord" => cfg.discord.as_ref().map(|c| c.enabled).unwrap_or(false),
+                "wecom" => cfg.wecom.as_ref().map(|c| c.enabled).unwrap_or(false),
+                "feishu" => cfg.feishu.as_ref().map(|c| c.enabled).unwrap_or(false),
+                "kook" => cfg.kook.as_ref().map(|c| c.enabled).unwrap_or(false),
+                "wechat" => cfg.wechat.as_ref().map(|c| c.enabled).unwrap_or(false),
+                "email" => cfg.email.as_ref().map(|c| c.enabled).unwrap_or(false),
+                _ => false,
+            }
+        };
+
+        let connected: Vec<(&'static str, bool)> = match self.channel_mgr.as_ref() {
+            Some(mgr) => mgr.status_snapshot().await,
+            None => vec![
+                ("discord", false),
+                ("wecom", false),
+                ("feishu", false),
+                ("kook", false),
+                ("wechat", false),
+                ("email", false),
+            ],
+        };
+
+        let statuses: Vec<ChannelStatus> = connected
+            .into_iter()
+            .map(|(platform, connected)| ChannelStatus {
+                platform,
+                enabled: enabled_flag(platform),
+                connected,
+                last_error: None,
+            })
+            .collect();
+
+        serde_json::to_string(&statuses).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Persist a new per-platform channel config (parsed from the second line
+    /// of a `channel-save` sock message) into `daemon.toml`, update the
+    /// in-memory `self.config`, and reload the channel manager so the change
+    /// takes effect immediately. Errors are logged but never crash the daemon.
+    async fn save_channel_config(&mut self, platform: &str, config_json: &str) {
+        let parsed: Result<(), String> = (|| -> Result<(), String> {
+            match platform {
+                "discord" => {
+                    let v: crate::config::DiscordChannel = serde_json::from_str(config_json)
+                        .map_err(|e| format!("parse discord: {e}"))?;
+                    self.config.channels.discord = Some(v);
+                }
+                "wecom" => {
+                    let v: crate::config::WeComChannel = serde_json::from_str(config_json)
+                        .map_err(|e| format!("parse wecom: {e}"))?;
+                    self.config.channels.wecom = Some(v);
+                }
+                "feishu" => {
+                    let v: crate::config::FeishuChannel = serde_json::from_str(config_json)
+                        .map_err(|e| format!("parse feishu: {e}"))?;
+                    self.config.channels.feishu = Some(v);
+                }
+                "kook" => {
+                    let v: crate::config::KookChannel = serde_json::from_str(config_json)
+                        .map_err(|e| format!("parse kook: {e}"))?;
+                    self.config.channels.kook = Some(v);
+                }
+                "wechat" => {
+                    let v: crate::config::WeChatChannel = serde_json::from_str(config_json)
+                        .map_err(|e| format!("parse wechat: {e}"))?;
+                    self.config.channels.wechat = Some(v);
+                }
+                "email" => {
+                    let v: crate::config::EmailChannel = serde_json::from_str(config_json)
+                        .map_err(|e| format!("parse email: {e}"))?;
+                    self.config.channels.email = Some(v);
+                }
+                other => {
+                    return Err(format!("unknown platform '{other}'"));
+                }
+            }
+            Ok(())
+        })();
+
+        if let Err(e) = parsed {
+            error!("channel-save: {e}");
+            return;
+        }
+
+        if let Err(e) = self.config.save(&self.config_path) {
+            error!("channel-save: failed to persist daemon.toml: {e:?}");
+            return;
+        }
+
+        info!("channel-save: persisted {platform}, reloading channel manager");
+        self.reload_channels().await;
     }
 
     /// Tear down any running channels. Idempotent — safe to call when
@@ -477,6 +602,13 @@ impl DaemonServer {
                         match sock_cmd {
                             Some(SockCommand::ChannelReload) => {
                                 self.reload_channels().await;
+                            }
+                            Some(SockCommand::ChannelStatus { reply_tx }) => {
+                                let body = self.channel_status_payload().await;
+                                let _ = reply_tx.send(body);
+                            }
+                            Some(SockCommand::ChannelSave { platform, config_json }) => {
+                                self.save_channel_config(&platform, &config_json).await;
                             }
                             Some(SockCommand::Unknown(line)) => {
                                 warn!("amuxd.sock: unknown control command: {line:?}");
@@ -2763,16 +2895,73 @@ fn spawn_sock_listener(sock_path: PathBuf, tx: mpsc::Sender<SockCommand>) {
                     let tx = tx.clone();
                     tokio::spawn(async move {
                         let mut reader = BufReader::new(stream);
-                        let mut line = String::new();
-                        match reader.read_line(&mut line).await {
+                        let mut first_line = String::new();
+                        match reader.read_line(&mut first_line).await {
                             Ok(0) => {}
                             Ok(_) => {
-                                let cmd = match line.trim() {
-                                    "channel-reload" => SockCommand::ChannelReload,
-                                    other => SockCommand::Unknown(other.to_string()),
-                                };
-                                if tx.send(cmd).await.is_err() {
-                                    // main loop is gone; nothing to do
+                                let head = first_line.trim();
+                                match head {
+                                    "channel-reload" => {
+                                        let _ = tx.send(SockCommand::ChannelReload).await;
+                                    }
+                                    "channel-status" => {
+                                        // Round-trip: ask the main loop to build a
+                                        // status snapshot, then write the JSON body
+                                        // back to the connected client.
+                                        let (reply_tx, reply_rx) = oneshot::channel();
+                                        if tx
+                                            .send(SockCommand::ChannelStatus { reply_tx })
+                                            .await
+                                            .is_err()
+                                        {
+                                            return;
+                                        }
+                                        match reply_rx.await {
+                                            Ok(body) => {
+                                                let mut stream = reader.into_inner();
+                                                if let Err(e) =
+                                                    stream.write_all(body.as_bytes()).await
+                                                {
+                                                    warn!(
+                                                        "amuxd.sock: channel-status write failed: {e}"
+                                                    );
+                                                    return;
+                                                }
+                                                let _ = stream.write_all(b"\n").await;
+                                                let _ = stream.shutdown().await;
+                                            }
+                                            Err(_) => {
+                                                warn!("amuxd.sock: channel-status reply dropped");
+                                            }
+                                        }
+                                    }
+                                    "channel-save" => {
+                                        // Wire format: line 1 = "channel-save",
+                                        // line 2 = platform, line 3+ = JSON
+                                        // (single line — JSON has no embedded \n
+                                        // after `to_string()` serialization).
+                                        let mut platform = String::new();
+                                        if reader.read_line(&mut platform).await.is_err() {
+                                            warn!("amuxd.sock: channel-save missing platform");
+                                            return;
+                                        }
+                                        let mut config_json = String::new();
+                                        if reader.read_line(&mut config_json).await.is_err() {
+                                            warn!("amuxd.sock: channel-save missing config json");
+                                            return;
+                                        }
+                                        let _ = tx
+                                            .send(SockCommand::ChannelSave {
+                                                platform: platform.trim().to_string(),
+                                                config_json: config_json.trim().to_string(),
+                                            })
+                                            .await;
+                                    }
+                                    other => {
+                                        let _ = tx
+                                            .send(SockCommand::Unknown(other.to_string()))
+                                            .await;
+                                    }
                                 }
                             }
                             Err(e) => {

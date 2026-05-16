@@ -156,6 +156,23 @@ impl ChannelManager {
         Ok(())
     }
 
+    /// Snapshot which channels are currently running (gateway slot is `Some`).
+    /// Returned as a tuple of `(platform, connected)` pairs in a stable order
+    /// matching the six supported channels. Used by the `channel-status`
+    /// sock command so the desktop UI can show per-channel state without
+    /// reaching into gateway internals.
+    pub async fn status_snapshot(&self) -> Vec<(&'static str, bool)> {
+        let running = self.running.lock().await;
+        vec![
+            ("discord", running.discord.is_some()),
+            ("wecom", running.wecom.is_some()),
+            ("feishu", running.feishu.is_some()),
+            ("kook", running.kook.is_some()),
+            ("wechat", running.wechat.is_some()),
+            ("email", running.email.is_some()),
+        ]
+    }
+
     /// Stop every running channel. Takes `self` by value so each gateway's
     /// consuming `shutdown(self)` can be invoked.
     pub async fn shutdown(self) {

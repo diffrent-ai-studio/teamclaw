@@ -1,1280 +1,112 @@
-// Re-export everything from the teamclaw-gateway crate so that existing
-// `crate::commands::gateway::*` paths throughout the main crate continue to work.
+// Thin RPC client over `amuxd.sock`. The desktop app no longer runs the
+// channel gateways itself — amuxd owns those instances and persists their
+// config in `daemon.toml`. The three commands here just forward to amuxd.
+//
+// Cron and `introspect_api` still reach into the underlying
+// `teamclaw_gateway::*` modules for direct send helpers (e.g.
+// `gateway::email::send_notification_email`, `gateway::wecom::send_proactive_message`),
+// so we keep `pub use teamclaw_gateway::*` to preserve their `crate::commands::gateway::*`
+// import paths. Likewise we keep a slim `GatewayState` carrying just the
+// shared `SessionMapping` (cron consumes it for session lookup); the legacy
+// per-platform `*Gateway` slots that used to live here are gone.
+
 pub use teamclaw_gateway::*;
 
-use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Emitter, State};
+use serde::{Deserialize, Serialize};
 
-/// Gateway state managed by Tauri
+/// Slim per-app state. The legacy `*Gateway` slots were removed (amuxd owns
+/// those now); only the cross-component session map remains, used by the
+/// cron scheduler for session-id <-> chat-target lookup.
 pub struct GatewayState {
-    pub discord_gateway: Mutex<Option<DiscordGateway>>,
-    pub feishu_gateway: Mutex<Option<FeishuGateway>>,
-    pub email_gateway: Mutex<Option<EmailGateway>>,
-    pub kook_gateway: Mutex<Option<KookGateway>>,
-    pub wecom_gateway: Mutex<Option<WeComGateway>>,
-    pub wechat_gateway: Mutex<Option<WeChatGateway>>,
-    /// Shared session mapping across all gateways
     pub shared_session_mapping: SessionMapping,
-    /// Whether the shared session mapping has been initialized with a persistence path
     pub session_initialized: Mutex<bool>,
 }
 
 impl Default for GatewayState {
     fn default() -> Self {
         Self {
-            discord_gateway: Mutex::new(None),
-            feishu_gateway: Mutex::new(None),
-            email_gateway: Mutex::new(None),
-            kook_gateway: Mutex::new(None),
-            wecom_gateway: Mutex::new(None),
-            wechat_gateway: Mutex::new(None),
             shared_session_mapping: SessionMapping::new(),
             session_initialized: Mutex::new(false),
         }
     }
 }
 
-/// Ensure the shared session mapping is initialized with persistence
-async fn ensure_session_initialized(gateway_state: &GatewayState, workspace_path: &str) {
-    let needs_init = {
-        let mut initialized = match gateway_state.session_initialized.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                eprintln!("[Gateway] session_initialized mutex was poisoned, recovering");
-                poisoned.into_inner()
-            }
-        };
-        if *initialized {
-            false
-        } else {
-            *initialized = true;
-            true
-        }
-    };
-
-    if needs_init {
-        gateway_state
-            .shared_session_mapping
-            .set_persist_path(workspace_path)
-            .await;
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelStatus {
+    pub platform: String,
+    pub enabled: bool,
+    pub connected: bool,
+    #[serde(default, rename = "last_error", alias = "lastError")]
+    pub last_error: Option<String>,
 }
 
-/// Configuration file structure for channels
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
-pub struct OpenCodeJsonConfigWithChannels {
-    #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
-    pub schema: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub locale: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mcp: Option<HashMap<String, serde_json::Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub channels: Option<ChannelsConfig>,
-    #[serde(flatten)]
-    pub other: HashMap<String, serde_json::Value>,
+fn sock_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("amux")
+        .join("amuxd.sock")
 }
 
-/// Ensure the .teamclaw directory exists in the workspace
-pub fn ensure_teamclaw_dir(workspace_path: &str) -> Result<(), String> {
-    let dir = format!("{}/{}", workspace_path, super::TEAMCLAW_DIR);
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("Failed to create {} directory: {}", super::TEAMCLAW_DIR, e))
-}
-
-/// Get config file path from workspace (.teamclaw/teamclaw.json)
-fn get_config_path(workspace_path: &str) -> String {
-    format!("{}/{}/teamclaw.json", workspace_path, super::TEAMCLAW_DIR)
-}
-
-/// Read configuration from file
-pub(crate) fn read_config(workspace_path: &str) -> Result<OpenCodeJsonConfigWithChannels, String> {
-    ensure_teamclaw_dir(workspace_path)?;
-    let path = get_config_path(workspace_path);
-
-    if !std::path::Path::new(&path).exists() {
-        return Ok(OpenCodeJsonConfigWithChannels {
-            schema: Some("https://opencode.ai/config.json".to_string()),
-            ..Default::default()
-        });
-    }
-
-    let content =
-        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {}", e))?;
-
-    serde_json::from_str(&content).map_err(|e| format!("Failed to parse config file: {}", e))
-}
-
-/// Write configuration to file
-pub(crate) fn write_config(
-    workspace_path: &str,
-    config: &OpenCodeJsonConfigWithChannels,
-) -> Result<(), String> {
-    ensure_teamclaw_dir(workspace_path)?;
-    let path = get_config_path(workspace_path);
-
-    let content = serde_json::to_string_pretty(config)
-        .map_err(|e| format!("Failed to serialize config: {}", e))?;
-
-    std::fs::write(&path, content).map_err(|e| format!("Failed to write config file: {}", e))
-}
-
-fn read_channels_for(workspace_path: &str) -> Result<ChannelsConfig, String> {
-    let config = read_config(workspace_path)?;
-    Ok(config.channels.unwrap_or_default())
-}
-
-/// Get channel configuration
+/// List the six known channel platforms with their `enabled` / `connected`
+/// state as reported by amuxd over `amuxd.sock`. Errors out clearly when the
+/// daemon is not running so the UI can surface an "amuxd unreachable" state.
 #[tauri::command]
-pub async fn get_channel_config(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<ChannelsConfig, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    read_channels_for(&workspace_path)
+pub async fn list_channels() -> Result<Vec<ChannelStatus>, String> {
+    let mut s = UnixStream::connect(sock_path())
+        .map_err(|e| format!("amuxd not reachable: {e}"))?;
+    s.write_all(b"channel-status\n")
+        .map_err(|e| format!("write failed: {e}"))?;
+    s.shutdown(std::net::Shutdown::Write)
+        .map_err(|e| format!("shutdown write half failed: {e}"))?;
+    let mut buf = String::new();
+    s.read_to_string(&mut buf)
+        .map_err(|e| format!("read failed: {e}"))?;
+    serde_json::from_str(buf.trim())
+        .map_err(|e| format!("bad response from amuxd: {e} (body={buf:?})"))
 }
 
-/// Save channel configuration
+/// Replace `daemon.toml`'s `[channels.<platform>]` section with the JSON in
+/// `config_json` (one of the daemon's per-platform config structs). amuxd
+/// auto-reloads the channel manager so the change takes effect immediately.
 #[tauri::command]
-pub async fn save_channel_config(
-    channels: ChannelsConfig,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-
-    let mut config = read_config(&workspace_path)?;
-    config.channels = Some(channels);
-    write_config(&workspace_path, &config)
-}
-
-/// Get Discord configuration specifically
-#[tauri::command]
-pub async fn get_discord_config(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<Option<config::DiscordConfig>, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    Ok(read_channels_for(&workspace_path)?.discord)
-}
-
-/// Save Discord configuration
-#[tauri::command]
-pub async fn save_discord_config(
-    discord: config::DiscordConfig,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-
-    let mut config = read_config(&workspace_path)?;
-    let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
-    channels.discord = Some(discord.clone());
-    write_config(&workspace_path, &config)?;
-
-    let gateway_clone = {
-        let gateway = gateway_state
-            .discord_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        gateway.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone {
-        gw.set_config(discord).await;
-    }
-
+pub async fn save_channel_config(platform: String, config_json: String) -> Result<(), String> {
+    let mut s = UnixStream::connect(sock_path())
+        .map_err(|e| format!("amuxd not reachable: {e}"))?;
+    // Single-line JSON keeps the framing simple — the daemon reads exactly
+    // three newline-terminated tokens off the sock.
+    let single_line = config_json.replace('\n', " ");
+    let payload = format!("channel-save\n{platform}\n{single_line}\n");
+    s.write_all(payload.as_bytes())
+        .map_err(|e| format!("write failed: {e}"))?;
     Ok(())
 }
 
-/// Set the locale in teamclaw.json for gateway i18n
+/// Tell amuxd to re-read `daemon.toml` and restart all channels. Cheap;
+/// useful when the daemon-managed config file was edited out-of-band.
 #[tauri::command]
-pub async fn set_config_locale(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    locale: String,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    let mut config = read_config(&workspace_path)?;
-    config.locale = Some(locale);
-    write_config(&workspace_path, &config)
-}
-
-/// Start the Discord gateway
-#[tauri::command]
-pub async fn start_gateway(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
-
-    println!("[Gateway] Reading config from: {}", workspace_path);
-    let config = read_config(&workspace_path)?;
-    let discord_config = config
-        .channels
-        .and_then(|c| c.discord)
-        .ok_or("Discord configuration not found")?;
-
-    println!(
-        "[Gateway] Discord config loaded: enabled={}, guilds={:?}",
-        discord_config.enabled,
-        discord_config.guilds.keys().collect::<Vec<_>>()
-    );
-
-    ensure_session_initialized(&gateway_state, &workspace_path).await;
-
-    let gateway_clone = {
-        let mut gateway_guard = gateway_state
-            .discord_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-
-        let session_mapping = gateway_state.shared_session_mapping.clone();
-        let gateway = gateway_guard.get_or_insert_with(|| {
-            DiscordGateway::new(port, session_mapping, workspace_path.clone())
-        });
-        gateway.clone()
-    };
-
-    println!("[Gateway] Setting config on gateway...");
-    gateway_clone.set_config(discord_config).await;
-
-    println!("[Gateway] Config set, starting gateway...");
-    gateway_clone.start().await
-}
-
-/// Stop the Discord gateway
-#[tauri::command]
-pub async fn stop_gateway(gateway_state: State<'_, GatewayState>) -> Result<(), String> {
-    let gateway_clone = {
-        let gateway_guard = gateway_state
-            .discord_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-
-        gateway_guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gateway) = gateway_clone {
-        gateway.stop().await
-    } else {
-        Err("Discord gateway is not initialized".to_string())
-    }
-}
-
-/// Get gateway status
-#[tauri::command]
-pub async fn get_gateway_status(
-    gateway_state: State<'_, GatewayState>,
-) -> Result<GatewayStatusResponse, String> {
-    let gateway_clone = {
-        let gateway_guard = gateway_state
-            .discord_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-
-        gateway_guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gateway) = gateway_clone {
-        Ok(gateway.get_status().await)
-    } else {
-        Ok(GatewayStatusResponse::default())
-    }
-}
-
-/// Test Discord token validity
-#[tauri::command]
-pub async fn test_discord_token(token: String) -> Result<String, String> {
-    DiscordGateway::test_token(&token).await
-}
-
-// ========== Feishu Gateway Commands ==========
-
-/// Get Feishu configuration
-#[tauri::command]
-pub async fn get_feishu_config(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<Option<feishu_config::FeishuConfig>, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    Ok(read_channels_for(&workspace_path)?.feishu)
-}
-
-/// Save Feishu configuration
-#[tauri::command]
-pub async fn save_feishu_config(
-    feishu: feishu_config::FeishuConfig,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-
-    let mut config = read_config(&workspace_path)?;
-    let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
-    channels.feishu = Some(feishu.clone());
-    write_config(&workspace_path, &config)?;
-
-    let gateway_clone = {
-        let gateway = gateway_state
-            .feishu_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        gateway.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone {
-        gw.set_config(feishu).await;
-    }
-
+pub async fn reload_channels() -> Result<(), String> {
+    let mut s = UnixStream::connect(sock_path())
+        .map_err(|e| format!("amuxd not reachable: {e}"))?;
+    s.write_all(b"channel-reload\n")
+        .map_err(|e| format!("write failed: {e}"))?;
     Ok(())
 }
 
-/// Start the Feishu gateway
-#[tauri::command]
-pub async fn start_feishu_gateway(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
-
-    let config = read_config(&workspace_path)?;
-    let feishu_config = config
-        .channels
-        .and_then(|c| c.feishu)
-        .ok_or("Feishu configuration not found")?;
-
-    println!(
-        "[Gateway] Feishu config loaded: enabled={}, app_id={}",
-        feishu_config.enabled, feishu_config.app_id
-    );
-
-    ensure_session_initialized(&gateway_state, &workspace_path).await;
-
-    let gateway_clone = {
-        let mut gateway_guard = gateway_state
-            .feishu_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-
-        let session_mapping = gateway_state.shared_session_mapping.clone();
-        let gateway = gateway_guard.get_or_insert_with(|| {
-            FeishuGateway::new(port, session_mapping, workspace_path.clone())
-        });
-        gateway.clone()
-    };
-
-    gateway_clone.set_config(feishu_config).await;
-    gateway_clone.start().await
-}
-
-/// Stop the Feishu gateway
-#[tauri::command]
-pub async fn stop_feishu_gateway(gateway_state: State<'_, GatewayState>) -> Result<(), String> {
-    let gateway_clone = {
-        let gateway_guard = gateway_state
-            .feishu_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        gateway_guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gateway) = gateway_clone {
-        gateway.stop().await
-    } else {
-        Err("Feishu gateway is not initialized".to_string())
-    }
-}
-
-/// Get Feishu gateway status
-#[tauri::command]
-pub async fn get_feishu_gateway_status(
-    gateway_state: State<'_, GatewayState>,
-) -> Result<FeishuGatewayStatusResponse, String> {
-    let gateway_clone = {
-        let gateway_guard = gateway_state
-            .feishu_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        gateway_guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gateway) = gateway_clone {
-        Ok(gateway.get_status().await)
-    } else {
-        Ok(FeishuGatewayStatusResponse::default())
-    }
-}
-
-/// Test Feishu credentials validity
-#[tauri::command]
-pub async fn test_feishu_credentials(app_id: String, app_secret: String) -> Result<String, String> {
-    FeishuGateway::test_credentials(&app_id, &app_secret).await
-}
-
-/// Update the shared gateway model preference for an existing OpenCode session.
-#[tauri::command]
-pub async fn sync_gateway_session_model(
-    session_id: String,
-    model: Option<String>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<bool, String> {
-    let session_mapping = gateway_state.shared_session_mapping.clone();
-    let Some(session_key) = session_mapping.find_key_by_session_id(&session_id).await else {
-        return Ok(false);
-    };
-
-    match model {
-        Some(model_str) if !model_str.trim().is_empty() => {
-            session_mapping
-                .set_model(session_key, model_str.trim().to_string())
-                .await;
-        }
-        _ => {
-            session_mapping.remove_model(&session_key).await;
-        }
-    }
-
-    Ok(true)
-}
-
-// ========== Email Gateway Commands ==========
-
-/// Get Email configuration
-#[tauri::command]
-pub async fn get_email_config(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<Option<email_config::EmailConfig>, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    Ok(read_channels_for(&workspace_path)?.email)
-}
-
-/// Save Email configuration
-#[tauri::command]
-pub async fn save_email_config(
-    email: email_config::EmailConfig,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-
-    let mut config = read_config(&workspace_path)?;
-    let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
-    channels.email = Some(email.clone());
-    write_config(&workspace_path, &config)?;
-
-    let gateway_clone = {
-        let gateway = gateway_state
-            .email_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        gateway.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone {
-        gw.set_config(email).await;
-    }
-
-    Ok(())
-}
-
-/// Start the Email gateway
-#[tauri::command]
-pub async fn start_email_gateway(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
-
-    let config = read_config(&workspace_path)?;
-    let email_config = config
-        .channels
-        .and_then(|c| c.email)
-        .ok_or("Email configuration not found")?;
-
-    println!(
-        "[Gateway] Email config loaded: enabled={}, provider={:?}",
-        email_config.enabled, email_config.provider
-    );
-
-    ensure_session_initialized(&gateway_state, &workspace_path).await;
-
-    let gateway_clone = {
-        let mut gateway_guard = gateway_state
-            .email_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-
-        let session_mapping = gateway_state.shared_session_mapping.clone();
-        let gateway = gateway_guard.get_or_insert_with(|| EmailGateway::new(port, session_mapping));
-        gateway.clone()
-    };
-
-    gateway_clone.set_config(email_config).await;
-    gateway_clone.set_workspace_path(&workspace_path).await;
-    gateway_clone.start().await
-}
-
-/// Stop the Email gateway
-#[tauri::command]
-pub async fn stop_email_gateway(gateway_state: State<'_, GatewayState>) -> Result<(), String> {
-    let gateway_clone = {
-        let gateway_guard = gateway_state
-            .email_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        gateway_guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gateway) = gateway_clone {
-        gateway.stop().await
-    } else {
-        Err("Email gateway is not initialized".to_string())
-    }
-}
-
-/// Get Email gateway status
-#[tauri::command]
-pub async fn get_email_gateway_status(
-    gateway_state: State<'_, GatewayState>,
-) -> Result<email_config::EmailGatewayStatusResponse, String> {
-    let gateway_clone = {
-        let gateway_guard = gateway_state
-            .email_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        gateway_guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gateway) = gateway_clone {
-        Ok(gateway.get_status().await)
-    } else {
-        Ok(email_config::EmailGatewayStatusResponse::default())
-    }
-}
-
-/// Test Email IMAP/SMTP connection
-#[tauri::command]
-pub async fn test_email_connection(email: email_config::EmailConfig) -> Result<String, String> {
-    EmailGateway::test_connection(&email).await
-}
-
-/// Authorize Gmail OAuth2. Opens the auth URL in the system browser AND
-/// emits a `gmail-auth-url` event with the URL so the UI can display it
-/// for manual copy/paste (in case the browser auto-open fails).
-#[tauri::command]
-pub async fn gmail_authorize(
-    client_id: String,
-    client_secret: String,
-    email: String,
-    app: AppHandle,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<String, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-
-    let app_for_callback = app.clone();
-    let on_url: teamclaw_gateway::AuthUrlCallback = Box::new(move |url: &str| {
-        let _ = app_for_callback.emit("gmail-auth-url", url.to_string());
-    });
-
-    EmailGateway::gmail_authorize(&client_id, &client_secret, &email, &workspace_path, on_url).await
-}
-
-/// Check if Gmail OAuth2 tokens exist
-#[tauri::command]
-pub async fn check_gmail_auth(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<bool, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-
-    Ok(EmailGateway::check_gmail_auth(&workspace_path).await)
-}
-
-// ==================== KOOK Commands ====================
-
-/// Get KOOK configuration
-#[tauri::command]
-pub async fn get_kook_config(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<kook_config::KookConfig, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    Ok(read_channels_for(&workspace_path)?.kook.unwrap_or_default())
-}
-
-/// Save KOOK configuration
-#[tauri::command]
-pub async fn save_kook_config(
-    kook: kook_config::KookConfig,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-
-    let mut config = read_config(&workspace_path)?;
-    let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
-    channels.kook = Some(kook.clone());
-    write_config(&workspace_path, &config)?;
-
-    let gateway_clone = {
-        let gateway = gateway_state
-            .kook_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        gateway.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone {
-        gw.set_config(kook).await;
-    }
-
-    Ok(())
-}
-
-/// Start KOOK gateway
-#[tauri::command]
-pub async fn start_kook_gateway(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
-
-    let config = read_config(&workspace_path)?;
-    let kook_config = config
-        .channels
-        .and_then(|c| c.kook)
-        .ok_or("KOOK configuration not found")?;
-
-    println!(
-        "[Gateway] KOOK config loaded: enabled={}, token={}",
-        kook_config.enabled,
-        if kook_config.token.is_empty() {
-            "empty"
-        } else {
-            "***"
-        }
-    );
-
-    ensure_session_initialized(&gateway_state, &workspace_path).await;
-
-    if !kook_config.enabled {
-        return Err("KOOK is not enabled".to_string());
-    }
-
-    let gateway_clone = {
-        let mut guard = gateway_state
-            .kook_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-
-        if guard.is_none() {
-            let gateway = KookGateway::new(
-                port,
-                gateway_state.shared_session_mapping.clone(),
-                workspace_path.clone(),
-            );
-            *guard = Some(gateway);
-        }
-
-        guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone {
-        gw.set_config(kook_config).await;
-        gw.start().await?;
-    }
-
-    Ok(())
-}
-
-/// Stop KOOK gateway
-#[tauri::command]
-pub async fn stop_kook_gateway(gateway_state: State<'_, GatewayState>) -> Result<(), String> {
-    let gateway_clone = {
-        let guard = gateway_state
-            .kook_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone {
-        gw.stop().await?;
-    }
-
-    Ok(())
-}
-
-/// Get KOOK gateway status
-#[tauri::command]
-pub async fn get_kook_gateway_status(
-    gateway_state: State<'_, GatewayState>,
-) -> Result<KookGatewayStatusResponse, String> {
-    let gateway_clone = {
-        let guard = gateway_state
-            .kook_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone {
-        Ok(gw.get_status().await)
-    } else {
-        Ok(KookGatewayStatusResponse::default())
-    }
-}
-
-/// Test KOOK bot token
-#[tauri::command]
-pub async fn test_kook_token(token: String) -> Result<String, String> {
-    if token.is_empty() {
-        return Err("Token is empty".to_string());
-    }
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
-    let url = format!("{}/gateway/index?compress=0", kook::KOOK_API_BASE);
-
-    match client
-        .get(&url)
-        .header("Authorization", format!("Bot {}", token))
-        .timeout(std::time::Duration::from_secs(10))
-        .send()
-        .await
-    {
-        Ok(resp) => {
-            let status = resp.status();
-            match resp.json::<serde_json::Value>().await {
-                Ok(body) => {
-                    if let Some(code) = body.get("code").and_then(|c| c.as_i64()) {
-                        if code == 0 {
-                            Ok("Token is valid! Gateway connection successful.".to_string())
-                        } else {
-                            let message = body
-                                .get("message")
-                                .and_then(|m| m.as_str())
-                                .unwrap_or("Unknown error");
-                            Err(format!("API error ({}): {}", code, message))
-                        }
-                    } else {
-                        Err(format!("Unexpected response: {:?}", body))
-                    }
-                }
-                Err(e) => Err(format!("HTTP {}: {}", status, e)),
-            }
-        }
-        Err(e) => Err(format!("Connection failed: {}", e)),
-    }
-}
-
-// ─── WeCom commands ──────────────────────────────────────────────────────────
-
-/// Get WeCom configuration
-#[tauri::command]
-pub async fn get_wecom_config(
-    workspace_path: Option<String>,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<wecom_config::WeComConfig, String> {
-    let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
-    let config = read_config(&workspace_path)?;
-    Ok(config
-        .channels
-        .and_then(|channels| channels.wecom)
-        .unwrap_or_default())
-}
-
-/// Save WeCom configuration
-#[tauri::command]
-pub async fn save_wecom_config(
-    wecom: wecom_config::WeComConfig,
-    workspace_path: Option<String>,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
-
-    let mut config = read_config(&workspace_path)?;
-    let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
-    channels.wecom = Some(wecom.clone());
-    write_config(&workspace_path, &config)?;
-
-    let gateway_clone = {
-        let gateway = gateway_state
-            .wecom_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        gateway.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone.filter(|gw| gw.workspace_path() == workspace_path) {
-        gw.set_config(wecom).await;
-    }
-
-    Ok(())
-}
-
-/// Start WeCom gateway
-#[tauri::command]
-pub async fn start_wecom_gateway(
-    workspace_path: Option<String>,
-    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, workspace_path.as_deref())?;
-
-    println!(
-        "[Gateway] start_wecom_gateway called, workspace={}",
-        workspace_path
-    );
-    let mut config = read_config(&workspace_path)?;
-    println!(
-        "[Gateway] config read ok, channels={}",
-        config.channels.is_some()
-    );
-    let mut wecom_config = config
-        .channels
-        .as_ref()
-        .and_then(|c| c.wecom.clone())
-        .ok_or("WeCom configuration not found")?;
-    println!(
-        "[Gateway] wecom_config found, enabled={}, bot_id_empty={}",
-        wecom_config.enabled,
-        wecom_config.bot_id.is_empty()
-    );
-
-    if !wecom_config.enabled {
-        wecom_config.enabled = true;
-        let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
-        channels.wecom = Some(wecom_config.clone());
-        write_config(&workspace_path, &config)?;
-    }
-
-    println!(
-        "[Gateway] WeCom starting: enabled={}, bot_id={}",
-        wecom_config.enabled,
-        if wecom_config.bot_id.is_empty() {
-            "empty"
-        } else {
-            "***"
-        }
-    );
-
-    ensure_session_initialized(&gateway_state, &workspace_path).await;
-
-    let gateway_clone = {
-        let guard = gateway_state
-            .wecom_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone.as_ref() {
-        if gw.workspace_path() != workspace_path || gw.opencode_port() != port {
-            gw.stop().await?;
-            let mut guard = gateway_state
-                .wecom_gateway
-                .lock()
-                .map_err(|e| e.to_string())?;
-            *guard = None;
-        }
-    }
-
-    let gateway_clone = {
-        let mut guard = gateway_state
-            .wecom_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-
-        if guard.is_none() {
-            let gateway = WeComGateway::new(
-                port,
-                gateway_state.shared_session_mapping.clone(),
-                workspace_path.clone(),
-            );
-            *guard = Some(gateway);
-        }
-
-        guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone {
-        gw.set_config(wecom_config).await;
-        gw.start().await?;
-    }
-
-    Ok(())
-}
-
-/// Stop WeCom gateway
-#[tauri::command]
-pub async fn stop_wecom_gateway(
-    workspace_path: Option<String>,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let resolved_workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry).ok();
-
-    let gateway_clone = {
-        let guard = gateway_state
-            .wecom_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone.filter(|gw| {
-        resolved_workspace_path
-            .as_ref()
-            .map(|path| gw.workspace_path() == path)
-            .unwrap_or(true)
-    }) {
-        gw.stop().await?;
-    }
-
-    Ok(())
-}
-
-/// Get WeCom gateway status
-#[tauri::command]
-pub async fn get_wecom_gateway_status(
-    workspace_path: Option<String>,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<WeComGatewayStatusResponse, String> {
-    let workspace_path =
-        crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
-    let gateway_clone = {
-        let guard = gateway_state
-            .wecom_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone.filter(|gw| gw.workspace_path() == workspace_path) {
-        Ok(gw.get_status().await)
-    } else {
-        Ok(WeComGatewayStatusResponse::default())
-    }
-}
-
-/// Test WeCom bot credentials
-#[tauri::command]
-pub async fn test_wecom_credentials(bot_id: String, secret: String) -> Result<String, String> {
-    use futures_util::{SinkExt, StreamExt};
-    use tokio_tungstenite::connect_async;
-
-    if bot_id.is_empty() || secret.is_empty() {
-        return Err("Bot ID and secret are required".to_string());
-    }
-
-    let (ws_stream, _) = connect_async(wecom::WECOM_WS_ENDPOINT)
-        .await
-        .map_err(|e| format!("Connection failed: {}", e))?;
-
-    let (mut sink, mut stream) = ws_stream.split();
-
-    let subscribe = serde_json::json!({
-        "cmd": "aibot_subscribe",
-        "headers": { "req_id": uuid::Uuid::new_v4().to_string() },
-        "body": { "bot_id": bot_id, "secret": secret }
-    });
-
-    sink.send(tokio_tungstenite::tungstenite::Message::Text(
-        subscribe.to_string().into(),
-    ))
-    .await
-    .map_err(|e| format!("Send failed: {}", e))?;
-
-    let response = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
-        .await
-        .map_err(|_| "Timeout waiting for response".to_string())?
-        .ok_or("Connection closed")?
-        .map_err(|e| format!("Response error: {}", e))?;
-
-    let _ = sink
-        .send(tokio_tungstenite::tungstenite::Message::Close(None))
-        .await;
-
-    if let tokio_tungstenite::tungstenite::Message::Text(text) = response {
-        let resp: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| format!("Invalid response: {}", e))?;
-        let code = resp.get("errcode").and_then(|c| c.as_i64()).unwrap_or(-1);
-        if code == 0 {
-            Ok("Credentials verified successfully".to_string())
-        } else {
-            let msg = resp
-                .get("errmsg")
-                .and_then(|m| m.as_str())
-                .unwrap_or("Unknown error");
-            Err(format!("Verification failed (code {}): {}", code, msg))
-        }
-    } else {
-        Err("Unexpected response type".to_string())
-    }
-}
-
-/// Start WeCom QR code authorization
-#[tauri::command]
-pub async fn start_wecom_qr_auth() -> Result<wecom_config::WeComQrAuthStart, String> {
-    wecom::fetch_wecom_qr_code().await
-}
-
-/// Poll WeCom QR code authorization result
-#[tauri::command]
-pub async fn poll_wecom_qr_auth(
-    scode: String,
-) -> Result<wecom_config::WeComQrAuthPollResult, String> {
-    wecom::poll_wecom_qr_result(&scode).await
-}
-
-// ─── WeChat commands ─────────────────────────────────────────────────────────
-
-/// Get WeChat configuration
-#[tauri::command]
-pub async fn get_wechat_config(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<wechat_config::WeChatConfig, String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    Ok(read_channels_for(&workspace_path)?
-        .wechat
-        .unwrap_or_default())
-}
-
-/// Save WeChat configuration
-#[tauri::command]
-pub async fn save_wechat_config(
-    wechat: wechat_config::WeChatConfig,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-
-    let mut config = read_config(&workspace_path)?;
-    let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
-    channels.wechat = Some(wechat.clone());
-    write_config(&workspace_path, &config)?;
-
-    let gateway_clone = {
-        let gateway = gateway_state
-            .wechat_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        gateway.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone {
-        gw.set_config(wechat).await;
-    }
-
-    Ok(())
-}
-
-/// Start WeChat gateway
-#[tauri::command]
-pub async fn start_wechat_gateway(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    opencode_state: State<'_, crate::commands::opencode::OpenCodeState>,
-    gateway_state: State<'_, GatewayState>,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    let (workspace_path, port) =
-        crate::commands::opencode::resolve_workspace(&opencode_state, Some(&workspace_path))?;
-
-    println!(
-        "[Gateway] start_wechat_gateway called, workspace={}",
-        workspace_path
-    );
-    let mut config = read_config(&workspace_path)?;
-    println!(
-        "[Gateway] config read ok, channels={}",
-        config.channels.is_some()
-    );
-    let mut wechat_cfg = config
-        .channels
-        .as_ref()
-        .and_then(|c| c.wechat.clone())
-        .ok_or("WeChat configuration not found")?;
-    println!(
-        "[Gateway] wechat_config found, enabled={}, token_empty={}",
-        wechat_cfg.enabled,
-        wechat_cfg.bot_token.is_empty()
-    );
-
-    if !wechat_cfg.enabled {
-        wechat_cfg.enabled = true;
-        let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
-        channels.wechat = Some(wechat_cfg.clone());
-        write_config(&workspace_path, &config)?;
-    }
-
-    println!(
-        "[Gateway] WeChat starting: enabled={}, token={}",
-        wechat_cfg.enabled,
-        if wechat_cfg.bot_token.is_empty() {
-            "empty"
-        } else {
-            "***"
-        }
-    );
-
-    ensure_session_initialized(&gateway_state, &workspace_path).await;
-
-    let gateway_clone = {
-        let mut guard = gateway_state
-            .wechat_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-
-        if guard.is_none() {
-            let gateway = WeChatGateway::new(
-                port,
-                gateway_state.shared_session_mapping.clone(),
-                workspace_path.clone(),
-            );
-            *guard = Some(gateway);
-        }
-
-        guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone {
-        gw.set_config(wechat_cfg).await;
-        gw.start().await?;
-    }
-
-    Ok(())
-}
-
-/// Stop WeChat gateway
-#[tauri::command]
-pub async fn stop_wechat_gateway(gateway_state: State<'_, GatewayState>) -> Result<(), String> {
-    let gateway_clone = {
-        let guard = gateway_state
-            .wechat_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone {
-        gw.stop().await?;
-    }
-
-    Ok(())
-}
-
-/// Get WeChat gateway status
-#[tauri::command]
-pub async fn get_wechat_gateway_status(
-    gateway_state: State<'_, GatewayState>,
-) -> Result<WeChatGatewayStatusResponse, String> {
-    let gateway_clone = {
-        let guard = gateway_state
-            .wechat_gateway
-            .lock()
-            .map_err(|e| e.to_string())?;
-        guard.as_ref().map(|gw| gw.clone())
-    };
-
-    if let Some(gw) = gateway_clone {
-        Ok(gw.get_status().await)
-    } else {
-        Ok(WeChatGatewayStatusResponse::default())
-    }
-}
-
-/// Start WeChat QR login flow
-#[tauri::command]
-pub async fn start_wechat_qr_login() -> Result<WeChatQrLoginResponse, String> {
-    wechat::fetch_qr_code(&wechat_config::default_ilink_base_url()).await
-}
-
-/// Poll WeChat QR login status
-#[tauri::command]
-pub async fn poll_wechat_qr_status(
-    qrcode: String,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    _gateway_state: State<'_, GatewayState>,
-) -> Result<WeChatQrStatusResponse, String> {
-    let resp = wechat::poll_qr_status(&wechat_config::default_ilink_base_url(), &qrcode).await?;
-    if resp.status == "confirmed" {
-        if let (Some(token), Some(bot_id)) = (&resp.bot_token, &resp.ilink_bot_id) {
-            let base_url = resp
-                .baseurl
-                .clone()
-                .unwrap_or_else(wechat_config::default_ilink_base_url);
-            let wechat_cfg = wechat_config::WeChatConfig {
-                enabled: false,
-                bot_token: token.clone(),
-                account_id: bot_id.clone(),
-                base_url,
-                sync_buf: None,
-                context_tokens: std::collections::HashMap::new(),
-            };
-            if let Ok(workspace_path) =
-                crate::commands::window::current_workspace_for_window(&window, &registry)
-            {
-                if let Ok(mut config) = read_config(&workspace_path) {
-                    let channels = config.channels.get_or_insert_with(ChannelsConfig::default);
-                    channels.wechat = Some(wechat_cfg.clone());
-                    let _ = write_config(&workspace_path, &config);
-                }
-            }
-        }
-    }
-    Ok(resp)
-}
-
-/// Test WeChat connection
-#[tauri::command]
-pub async fn test_wechat_connection(bot_token: String) -> Result<String, String> {
-    if bot_token.is_empty() {
-        return Err("Bot token is required".to_string());
-    }
-    wechat::test_connection(&bot_token).await
-}
+// ─── Workspace teamclaw.json helpers (not channel-specific) ───────────────────
+//
+// These four commands manage non-channel fields of the workspace-level
+// `teamclaw.json` (shortcuts list, system prompt, UI locale). They lived in
+// this module historically because the file-reader helper was here; rather
+// than scatter them across new modules we keep them here as siblings of the
+// new sock-RPC commands. The H1 channel rewrite intentionally leaves them
+// untouched.
+
+use tauri::State;
 
 /// Load personal shortcuts from the workspace config file (teamclaw.json).
 #[tauri::command]
@@ -1285,7 +117,7 @@ pub fn load_shortcuts(
 ) -> Result<Vec<serde_json::Value>, String> {
     let workspace_path =
         crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
-    let config = read_config(&workspace_path)?;
+    let config = teamclaw_gateway::read_config(&workspace_path)?;
     let shortcuts = config
         .other
         .get("shortcuts")
@@ -1304,11 +136,11 @@ pub fn save_shortcuts(
 ) -> Result<(), String> {
     let workspace_path =
         crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
-    let mut config = read_config(&workspace_path)?;
+    let mut config = teamclaw_gateway::read_config(&workspace_path)?;
     config
         .other
         .insert("shortcuts".to_string(), serde_json::json!(nodes));
-    write_config(&workspace_path, &config)
+    teamclaw_gateway::write_config(&workspace_path, &config)
 }
 
 /// Load the per-workspace system prompt from teamclaw.json. Returns "" if unset.
@@ -1320,7 +152,7 @@ pub fn load_system_prompt(
 ) -> Result<String, String> {
     let workspace_path =
         crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
-    let config = read_config(&workspace_path)?;
+    let config = teamclaw_gateway::read_config(&workspace_path)?;
     Ok(config
         .other
         .get("systemPrompt")
@@ -1339,9 +171,22 @@ pub fn save_system_prompt(
 ) -> Result<(), String> {
     let workspace_path =
         crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
-    let mut config = read_config(&workspace_path)?;
+    let mut config = teamclaw_gateway::read_config(&workspace_path)?;
     config
         .other
         .insert("systemPrompt".to_string(), serde_json::json!(prompt));
-    write_config(&workspace_path, &config)
+    teamclaw_gateway::write_config(&workspace_path, &config)
+}
+
+/// Set the locale in teamclaw.json for UI i18n.
+#[tauri::command]
+pub async fn set_config_locale(
+    window: tauri::WebviewWindow,
+    registry: State<'_, crate::commands::window::WindowRegistry>,
+    locale: String,
+) -> Result<(), String> {
+    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
+    let mut config = teamclaw_gateway::read_config(&workspace_path)?;
+    config.locale = Some(locale);
+    teamclaw_gateway::write_config(&workspace_path, &config)
 }

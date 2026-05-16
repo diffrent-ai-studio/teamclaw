@@ -4,6 +4,14 @@ use async_trait::async_trait;
 /// Opaque to the gateway; resolved against amuxd's runtime manager.
 pub type AmuxSessionId = String;
 
+/// Describes a model the daemon can drive, returned by `list_models`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ModelInfo {
+    pub provider: String,
+    pub model: String,
+    pub display_name: String,
+}
+
 /// Outcome of a single ACP turn driven by a gateway message.
 #[derive(Debug, Clone)]
 pub struct AcpTurnOutcome {
@@ -40,6 +48,25 @@ pub trait AcpHandle: Send + Sync + 'static {
         session: &AmuxSessionId,
         sender_display: &str,
         text: &str,
+    ) -> Result<(), AcpError>;
+
+    /// Cancel any in-flight turn on this session. Used by /stop.
+    async fn cancel(&self, session: &AmuxSessionId) -> Result<(), AcpError>;
+
+    /// Drop the runtime context for this session — next send_prompt re-spawns
+    /// a fresh agent under the same logical id. Used by /reset.
+    async fn reset_session(&self, session: &AmuxSessionId) -> Result<(), AcpError>;
+
+    /// List available models the daemon can drive. Used by /model (no arg).
+    async fn list_models(&self) -> Result<Vec<ModelInfo>, AcpError>;
+
+    /// Pin a model for this session. Restarts the underlying agent —
+    /// conversation context is lost. Used by /model X.
+    async fn set_model(
+        &self,
+        session: &AmuxSessionId,
+        provider: &str,
+        model: &str,
     ) -> Result<(), AcpError>;
 }
 

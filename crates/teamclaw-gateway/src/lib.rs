@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
 pub mod acp;
-pub use acp::{AcpError, AcpHandle, AcpTurnOutcome, AmuxSessionId};
+pub use acp::{AcpError, AcpHandle, AcpTurnOutcome, AmuxSessionId, ModelInfo};
 
 pub mod binding;
 pub mod supabase_store;
@@ -237,9 +237,9 @@ fn extract_message_content(message: &serde_json::Value) -> Result<String, String
 
 // ==================== Model Helpers ====================
 
-/// Information about a single model
+/// Information about a single model (legacy helper; prefer `ModelInfo` from `acp`)
 #[derive(Debug, Clone)]
-pub struct ModelInfo {
+pub struct LegacyModelInfo {
     pub id: String,
     pub name: String,
     pub provider: String,

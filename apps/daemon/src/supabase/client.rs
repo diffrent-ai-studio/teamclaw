@@ -862,6 +862,45 @@ impl SupabaseClient {
         Ok(id)
     }
 
+    /// Return the `member_actor_id` values from `agent_member_access` where
+    /// `agent_id = agent_actor_id AND permission_level = 'admin'`.
+    ///
+    /// Used at channel-manager boot to populate `owner_member_actor_ids` so
+    /// that gateway-originated sessions (Discord/WeCom/Feishu DMs) include the
+    /// agent's human admin owners as `session_participants`, making the session
+    /// visible to Tauri desktop clients via RLS.
+    pub async fn list_agent_admin_member_actor_ids(
+        &self,
+        agent_actor_id: &str,
+    ) -> SupabaseResult<Vec<String>> {
+        let token = self.access_token().await?;
+        let url = format!(
+            "{}/rest/v1/agent_member_access?agent_id=eq.{}&permission_level=eq.admin&select=member_actor_id",
+            self.cfg.url, agent_actor_id
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .header("apikey", &self.cfg.anon_key)
+            .bearer_auth(&token)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(SupabaseError::Rpc {
+                code: Some(status.as_u16().to_string()),
+                message: format!("list_agent_admin_member_actor_ids: {text}"),
+            });
+        }
+        #[derive(Deserialize)]
+        struct Row {
+            member_actor_id: String,
+        }
+        let rows: Vec<Row> = resp.json().await?;
+        Ok(rows.into_iter().map(|r| r.member_actor_id).collect())
+    }
+
     /// Add (or ignore-if-present) a participant on `session_participants`.
     /// Idempotent — the unique `(session_id, actor_id)` index makes the
     /// `on_conflict` UPSERT a no-op when the row already exists.

@@ -208,12 +208,31 @@ impl DaemonServer {
         };
 
         // The daemon's own actor_id (persisted in supabase.toml during `init`)
-        // is the agent participant the gateway-port channels speak as. Owner
-        // ids would be looked up via agent_member_access; we don't yet ship a
-        // helper, so leave the owner list empty — channels treat that as "no
-        // human participants" and still function for the agent-only path.
+        // is the agent participant the gateway-port channels speak as. Admin
+        // owners are looked up from agent_member_access so they appear in
+        // session_participants and can see gateway-originated DMs via RLS.
         let primary_agent_actor_id = self.actor_id.clone();
-        let agent_owner_actor_ids: Vec<String> = Vec::new();
+        let agent_owner_actor_ids: Vec<String> = match self
+            .supabase
+            .list_agent_admin_member_actor_ids(&primary_agent_actor_id)
+            .await
+        {
+            Ok(ids) => {
+                tracing::info!(
+                    "channel manager: {} admin owner(s) found for agent {}",
+                    ids.len(),
+                    primary_agent_actor_id
+                );
+                ids
+            }
+            Err(e) => {
+                tracing::error!(
+                    "channel manager: failed to resolve agent owners: {:?}; continuing with empty owner list",
+                    e
+                );
+                Vec::new()
+            }
+        };
 
         let acp_handle: Arc<dyn AcpHandle> = Arc::new(AmuxdAcpHandle {
             manager: self.agents.clone(),

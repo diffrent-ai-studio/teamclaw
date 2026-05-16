@@ -85,6 +85,7 @@ fn default_daemon_config(display_name: &str, actor_id: &str) -> DaemonConfig {
         },
         agents: AgentsConfig::default(),
         team_id: None,
+        channels: Default::default(),
     }
 }
 
@@ -190,6 +191,7 @@ mod tests {
                 },
                 agents: AgentsConfig::default(),
                 team_id: Some("team-old".into()),
+                channels: Default::default(),
             }),
             "new-display-name",
             "team-2",

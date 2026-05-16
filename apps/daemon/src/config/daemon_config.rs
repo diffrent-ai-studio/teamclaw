@@ -9,6 +9,8 @@ pub struct DaemonConfig {
     pub agents: AgentsConfig,
     #[serde(default)]
     pub team_id: Option<String>,
+    #[serde(default)]
+    pub channels: ChannelsConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,6 +40,75 @@ pub struct ClaudeCodeConfig {
 
 fn default_claude_binary() -> String {
     "claude".into()
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct ChannelsConfig {
+    #[serde(default)]
+    pub discord: Option<DiscordChannel>,
+    #[serde(default)]
+    pub wecom: Option<WeComChannel>,
+    #[serde(default)]
+    pub feishu: Option<FeishuChannel>,
+    #[serde(default)]
+    pub kook: Option<KookChannel>,
+    #[serde(default)]
+    pub wechat: Option<WeChatChannel>,
+    #[serde(default)]
+    pub email: Option<EmailChannel>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DiscordChannel {
+    pub enabled: bool,
+    pub bot_token: String,
+    #[serde(default)]
+    pub default_username: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WeComChannel {
+    pub enabled: bool,
+    pub corp_id: String,
+    pub agent_id: String,
+    pub secret: String,
+    pub token: String,
+    pub encoding_aes_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FeishuChannel {
+    pub enabled: bool,
+    pub app_id: String,
+    pub app_secret: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KookChannel {
+    pub enabled: bool,
+    pub bot_token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WeChatChannel {
+    pub enabled: bool,
+    pub ilink_account: String,
+    pub ilink_token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EmailChannel {
+    pub enabled: bool,
+    pub imap_host: String,
+    pub imap_port: u16,
+    pub imap_user: String,
+    pub imap_pass: String,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub smtp_user: String,
+    pub smtp_pass: String,
+    #[serde(default)]
+    pub allowed_senders: Vec<String>,
 }
 
 impl DaemonConfig {
@@ -76,5 +147,32 @@ impl DaemonConfig {
 
     pub fn sock_path() -> PathBuf {
         Self::config_dir().join("amuxd.sock")
+    }
+}
+
+#[cfg(test)]
+mod channels_tests {
+    use super::*;
+    #[test]
+    fn channels_roundtrip_wecom() {
+        let toml_src = r#"
+[device]
+id = "d1"
+name = "Mac"
+
+[mqtt]
+broker_url = "tcp://localhost:1883"
+
+[channels.wecom]
+enabled = true
+corp_id = "c1"
+agent_id = "a1"
+secret = "s"
+token = "t"
+encoding_aes_key = "k"
+"#;
+        let cfg: DaemonConfig = toml::from_str(toml_src).unwrap();
+        assert!(cfg.channels.wecom.is_some());
+        assert_eq!(cfg.channels.wecom.as_ref().unwrap().corp_id, "c1");
     }
 }

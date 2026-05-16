@@ -167,6 +167,7 @@ mod tests {
             },
             agents: AgentsConfig::default(),
             team_id: Some("team-uuid-1234".into()),
+            channels: Default::default(),
         };
         let result = MqttClient::new(&config, "actor-uuid-1234", "jwt-token-value");
         assert!(

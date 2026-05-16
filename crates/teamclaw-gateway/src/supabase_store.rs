@@ -1,5 +1,20 @@
 use async_trait::async_trait;
 
+/// Metadata for a single attachment uploaded alongside a gateway message.
+/// Stored as an element of the `messages.attachments` JSONB array.
+#[derive(Debug, Clone)]
+pub struct AttachmentRecord {
+    pub filename: String,
+    pub mime: String,
+    pub size: usize,
+    /// Object path inside the Supabase `attachments` bucket. Empty when the
+    /// upload failed and only the local cache copy exists.
+    pub bucket_path: String,
+    /// Absolute path to the locally-cached copy on the daemon that received
+    /// the message. Optional — only meaningful while that daemon is alive.
+    pub local_path: Option<String>,
+}
+
 /// What a channel needs the Supabase-backed store to do.
 /// Concrete impl lives in amuxd (which holds the Supabase client).
 #[async_trait]
@@ -34,6 +49,27 @@ pub trait ChannelStore: Send + Sync + 'static {
         content: &str,
         external_message_id: Option<&str>,
     ) -> Result<String /* message_id */, StoreError>;
+
+    /// Like `record_message` but records `attachments` in the
+    /// `messages.attachments` JSONB column. Idempotent on
+    /// `(session_id, external_message_id)`.
+    async fn record_message_with_attachments(
+        &self,
+        session_id: &str,
+        sender_actor_id: &str,
+        content: &str,
+        external_message_id: Option<&str>,
+        attachments: Vec<AttachmentRecord>,
+    ) -> Result<String /* message_id */, StoreError>;
+
+    /// Upload bytes to the Supabase `attachments` bucket at `bucket_path`.
+    /// Returns the stored object path on success.
+    async fn upload_attachment(
+        &self,
+        bucket_path: &str,
+        bytes: Vec<u8>,
+        mime: &str,
+    ) -> Result<String, StoreError>;
 
     /// Add a participant if not already in session_participants.
     async fn add_participant(&self, session_id: &str, actor_id: &str) -> Result<(), StoreError>;

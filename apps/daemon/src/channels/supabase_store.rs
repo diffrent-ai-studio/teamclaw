@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use teamclaw_gateway::{ChannelStore, EnsureSessionOutcome, StoreError};
+use teamclaw_gateway::{AttachmentRecord, ChannelStore, EnsureSessionOutcome, StoreError};
 
 use crate::supabase::SupabaseClient;
 
@@ -66,6 +66,51 @@ impl ChannelStore for AmuxdChannelStore {
     ) -> Result<String, StoreError> {
         self.client
             .insert_gateway_message(session_id, sender_actor_id, content, external_message_id)
+            .await
+            .map_err(|e| StoreError::Supabase(e.to_string()))
+    }
+
+    async fn record_message_with_attachments(
+        &self,
+        session_id: &str,
+        sender_actor_id: &str,
+        content: &str,
+        external_message_id: Option<&str>,
+        attachments: Vec<AttachmentRecord>,
+    ) -> Result<String, StoreError> {
+        let json_attachments: Vec<serde_json::Value> = attachments
+            .into_iter()
+            .map(|a| {
+                serde_json::json!({
+                    "filename": a.filename,
+                    "mime": a.mime,
+                    "size": a.size,
+                    "bucket_path": a.bucket_path,
+                    "local_path": a.local_path,
+                })
+            })
+            .collect();
+
+        self.client
+            .insert_gateway_message_with_attachments(
+                session_id,
+                sender_actor_id,
+                content,
+                external_message_id,
+                serde_json::Value::Array(json_attachments),
+            )
+            .await
+            .map_err(|e| StoreError::Supabase(e.to_string()))
+    }
+
+    async fn upload_attachment(
+        &self,
+        bucket_path: &str,
+        bytes: Vec<u8>,
+        mime: &str,
+    ) -> Result<String, StoreError> {
+        self.client
+            .upload_attachment_bytes(bucket_path, bytes, mime)
             .await
             .map_err(|e| StoreError::Supabase(e.to_string()))
     }

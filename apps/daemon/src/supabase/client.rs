@@ -795,6 +795,26 @@ impl SupabaseClient {
         content: &str,
         external_message_id: Option<&str>,
     ) -> SupabaseResult<String> {
+        self.insert_gateway_message_with_attachments(
+            session_id,
+            sender_actor_id,
+            content,
+            external_message_id,
+            serde_json::Value::Array(vec![]),
+        )
+        .await
+    }
+
+    /// Same as `insert_gateway_message` but carries an `attachments` JSON
+    /// array stored in `messages.attachments`.
+    pub async fn insert_gateway_message_with_attachments(
+        &self,
+        session_id: &str,
+        sender_actor_id: &str,
+        content: &str,
+        external_message_id: Option<&str>,
+        attachments: serde_json::Value,
+    ) -> SupabaseResult<String> {
         let token = self.access_token().await?;
         // `team_id` is required on `messages` and enforced by the
         // `enforce_core_team_integrity` trigger. The daemon's session is in
@@ -807,6 +827,7 @@ impl SupabaseClient {
             "kind": "text",
             "content": content,
             "metadata": {},
+            "attachments": attachments,
         });
         if let Some(ext) = external_message_id {
             body["external_id"] = serde_json::Value::String(ext.to_string());
@@ -860,6 +881,37 @@ impl SupabaseClient {
                 message: "insert_gateway_message: no id in response".into(),
             })?;
         Ok(id)
+    }
+
+    /// Upload bytes to the attachments bucket. `path` is the object path
+    /// (e.g., "<team_id>/<session_id>/<uuid>-<filename>"). `mime` is the
+    /// content-type. Returns the stored object path on success.
+    pub async fn upload_attachment_bytes(
+        &self,
+        path: &str,
+        bytes: Vec<u8>,
+        mime: &str,
+    ) -> SupabaseResult<String> {
+        let token = self.access_token().await?;
+        let url = format!("{}/storage/v1/object/attachments/{}", self.cfg.url, path);
+        let resp = self
+            .http
+            .post(&url)
+            .header("apikey", &self.cfg.anon_key)
+            .bearer_auth(&token)
+            .header("Content-Type", mime)
+            .body(bytes)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(SupabaseError::Rpc {
+                code: Some(status.as_u16().to_string()),
+                message: format!("upload_attachment_bytes: {text}"),
+            });
+        }
+        Ok(path.to_string())
     }
 
     /// Return the member actor ids from `agent_member_access` where

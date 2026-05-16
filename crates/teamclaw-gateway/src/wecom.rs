@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
-use crate::{AcpHandle, ChannelStore};
+use crate::{AcpHandle, AttachmentRecord, ChannelStore};
 
 /// Global reference to the active WeComGateway for proactive message sending.
 static ACTIVE_GATEWAY: OnceLock<Arc<RwLock<Option<WeComGateway>>>> = OnceLock::new();
@@ -67,6 +67,39 @@ fn decrypt_wecom_media(encrypted: &[u8], aeskey_b64: &str) -> Result<Vec<u8>, St
     } else {
         Ok(decrypted.to_vec())
     }
+}
+
+/// Fetch an encrypted WeCom media URL, decrypt with the per-message aeskey,
+/// and detect the MIME type. Returns `(plaintext_bytes, mime)`.
+async fn download_and_decrypt_wecom_media(
+    url: &str,
+    aeskey_b64: &str,
+    filename_hint: Option<&str>,
+) -> Result<(Vec<u8>, String), String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("client build: {e}"))?;
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("media GET: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("media GET failed: HTTP {}", resp.status()));
+    }
+    let encrypted = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("media body: {e}"))?
+        .to_vec();
+    let plaintext = if aeskey_b64.is_empty() {
+        encrypted
+    } else {
+        decrypt_wecom_media(&encrypted, aeskey_b64)?
+    };
+    let mime = resolve_mime(&plaintext, filename_hint);
+    Ok((plaintext, mime))
 }
 
 /// Compress an image to fit within max_bytes by resizing and re-encoding as JPEG.
@@ -1127,13 +1160,47 @@ impl WeComGateway {
             }
         }
 
-        // Drop image / file attachments inbound — the new ACP path is text-only.
-        // Outbound media replies are still supported via upload_and_send_media.
-        let _ = image_url;
-        let _ = media_aeskey;
-        let _ = filename_hint;
+        // Collect raw inbound attachments. WeCom delivers images/files
+        // encrypted under a per-message aeskey; decrypt now, defer the
+        // Supabase Storage upload until we know the resolved session_id.
+        struct InboundFile {
+            bytes: Vec<u8>,
+            filename: String,
+            mime: String,
+        }
+        let mut inbound_files: Vec<InboundFile> = Vec::new();
+        if let Some(url) = image_url.as_deref() {
+            let aeskey = media_aeskey.as_deref().unwrap_or("");
+            match download_and_decrypt_wecom_media(url, aeskey, filename_hint.as_deref()).await {
+                Ok((bytes, detected_mime)) => {
+                    if bytes.len() > 50 * 1024 * 1024 {
+                        tracing::warn!(
+                            "WeCom file too large ({} bytes); skipping attachment",
+                            bytes.len()
+                        );
+                    } else {
+                        let filename = filename_hint.clone().unwrap_or_else(|| {
+                            format!(
+                                "wecom-{}.{}",
+                                chrono::Utc::now().timestamp_millis(),
+                                mime_to_ext(&detected_mime)
+                            )
+                        });
+                        inbound_files.push(InboundFile {
+                            bytes,
+                            filename,
+                            mime: detected_mime,
+                        });
+                    }
+                }
+                Err(e) => tracing::warn!("WeCom file decrypt failed: {e}"),
+            }
+        }
 
-        if text_content.trim().is_empty() {
+        // For inbound attachments, allow empty text — the agent should still
+        // see the files. Only drop the event when there's no text AND no
+        // files we successfully decoded.
+        if text_content.trim().is_empty() && inbound_files.is_empty() {
             return;
         }
 
@@ -1322,23 +1389,77 @@ impl WeComGateway {
             }
         }
 
-        if let Err(e) = self
-            .store
-            .record_message(
-                &outcome.session_id,
-                &external_actor_id,
-                &text_content,
-                Some(&msg.msgid),
-            )
-            .await
-        {
-            eprintln!("[WeCom] record_message (user) failed: {}", e);
+        // Dual-write attachments: save to local cache for the agent to read,
+        // then upload to Supabase Storage in parallel with the ACP turn so the
+        // bot reply latency is unaffected by upload time.
+        let local_dir = dirs::config_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+            .join("amux")
+            .join("attachments")
+            .join(&outcome.session_id);
+        if !inbound_files.is_empty() {
+            if let Err(e) = tokio::fs::create_dir_all(&local_dir).await {
+                tracing::warn!("attachment cache mkdir failed: {e}");
+            }
         }
 
-        // Drive a single ACP turn through amuxd.
+        // (bucket_path, filename, mime, size, local_path)
+        let mut attachment_descriptors: Vec<(String, String, String, usize, Option<String>)> =
+            Vec::new();
+        let mut upload_handles: Vec<tokio::task::JoinHandle<Result<String, String>>> = Vec::new();
+        let mut local_paths_for_prompt: Vec<String> = Vec::new();
+
+        for f in inbound_files {
+            let local_path = local_dir.join(&f.filename);
+            if let Err(e) = tokio::fs::write(&local_path, &f.bytes).await {
+                tracing::warn!("attachment local write failed for {:?}: {e}", local_path);
+                continue;
+            }
+            let local_path_str = local_path.to_string_lossy().to_string();
+            local_paths_for_prompt.push(local_path_str.clone());
+
+            let bucket_path = format!(
+                "{}/{}/{}-{}",
+                self.team_id,
+                outcome.session_id,
+                uuid::Uuid::new_v4(),
+                f.filename,
+            );
+
+            attachment_descriptors.push((
+                bucket_path.clone(),
+                f.filename.clone(),
+                f.mime.clone(),
+                f.bytes.len(),
+                Some(local_path_str),
+            ));
+
+            // Parallel upload — does not block ACP.
+            let store = self.store.clone();
+            let mime = f.mime.clone();
+            let bytes = f.bytes;
+            upload_handles.push(tokio::spawn(async move {
+                store
+                    .upload_attachment(&bucket_path, bytes, &mime)
+                    .await
+                    .map_err(|e| e.to_string())
+            }));
+        }
+
+        // Build prompt with local-path references so the agent can `Read` them.
+        let mut prompt_text = text_content.clone();
+        if !local_paths_for_prompt.is_empty() {
+            prompt_text.push_str("\n\n[Attached files — read these with the Read tool]\n");
+            for p in &local_paths_for_prompt {
+                prompt_text.push_str(&format!("- {}\n", p));
+            }
+        }
+
+        // Drive a single ACP turn through amuxd — runs in parallel with the
+        // attachment uploads spawned above.
         let reply = match self
             .acp
-            .send_prompt(&outcome.acp_session_id, &sender_display_name, &text_content)
+            .send_prompt(&outcome.acp_session_id, &sender_display_name, &prompt_text)
             .await
         {
             Ok(r) => r,
@@ -1349,6 +1470,64 @@ impl WeComGateway {
                 return;
             }
         };
+
+        // Collect upload results. Upload failure falls back to a metadata-only
+        // record pointing at the local cache so the agent's reply still has
+        // context, even though Tauri clients won't be able to download.
+        let mut attachments: Vec<AttachmentRecord> = Vec::new();
+        for ((bucket_path, filename, mime, size, local_path), handle) in
+            attachment_descriptors.into_iter().zip(upload_handles)
+        {
+            let upload_result = handle
+                .await
+                .unwrap_or_else(|_| Err("upload task panic".into()));
+            match upload_result {
+                Ok(_) => attachments.push(AttachmentRecord {
+                    filename,
+                    mime,
+                    size,
+                    bucket_path,
+                    local_path,
+                }),
+                Err(e) => {
+                    tracing::warn!("attachment upload failed (kept local copy): {e}");
+                    attachments.push(AttachmentRecord {
+                        filename,
+                        mime,
+                        size,
+                        bucket_path: String::new(),
+                        local_path,
+                    });
+                }
+            }
+        }
+
+        // Build the stored user-message content so Tauri/iOS clients see a
+        // textual indicator of attached files when text_content is empty.
+        let user_content = if attachments.is_empty() {
+            text_content.clone()
+        } else {
+            let names: Vec<&str> = attachments.iter().map(|a| a.filename.as_str()).collect();
+            if text_content.trim().is_empty() {
+                format!("[attachments: {}]", names.join(", "))
+            } else {
+                format!("{}\n[attachments: {}]", text_content, names.join(", "))
+            }
+        };
+
+        if let Err(e) = self
+            .store
+            .record_message_with_attachments(
+                &outcome.session_id,
+                &external_actor_id,
+                &user_content,
+                Some(&msg.msgid),
+                attachments,
+            )
+            .await
+        {
+            eprintln!("[WeCom] record_message_with_attachments (user) failed: {}", e);
+        }
 
         if let Err(e) = self
             .store

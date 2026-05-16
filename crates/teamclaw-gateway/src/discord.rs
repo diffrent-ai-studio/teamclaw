@@ -266,9 +266,20 @@ impl DiscordHandler {
 
         // Build the binding URI using application id (the bot's own user id)
         // and the channel id (works for both DMs and guild channels).
+        // bot_user_id is populated in the `ready()` handler before any message
+        // arrives, so this should always be Some by the time we get here.
         let application_id = match bot_id_value {
             Some(id) => id.to_string(),
-            None => ctx.cache.current_user().id.to_string(),
+            None => match ctx.http.get_current_user().await {
+                Ok(user) => user.id.to_string(),
+                Err(e) => {
+                    eprintln!("[Discord] bot_user_id not initialized and get_current_user failed: {}", e);
+                    let _ = msg
+                        .reply(&ctx.http, format!("Error: bot not ready: {}", e))
+                        .await;
+                    return;
+                }
+            },
         };
         let binding = crate::binding::discord(&application_id, &msg.channel_id.to_string());
 

@@ -8,7 +8,7 @@ use crate::email_config::{
     EmailConfig, EmailGatewayStatus, EmailGatewayStatusResponse, EmailProvider,
 };
 use crate::email_db::EmailDb;
-use crate::session::SessionMapping;
+use crate::{AcpHandle, ChannelStore};
 
 /// Maximum number of processed message UIDs to keep in the dedup set.
 /// With UID watermark, this set only grows within a single gateway session,
@@ -241,8 +241,11 @@ impl imap::Authenticator for XOAuth2 {
 #[derive(Clone)]
 pub struct EmailGateway {
     config: Arc<RwLock<EmailConfig>>,
-    session_mapping: SessionMapping,
-    opencode_port: u16,
+    pub acp: Arc<dyn AcpHandle>,
+    pub store: Arc<dyn ChannelStore>,
+    pub team_id: String,
+    pub primary_agent_actor_id: String,
+    pub agent_owner_actor_ids: Vec<String>,
     shutdown_flag: Arc<AtomicBool>,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<EmailGatewayStatusResponse>>,
@@ -254,19 +257,25 @@ pub struct EmailGateway {
     generation: Arc<AtomicU64>,
     /// Email database for persistent state (UID watermark, processed UIDs, message threads)
     email_db: Arc<RwLock<Option<EmailDb>>>,
-    /// Permission auto-approver
-    #[allow(dead_code)]
-    permission_approver: super::PermissionAutoApprover,
     /// Pending questions waiting for email replies
     pub pending_questions: Arc<super::PendingQuestionStore>,
 }
 
 impl EmailGateway {
-    pub fn new(opencode_port: u16, session_mapping: SessionMapping) -> Self {
+    pub fn new(
+        acp: Arc<dyn AcpHandle>,
+        store: Arc<dyn ChannelStore>,
+        team_id: String,
+        primary_agent_actor_id: String,
+        agent_owner_actor_ids: Vec<String>,
+    ) -> Self {
         Self {
             config: Arc::new(RwLock::new(EmailConfig::default())),
-            session_mapping,
-            opencode_port,
+            acp,
+            store,
+            team_id,
+            primary_agent_actor_id,
+            agent_owner_actor_ids,
             shutdown_flag: Arc::new(AtomicBool::new(false)),
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(EmailGatewayStatusResponse::default())),
@@ -274,7 +283,6 @@ impl EmailGateway {
             workspace_path: Arc::new(RwLock::new(None)),
             generation: Arc::new(AtomicU64::new(0)),
             email_db: Arc::new(RwLock::new(None)),
-            permission_approver: super::PermissionAutoApprover::new(opencode_port),
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
         }
     }
@@ -1491,15 +1499,18 @@ fn build_thread_session_key(email: &EmailMessage) -> String {
     format!("email:thread:uid:{}", email.uid)
 }
 
+/// Resolve the email "thread key" — used to look up an existing
+/// session via the local `email_db` thread index. Returns the thread key
+/// (e.g. "email:thread:<message-id>") on a hit so that callers can avoid
+/// inventing a brand new key for an ongoing conversation.
 fn resolve_email_session_key_sync(
-    gateway: &EmailGateway,
+    _gateway: &EmailGateway,
     email: &EmailMessage,
     rt_handle: &tokio::runtime::Handle,
     email_db: Option<&EmailDb>,
     account_key: &str,
 ) -> Result<Option<String>, String> {
     let rt = rt_handle;
-    let mapping = gateway.session_mapping.clone();
     let normalized_subject = normalize_subject(&email.subject).to_lowercase();
     let reply_like_subject = has_reply_prefix(&email.subject);
     let mut lookup_ids: Vec<String> = Vec::new();
@@ -1509,32 +1520,9 @@ fn resolve_email_session_key_sync(
     lookup_ids.dedup();
 
     let session_key = rt.block_on(async move {
-        // STEP 1: Try SessionMapping email indexes first (for cron-initiated threads)
-        for message_id in &lookup_ids {
-            if let Some(key) = mapping.get_email_session_by_message_id(message_id).await {
-                println!(
-                    "[Email] Session resolved by message-id (SessionMapping): {} -> key {}",
-                    message_id, key
-                );
-                return Some(key);
-            }
-        }
-
-        // STEP 2: Try SessionMapping subject index (for cron-initiated threads)
-        if reply_like_subject && !normalized_subject.is_empty() {
-            if let Some(key) = mapping
-                .get_email_session_by_subject(&normalized_subject)
-                .await
-            {
-                println!(
-                    "[Email] Session resolved by subject (SessionMapping): {} -> key {}",
-                    normalized_subject, key
-                );
-                return Some(key);
-            }
-        }
-
-        // STEP 3: Fallback to database for normal email threads
+        // Look up local email database for thread → session associations.
+        // (SessionMapping's per-process email indexes have been removed; we
+        // now rely solely on the persistent email_db.)
         if let Some(db) = email_db {
             // Try to find session by Message-ID (from In-Reply-To and References headers)
             for message_id in &lookup_ids {
@@ -1546,8 +1534,6 @@ fn resolve_email_session_key_sync(
                         "[Email] Session resolved by message-id index (database): {} -> session {}",
                         message_id, session_id
                     );
-                    // Update session_mapping's main sessions map (not the email indexes)
-                    mapping.set_session(key.clone(), session_id).await;
                     return Some(key);
                 }
             }
@@ -1569,8 +1555,6 @@ fn resolve_email_session_key_sync(
                         "[Email] Session resolved by subject index (database): {} -> session {}",
                         normalized_subject, session_id
                     );
-                    // Update session_mapping's main sessions map
-                    mapping.set_session(key.clone(), session_id).await;
                     return Some(key);
                 }
             }
@@ -1578,110 +1562,6 @@ fn resolve_email_session_key_sync(
         None
     });
     Ok(session_key)
-}
-
-fn create_opencode_session_sync(port: u16) -> Result<String, String> {
-    let client = reqwest::blocking::Client::new();
-    let url = format!("http://127.0.0.1:{}/session", port);
-
-    // Set an explicit title to avoid OpenCode auto-generating titles that might conflict
-    let now = chrono::Local::now();
-    let title = format!("New Chat {}", now.format("%Y-%m-%d %H:%M:%S"));
-    let body = serde_json::json!({ "title": title });
-
-    let resp = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .map_err(|e| format!("OpenCode session create failed: {}", e))?;
-
-    let response_body: serde_json::Value = resp
-        .json()
-        .map_err(|e| format!("Failed to parse session response: {}", e))?;
-
-    response_body["id"]
-        .as_str()
-        .map(|s: &str| s.to_string())
-        .ok_or_else(|| "No session ID in response".to_string())
-}
-
-#[allow(dead_code)]
-fn send_to_opencode_sync(
-    port: u16,
-    session_id: &str,
-    message: &str,
-    model: Option<(String, String)>, // (providerId, modelId)
-) -> Result<String, String> {
-    // OpenCode may take a long time to process complex tasks (code generation, analysis, etc.)
-    // Use a generous timeout (15 minutes) matching Discord and Feishu channels
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(900))
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-    let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
-
-    // Build request body with optional model override
-    let mut body = serde_json::json!({
-        "parts": [{"type": "text", "text": message}]
-    });
-
-    if let Some((provider_id, model_id)) = model {
-        body["model"] = serde_json::json!({
-            "providerID": provider_id,
-            "modelID": model_id
-        });
-    }
-
-    let resp = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .map_err(|e| format!("OpenCode message send failed: {}", e))?;
-
-    let status = resp.status();
-    let body_text = resp
-        .text()
-        .map_err(|e| format!("Failed to read response: {}", e))?;
-
-    if body_text.is_empty() {
-        return Err("Empty response from OpenCode (session may not exist)".to_string());
-    }
-
-    if !status.is_success() {
-        return Err(format!("OpenCode error ({}): {}", status, body_text));
-    }
-
-    let body: serde_json::Value =
-        serde_json::from_str(&body_text).map_err(|e| format!("Failed to parse response: {}", e))?;
-
-    // Extract text from parts where type == "text" (filter out thinking, tool_use, etc.)
-    if let Some(parts) = body.get("parts").and_then(|p| p.as_array()) {
-        let mut result = String::new();
-        for part in parts {
-            // Only include parts with type "text", skip thinking and other types
-            if part.get("type").and_then(|t| t.as_str()) == Some("text") {
-                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                    let trimmed = text.trim();
-                    if !trimmed.is_empty() {
-                        if !result.is_empty() {
-                            result.push('\n');
-                        }
-                        result.push_str(trimmed);
-                    }
-                }
-            }
-        }
-        if !result.is_empty() {
-            return Ok(result);
-        }
-    }
-
-    if let Some(text) = body.as_str() {
-        return Ok(text.to_string());
-    }
-
-    Ok(body_text)
 }
 
 fn process_and_reply_sync(
@@ -1694,41 +1574,18 @@ fn process_and_reply_sync(
     account_key: &str,
     pending_questions: &Arc<super::PendingQuestionStore>,
 ) -> Result<(), String> {
-    let port = gateway.opencode_port;
-    let session_key =
+    let _session_key =
         resolve_email_session_key_sync(gateway, email, rt_handle, email_db, account_key)?
             .unwrap_or_else(|| build_thread_session_key(email));
-    let _normalized_subject = normalize_subject(&email.subject).to_lowercase();
 
-    // Get or create OpenCode session
-    let session_id = {
-        let mapping = gateway.session_mapping.clone();
-        let key = session_key.clone();
-        rt_handle.block_on(async { mapping.get_session(&key).await })
-    };
-
-    let session_id = match session_id {
-        Some(id) => id,
-        None => {
-            let new_id = create_opencode_session_sync(port)?;
-            let mapping = gateway.session_mapping.clone();
-            let key = session_key.clone();
-            let id = new_id.clone();
-            rt_handle.block_on(async {
-                mapping.set_session(key, id).await;
-            });
-            new_id
-        }
-    };
-
-    // Build message content — send only the email body text to OpenCode
+    // Build message content — send only the email body text to amuxd ACP.
     let message_content = if email.body_text.is_empty() {
         "(empty body)".to_string()
     } else {
         clean_email_body(&email.body_text)
     };
 
-    // Check for /answer command — routes reply to the most recent pending question
+    // /answer command — routes reply to the most recent pending question.
     if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&message_content) {
         if let Some(qid) = rt_handle.block_on(pending_questions.try_answer(answer_text)) {
             println!(
@@ -1741,7 +1598,8 @@ fn process_and_reply_sync(
         return Ok(());
     }
 
-    // Check if this email is a reply to a pending question
+    // If this email is a reply to one of our previously-forwarded questions,
+    // resolve it now and short-circuit.
     for mid in extract_message_ids(&email.in_reply_to) {
         let normalized = normalize_message_id(&mid);
         if let Some(entry) = rt_handle.block_on(async { pending_questions.take(&normalized).await })
@@ -1755,82 +1613,111 @@ fn process_and_reply_sync(
         }
     }
 
-    // Get model preference from SessionMapping (for consistent model usage)
-    let model_preference = {
-        let mapping = gateway.session_mapping.clone();
-        let key = session_key.clone();
-        rt_handle.block_on(async { mapping.get_model(&key).await })
+    // ============ amuxd ACP + ChannelStore path ============
+    let thread_key = build_thread_session_key(email)
+        .strip_prefix("email:thread:")
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| email.uid.to_string());
+    let binding = crate::binding::email_thread(account_key, &thread_key);
+    let urn = crate::binding::urn_email_user(&email.from);
+    let sender_display = if email.from.is_empty() {
+        "Email user".to_string()
+    } else {
+        email.from.clone()
     };
-
-    let model_param = model_preference
-        .as_ref()
-        .and_then(|m| crate::parse_model_preference(m));
-
-    // Build question forwarder for email
-    let pending_questions_clone = Arc::clone(pending_questions);
-    let email_config_for_q = config.clone();
-    let reply_to_email_for_q = email.clone();
-    let access_token_for_q = access_token.map(|s| s.to_string());
-    let question_ctx = super::QuestionContext {
-        forwarder: Box::new(move |fq: super::ForwardedQuestion| {
-            let cfg = email_config_for_q.clone();
-            let reply_email = reply_to_email_for_q.clone();
-            let at = access_token_for_q.clone();
-            Box::pin(async move {
-                let text = super::format_question_message(
-                    &fq.questions,
-                    &fq.question_id,
-                    super::i18n::Locale::En,
-                );
-                let outgoing_msg_id = tokio::task::spawn_blocking(move || {
-                    send_reply_sync(&cfg, &reply_email, &text, at.as_deref())
-                })
-                .await
-                .map_err(|e| format!("Join error: {}", e))?
-                .map_err(|e| format!("SMTP error: {}", e))?;
-                Ok(outgoing_msg_id)
-            })
-        }),
-        store: pending_questions_clone,
+    let subject_as_title = if email.subject.trim().is_empty() {
+        format!("Email: {}", sender_display)
+    } else {
+        normalize_subject(&email.subject)
     };
-
-    // Build sender identity for message prefix
-    let channel_sender = super::ChannelSender {
-        platform: "email".to_string(),
-        external_id: email.from.clone(),
-        display_name: email.from.clone(),
-    };
-
-    // Send to OpenCode using async mode with permission auto-approval
-    println!("[Email] Sending message asynchronously with permission auto-approval");
-    let parts = vec![serde_json::json!({"type": "text", "text": &message_content})];
-    let response = rt_handle.block_on(async {
-        super::send_message_async_with_approval(
-            port,
-            &session_id,
-            parts,
-            model_param,
-            Some(question_ctx),
-            Some(&channel_sender),
-        )
-        .await
-    })?;
-
-    // Send reply
-    let outgoing_message_id = send_reply_sync(config, email, &response, access_token)?;
     let incoming_message_id = normalize_message_id(&email.message_id);
-    let session_id_clone = session_id.clone();
 
-    // Store email indexes only in database (no longer using SessionMapping's email indexes)
+    let team_id = gateway.team_id.clone();
+    let primary_agent_actor_id = gateway.primary_agent_actor_id.clone();
+    let agent_owner_actor_ids = gateway.agent_owner_actor_ids.clone();
+    let store = gateway.store.clone();
+    let acp = gateway.acp.clone();
+    let message_content_for_async = message_content.clone();
+
+    let (acp_session_id, session_id, outgoing_reply_text) = rt_handle.block_on(async {
+        let external_actor_id = store
+            .ensure_external_actor(&team_id, "email", &urn, &sender_display)
+            .await
+            .map_err(|e| format!("ensure_external_actor: {e}"))?;
+
+        let outcome = store
+            .ensure_session(
+                &team_id,
+                &binding,
+                &subject_as_title,
+                &primary_agent_actor_id,
+                &agent_owner_actor_ids,
+                &[external_actor_id.clone()],
+            )
+            .await
+            .map_err(|e| format!("ensure_session: {e}"))?;
+
+        store
+            .add_participant(&outcome.session_id, &external_actor_id)
+            .await
+            .map_err(|e| format!("add_participant: {e}"))?;
+
+        let msg_id_opt = if incoming_message_id.is_empty() {
+            None
+        } else {
+            Some(incoming_message_id.as_str())
+        };
+        store
+            .record_message(
+                &outcome.session_id,
+                &external_actor_id,
+                &message_content_for_async,
+                msg_id_opt,
+            )
+            .await
+            .map_err(|e| format!("record_message in: {e}"))?;
+
+        let reply = acp
+            .send_prompt(
+                &outcome.acp_session_id,
+                &sender_display,
+                &message_content_for_async,
+            )
+            .await
+            .map_err(|e| format!("acp.send_prompt: {e}"))?;
+
+        store
+            .record_message(
+                &outcome.session_id,
+                &primary_agent_actor_id,
+                &reply.reply_text,
+                None,
+            )
+            .await
+            .map_err(|e| format!("record_message out: {e}"))?;
+
+        Ok::<_, String>((outcome.acp_session_id, outcome.session_id, reply.reply_text))
+    })?;
+    let _ = acp_session_id;
+
+    // Send the SMTP reply (this is the email-specific delivery channel).
+    let outgoing_message_id = send_reply_sync(config, email, &outgoing_reply_text, access_token)?;
+
+    let session_id_clone = session_id.clone();
+    let outgoing_message_id_clone = outgoing_message_id.clone();
+    let incoming_message_id_for_db = incoming_message_id.clone();
+    let subject_for_db = email.subject.clone();
+
+    // Store email indexes in email_db so subsequent replies in the same thread
+    // can be resolved back to this session_id without a Supabase round-trip.
     rt_handle.block_on(async move {
         if let Some(db) = email_db {
-            // Store incoming message thread
-            if !incoming_message_id.is_empty() {
+            if !incoming_message_id_for_db.is_empty() {
                 if let Err(e) = db
                     .store_message_thread(
                         account_key,
-                        &incoming_message_id,
-                        Some(&email.subject),
+                        &incoming_message_id_for_db,
+                        Some(&subject_for_db),
                         Some(&session_id_clone),
                     )
                     .await
@@ -1842,13 +1729,12 @@ fn process_and_reply_sync(
                 }
             }
 
-            // Store outgoing message thread
-            if !outgoing_message_id.is_empty() {
+            if !outgoing_message_id_clone.is_empty() {
                 if let Err(e) = db
                     .store_message_thread(
                         account_key,
-                        &outgoing_message_id,
-                        Some(&email.subject),
+                        &outgoing_message_id_clone,
+                        Some(&subject_for_db),
                         Some(&session_id_clone),
                     )
                     .await

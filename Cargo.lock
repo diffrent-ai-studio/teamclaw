@@ -12806,6 +12806,7 @@ version = "0.1.0"
 dependencies = [
  "aes",
  "anyhow",
+ "async-trait",
  "base64 0.22.1",
  "cbc",
  "chrono",
@@ -12827,6 +12828,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serenity",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite 0.29.0",
  "tracing",

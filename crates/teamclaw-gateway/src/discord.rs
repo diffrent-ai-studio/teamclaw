@@ -1,4 +1,3 @@
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serenity::all::{
     async_trait, Client, Command, CommandOptionType, Context, CreateCommand, CreateCommandOption,
     CreateInteractionResponse, CreateInteractionResponseMessage, EditInteractionResponse,
@@ -8,48 +7,52 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
 use crate::config::{DiscordConfig, GatewayStatus, GatewayStatusResponse};
-use crate::session::SessionMapping;
 
-use crate::{i18n, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
+use crate::{i18n, AcpHandle, ChannelStore, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
 
 /// Discord bot handler
 pub struct DiscordHandler {
     config: Arc<RwLock<DiscordConfig>>,
-    session_mapping: SessionMapping,
-    opencode_port: u16,
+    acp: Arc<dyn AcpHandle>,
+    store: Arc<dyn ChannelStore>,
+    team_id: String,
+    primary_agent_actor_id: String,
+    agent_owner_actor_ids: Vec<String>,
     workspace_path: String,
     status_tx: mpsc::Sender<GatewayStatusResponse>,
     bot_user_id: Arc<RwLock<Option<u64>>>,
     /// Tracker for processed message IDs to prevent duplicate processing
     processed_messages: Arc<RwLock<ProcessedMessageTracker>>,
-    /// Permission auto-approver
-    #[allow(dead_code)]
-    permission_approver: super::PermissionAutoApprover,
     /// Pending question store for question forwarding
     pending_questions: Arc<super::PendingQuestionStore>,
 }
 
 impl DiscordHandler {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Arc<RwLock<DiscordConfig>>,
-        session_mapping: SessionMapping,
-        opencode_port: u16,
+        acp: Arc<dyn AcpHandle>,
+        store: Arc<dyn ChannelStore>,
+        team_id: String,
+        primary_agent_actor_id: String,
+        agent_owner_actor_ids: Vec<String>,
         workspace_path: String,
         status_tx: mpsc::Sender<GatewayStatusResponse>,
-        permission_approver: super::PermissionAutoApprover,
         pending_questions: Arc<super::PendingQuestionStore>,
     ) -> Self {
         Self {
             config,
-            session_mapping,
-            opencode_port,
+            acp,
+            store,
+            team_id,
+            primary_agent_actor_id,
+            agent_owner_actor_ids,
             workspace_path,
             status_tx,
             bot_user_id: Arc::new(RwLock::new(None)),
             processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(
                 MAX_PROCESSED_MESSAGES,
             ))),
-            permission_approver,
             pending_questions,
         }
     }
@@ -213,264 +216,166 @@ impl DiscordHandler {
         FilterResult::Allow
     }
 
-    /// Process a message and send to OpenCode
+    /// Process a message via amuxd ACP + ChannelStore.
     async fn process_message(&self, msg: &Message, ctx: &Context) {
-        println!(
-            "[Discord] process_message called, opencode_port: {}",
-            self.opencode_port
-        );
+        println!("[Discord] process_message called");
         let _config = self.config.read().await;
         let is_dm = msg.guild_id.is_none();
         println!("[Discord] is_dm: {}", is_dm);
 
         // Clean message content first (remove bot mention if present)
         let mut content = msg.content.clone();
-        let bot_id = self.bot_user_id.read().await;
-        if let Some(id) = *bot_id {
+        let bot_id_value = *self.bot_user_id.read().await;
+        if let Some(id) = bot_id_value {
             content = content
                 .replace(&format!("<@{}>", id), "")
                 .replace(&format!("<@!{}>", id), "")
                 .trim()
                 .to_string();
         }
-        drop(bot_id);
 
-        // Check if message has any content (text or images)
-        let has_images = msg.attachments.iter().any(|a| {
-            a.content_type
-                .as_ref()
-                .map(|ct| ct.starts_with("image/"))
-                .unwrap_or(false)
-        });
-
-        if content.is_empty() && !has_images {
+        if content.is_empty() {
             return;
         }
 
-        // Build session key for this context (used for session ID, model preference, and commands)
-        let session_key = if is_dm {
-            format!("discord:dm:{}", msg.author.id)
-        } else {
-            format!(
-                "discord:channel:{}:{}",
-                msg.guild_id.unwrap(),
-                msg.channel_id
-            )
-        };
-
-        // Handle /model command before creating session
-        if content.eq_ignore_ascii_case("/model") || content.to_lowercase().starts_with("/model ") {
-            let arg = if content.len() > 7 {
-                content[7..].trim()
-            } else {
-                ""
-            };
-            println!("[Discord] Model command received, arg: '{}'", arg);
-            let locale = i18n::get_locale(&self.workspace_path);
-            let response = super::handle_model_command(
-                self.opencode_port,
-                &self.session_mapping,
-                &session_key,
-                arg,
-                locale,
-            )
-            .await;
-
-            // Split response if too long
-            let chunks = split_message(&response, 2000);
-            let mut is_first = true;
-            for chunk in chunks {
-                let result = if is_first {
-                    is_first = false;
-                    msg.reply(&ctx.http, &chunk).await
-                } else {
-                    msg.channel_id.say(&ctx.http, &chunk).await
-                };
-                if let Err(e) = result {
-                    eprintln!("[Discord] Failed to send model response: {}", e);
-                }
-            }
-            return;
-        }
-
-        // Handle /reset command before creating session
+        // Handle /reset (still useful: clears local processed-message tracker
+        // is a no-op; in v2 there is no client-side session-id cache to clear).
         if content.eq_ignore_ascii_case("/reset") {
-            println!("[Discord] Reset command received");
-            self.session_mapping.remove_session(&session_key).await;
             let locale = i18n::get_locale(&self.workspace_path);
             let reply_text = i18n::t(i18n::MsgKey::SessionReset, locale);
             let _ = msg.reply(&ctx.http, &reply_text).await;
-            println!("[Discord] Session reset completed");
             return;
         }
 
-        // Handle /stop command
-        if content.eq_ignore_ascii_case("/stop") {
-            println!("[Discord] Stop command received");
-            let locale = i18n::get_locale(&self.workspace_path);
-            let response = super::handle_stop_command(
-                self.opencode_port,
-                &self.session_mapping,
-                &session_key,
-                locale,
-            )
-            .await;
-            let _ = msg.reply(&ctx.http, &response).await;
-            return;
-        }
-
-        // Handle /sessions command (send placeholder first, then edit with result)
-        if content.eq_ignore_ascii_case("/sessions")
+        // /model, /stop, /sessions — slash-style commands that depended on opencode HTTP.
+        // Not yet supported in v2.
+        if content.eq_ignore_ascii_case("/model")
+            || content.to_lowercase().starts_with("/model ")
+            || content.eq_ignore_ascii_case("/stop")
+            || content.eq_ignore_ascii_case("/sessions")
             || content.to_lowercase().starts_with("/sessions ")
         {
-            let arg = if content.len() > 10 {
-                content[10..].trim()
-            } else {
-                ""
-            };
-            println!("[Discord] Sessions command received, arg: '{}'", arg);
-
-            // Send a placeholder message first
-            let locale = i18n::get_locale(&self.workspace_path);
-            let placeholder = msg
-                .reply(&ctx.http, &i18n::t(i18n::MsgKey::LoadingSessions, locale))
+            let _ = msg
+                .reply(
+                    &ctx.http,
+                    "This command is not supported in v2 yet.",
+                )
                 .await;
-            let response = super::handle_sessions_command(
-                self.opencode_port,
-                &self.session_mapping,
-                &session_key,
-                arg,
-                locale,
-            )
-            .await;
-
-            // Edit the placeholder with the actual response
-            if let Ok(mut reply_msg) = placeholder {
-                let chunks = split_message(&response, 2000);
-                let first_chunk = chunks.first().cloned().unwrap_or_default();
-                let _ = reply_msg
-                    .edit(&ctx.http, EditMessage::new().content(&first_chunk))
-                    .await;
-                // Send remaining chunks as new messages
-                for chunk in chunks.iter().skip(1) {
-                    let _ = msg.channel_id.say(&ctx.http, chunk).await;
-                }
-            }
             return;
         }
 
-        let session_id = match self.session_mapping.get_session(&session_key).await {
-            Some(id) => id,
-            None => match self.create_opencode_session().await {
-                Ok(id) => {
-                    self.session_mapping
-                        .set_session(session_key.clone(), id.clone())
-                        .await;
-                    id
-                }
-                Err(e) => {
-                    let _ = msg
-                        .reply(&ctx.http, format!("Error creating session: {}", e))
-                        .await;
-                    return;
-                }
-            },
+        // Build the binding URI using application id (the bot's own user id)
+        // and the channel id (works for both DMs and guild channels).
+        let application_id = match bot_id_value {
+            Some(id) => id.to_string(),
+            None => ctx.cache.current_user().id.to_string(),
+        };
+        let binding = crate::binding::discord(&application_id, &msg.channel_id.to_string());
+
+        // Resolve / create the external actor for the message author.
+        let external_actor_id = match self
+            .store
+            .ensure_external_actor(
+                &self.team_id,
+                "discord",
+                &crate::binding::urn_discord_user(&msg.author.id.to_string()),
+                &msg.author.name,
+            )
+            .await
+        {
+            Ok(id) => id,
+            Err(e) => {
+                let _ = msg
+                    .reply(&ctx.http, format!("Error (actor): {}", e))
+                    .await;
+                return;
+            }
         };
 
-        // Extract images from attachments: (url, mime_type)
-        let images: Vec<(String, String)> = msg
-            .attachments
-            .iter()
-            .filter_map(|a| {
-                a.content_type.as_ref().and_then(|ct| {
-                    if ct.starts_with("image/") {
-                        Some((a.url.clone(), ct.clone()))
-                    } else {
-                        None
-                    }
-                })
-            })
-            .collect();
+        // Build a session title: DMs vs. channels.
+        let session_title = if is_dm {
+            format!("Discord DM: {}", msg.author.name)
+        } else {
+            format!("Discord: #{}", msg.channel_id)
+        };
 
-        if !images.is_empty() {
-            println!("[Discord] Found {} image(s) in message", images.len());
-            for (url, mime) in &images {
-                println!("[Discord]   - {} ({})", url, mime);
+        let outcome = match self
+            .store
+            .ensure_session(
+                &self.team_id,
+                &binding,
+                &session_title,
+                &self.primary_agent_actor_id,
+                &self.agent_owner_actor_ids,
+                &[external_actor_id.clone()],
+            )
+            .await
+        {
+            Ok(o) => o,
+            Err(e) => {
+                let _ = msg
+                    .reply(&ctx.http, format!("Error (session): {}", e))
+                    .await;
+                return;
             }
+        };
+
+        if let Err(e) = self
+            .store
+            .add_participant(&outcome.session_id, &external_actor_id)
+            .await
+        {
+            eprintln!("[Discord] add_participant failed: {}", e);
         }
 
-        // Look up model preference for this context
-        let model_param = self
-            .session_mapping
-            .get_model(&session_key)
+        if let Err(e) = self
+            .store
+            .record_message(
+                &outcome.session_id,
+                &external_actor_id,
+                &content,
+                Some(&msg.id.to_string()),
+            )
             .await
-            .and_then(|m| super::parse_model_preference(&m));
+        {
+            eprintln!("[Discord] record_message (user) failed: {}", e);
+        }
 
-        // Send immediate "Thinking..." reply so the user knows the bot is processing
+        // Send immediate "Thinking..." reply so the user knows the bot is processing.
         let processing_msg = msg.reply(&ctx.http, "🤔 Thinking...").await.ok();
-
-        // Send typing indicator
         let typing = msg.channel_id.start_typing(&ctx.http);
 
-        // Build question context for forwarding AI questions to Discord
-        let pending_questions = Arc::clone(&self.pending_questions);
-        let channel_id = msg.channel_id;
-        let http = Arc::clone(&ctx.http);
-        let locale_for_q = i18n::get_locale(&self.workspace_path);
-        let question_ctx = super::QuestionContext {
-            forwarder: Box::new(move |fq: super::ForwardedQuestion| {
-                let http = Arc::clone(&http);
-                Box::pin(async move {
-                    let text = super::format_question_message(
-                        &fq.questions,
-                        &fq.question_id,
-                        locale_for_q,
-                    );
-                    let sent = channel_id
-                        .say(&http, &text)
-                        .await
-                        .map_err(|e| format!("Failed to send question: {}", e))?;
-                    Ok(sent.id.to_string())
-                })
-            }),
-            store: pending_questions,
-        };
-
-        // Build sender identity for message prefix
-        let sender = super::ChannelSender {
-            platform: "discord".to_string(),
-            external_id: msg.author.id.to_string(),
-            display_name: msg.author.name.clone(),
-        };
-
-        // Send message to OpenCode (with automatic permission approval)
-        let result = self
-            .send_to_opencode(
-                &session_id,
-                &content,
-                images.clone(),
-                model_param.clone(),
-                Some(question_ctx),
-                &sender,
-            )
+        // Drive a single ACP turn through amuxd.
+        let turn = self
+            .acp
+            .send_prompt(&outcome.acp_session_id, &msg.author.name, &content)
             .await;
 
-        match result {
-            Ok(response) => {
-                // Split response if too long (Discord limit is 2000 chars)
-                let chunks = split_message(&response, 2000);
+        match turn {
+            Ok(reply) => {
+                if let Err(e) = self
+                    .store
+                    .record_message(
+                        &outcome.session_id,
+                        &self.primary_agent_actor_id,
+                        &reply.reply_text,
+                        None,
+                    )
+                    .await
+                {
+                    eprintln!("[Discord] record_message (reply) failed: {}", e);
+                }
+
+                let chunks = split_message(&reply.reply_text, 2000);
                 if let Some(mut proc_msg) = processing_msg {
-                    // Edit the "Thinking..." message with the first chunk
                     let edit = EditMessage::new().content(&chunks[0]);
                     let _ = proc_msg.edit(&ctx.http, edit).await;
-                    // Send remaining chunks as new messages
                     for chunk in chunks.iter().skip(1) {
                         if let Err(e) = msg.channel_id.say(&ctx.http, chunk).await {
                             eprintln!("Failed to send Discord message: {}", e);
                         }
                     }
                 } else {
-                    // Fallback: send as new messages if processing message failed
                     let mut is_first = true;
                     for chunk in chunks {
                         let result = if is_first {
@@ -486,127 +391,17 @@ impl DiscordHandler {
                 }
             }
             Err(e) => {
-                // Edit the "Thinking..." message with the error, or send a new reply
+                let err_text = format!("❌ Error: {}", e);
                 if let Some(mut proc_msg) = processing_msg {
-                    let edit = EditMessage::new().content(format!("❌ Error: {}", e));
+                    let edit = EditMessage::new().content(&err_text);
                     let _ = proc_msg.edit(&ctx.http, edit).await;
                 } else {
-                    let _ = msg
-                        .reply(&ctx.http, format!("Error processing message: {}", e))
-                        .await;
+                    let _ = msg.reply(&ctx.http, &err_text).await;
                 }
             }
         }
 
         drop(typing);
-    }
-
-    /// Create a new OpenCode session
-    async fn create_opencode_session(&self) -> Result<String, String> {
-        super::create_opencode_session(self.opencode_port).await
-    }
-
-    /// Send a message to OpenCode using async mode with permission auto-approval
-    /// images: Vec<(url, mime_type)>
-    /// model: Optional (providerID, modelID) to override the model for this request
-    async fn send_to_opencode(
-        &self,
-        session_id: &str,
-        content: &str,
-        images: Vec<(String, String)>,
-        model: Option<(String, String)>,
-        question_ctx: Option<super::QuestionContext>,
-        sender: &super::ChannelSender,
-    ) -> Result<String, String> {
-        // Download client for images (short timeout)
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| format!("Failed to create client: {}", e))?;
-
-        let url = format!(
-            "http://127.0.0.1:{}/session/{}/message",
-            self.opencode_port, session_id
-        );
-        println!(
-            "[Discord] Sending to OpenCode: {} content: {}, images: {}",
-            url,
-            content,
-            images.len()
-        );
-
-        // Build parts array with text and images
-        let mut parts = Vec::new();
-
-        // Add text part if not empty
-        if !content.is_empty() {
-            parts.push(serde_json::json!({
-                "type": "text",
-                "text": content
-            }));
-        }
-
-        // Add image parts as "file" type with data URI (download and convert to base64)
-        for (image_url, mime_type) in &images {
-            println!("[Discord] Downloading image: {}", image_url);
-
-            // Download image
-            let img_response = client
-                .get(image_url)
-                .send()
-                .await
-                .map_err(|e| format!("Failed to download image: {}", e))?;
-
-            if !img_response.status().is_success() {
-                println!(
-                    "[Discord] Failed to download image: HTTP {}",
-                    img_response.status()
-                );
-                continue;
-            }
-
-            let img_bytes = img_response
-                .bytes()
-                .await
-                .map_err(|e| format!("Failed to read image bytes: {}", e))?;
-
-            // Convert to base64 data URI
-            let base64_data = BASE64.encode(&img_bytes);
-            let data_uri = format!("data:{};base64,{}", mime_type, base64_data);
-
-            println!(
-                "[Discord] Image converted to base64: {} bytes -> {} chars",
-                img_bytes.len(),
-                data_uri.len()
-            );
-
-            parts.push(serde_json::json!({
-                "type": "file",
-                "url": data_uri,
-                "mime": mime_type
-            }));
-        }
-
-        // If no parts, add empty text
-        if parts.is_empty() {
-            parts.push(serde_json::json!({
-                "type": "text",
-                "text": ""
-            }));
-        }
-
-        println!("[Discord] Sending message asynchronously with permission auto-approval");
-
-        // Use async send with permission auto-approval
-        super::send_message_async_with_approval(
-            self.opencode_port,
-            session_id,
-            parts,
-            model,
-            question_ctx,
-            Some(sender),
-        )
-        .await
     }
 
     /// Update gateway status
@@ -785,97 +580,11 @@ impl EventHandler for DiscordHandler {
             let locale = i18n::get_locale(&self.workspace_path);
             let content = match command.data.name.as_str() {
                 "reset" => {
-                    let is_dm = command.guild_id.is_none();
-                    let session_key = if is_dm {
-                        format!("discord:dm:{}", command.user.id)
-                    } else {
-                        format!(
-                            "discord:channel:{}:{}",
-                            command.guild_id.unwrap(),
-                            command.channel_id
-                        )
-                    };
-                    self.session_mapping.remove_session(&session_key).await;
+                    // v2 sessions are server-managed; there is no client-side cache to clear.
                     i18n::t(i18n::MsgKey::SessionReset, locale)
                 }
-                "model" => {
-                    let model_arg = command
-                        .data
-                        .options
-                        .iter()
-                        .find(|o| o.name == "name")
-                        .and_then(|o| o.value.as_str())
-                        .unwrap_or("");
-
-                    let is_dm = command.guild_id.is_none();
-                    let session_key = if is_dm {
-                        format!("discord:dm:{}", command.user.id)
-                    } else {
-                        format!(
-                            "discord:channel:{}:{}",
-                            command.guild_id.unwrap(),
-                            command.channel_id
-                        )
-                    };
-
-                    super::handle_model_command(
-                        self.opencode_port,
-                        &self.session_mapping,
-                        &session_key,
-                        model_arg,
-                        locale,
-                    )
-                    .await
-                }
-                "stop" => {
-                    let is_dm = command.guild_id.is_none();
-                    let session_key = if is_dm {
-                        format!("discord:dm:{}", command.user.id)
-                    } else {
-                        format!(
-                            "discord:channel:{}:{}",
-                            command.guild_id.unwrap(),
-                            command.channel_id
-                        )
-                    };
-
-                    super::handle_stop_command(
-                        self.opencode_port,
-                        &self.session_mapping,
-                        &session_key,
-                        locale,
-                    )
-                    .await
-                }
-                "sessions" => {
-                    let session_arg = command
-                        .data
-                        .options
-                        .iter()
-                        .find(|o| o.name == "number")
-                        .and_then(|o| o.value.as_i64())
-                        .map(|n| n.to_string())
-                        .unwrap_or_default();
-
-                    let is_dm = command.guild_id.is_none();
-                    let session_key = if is_dm {
-                        format!("discord:dm:{}", command.user.id)
-                    } else {
-                        format!(
-                            "discord:channel:{}:{}",
-                            command.guild_id.unwrap(),
-                            command.channel_id
-                        )
-                    };
-
-                    super::handle_sessions_command(
-                        self.opencode_port,
-                        &self.session_mapping,
-                        &session_key,
-                        &session_arg,
-                        locale,
-                    )
-                    .await
+                "model" | "stop" | "sessions" => {
+                    "This command is not supported in v2 yet.".to_string()
                 }
                 "help" => i18n::t(i18n::MsgKey::HelpDiscord, locale),
                 name => i18n::t(i18n::MsgKey::UnknownCommand(name), locale),
@@ -934,34 +643,40 @@ fn split_message(content: &str, max_len: usize) -> Vec<String> {
 /// Discord gateway manager
 pub struct DiscordGateway {
     config: Arc<RwLock<DiscordConfig>>,
-    session_mapping: SessionMapping,
-    opencode_port: u16,
+    pub acp: Arc<dyn AcpHandle>,
+    pub store: Arc<dyn ChannelStore>,
+    pub team_id: String,
+    pub primary_agent_actor_id: String,
+    pub agent_owner_actor_ids: Vec<String>,
     workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<GatewayStatusResponse>>,
     /// Track if gateway is currently running
     is_running: Arc<RwLock<bool>>,
-    /// Permission auto-approver
-    permission_approver: super::PermissionAutoApprover,
     /// Pending question store for question forwarding
     pending_questions: Arc<super::PendingQuestionStore>,
 }
 
 impl DiscordGateway {
     pub fn new(
-        opencode_port: u16,
-        session_mapping: SessionMapping,
+        acp: Arc<dyn AcpHandle>,
+        store: Arc<dyn ChannelStore>,
+        team_id: String,
+        primary_agent_actor_id: String,
+        agent_owner_actor_ids: Vec<String>,
         workspace_path: String,
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(DiscordConfig::default())),
-            session_mapping,
-            opencode_port,
+            acp,
+            store,
+            team_id,
+            primary_agent_actor_id,
+            agent_owner_actor_ids,
             workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(GatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
-            permission_approver: super::PermissionAutoApprover::new(opencode_port),
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
         }
     }
@@ -1026,11 +741,13 @@ impl DiscordGateway {
         // Create handler
         let handler = DiscordHandler::new(
             Arc::clone(&self.config),
-            self.session_mapping.clone(),
-            self.opencode_port,
+            Arc::clone(&self.acp),
+            Arc::clone(&self.store),
+            self.team_id.clone(),
+            self.primary_agent_actor_id.clone(),
+            self.agent_owner_actor_ids.clone(),
             self.workspace_path.clone(),
             status_tx,
-            self.permission_approver.clone(),
             Arc::clone(&self.pending_questions),
         );
 
@@ -1120,9 +837,6 @@ impl DiscordGateway {
                 *status = GatewayStatusResponse::default();
             }
 
-            // Clear only Discord sessions
-            self.session_mapping.clear_by_namespace("discord").await;
-
             println!("[Discord] Gateway fully stopped");
             Ok(())
         } else {
@@ -1154,13 +868,15 @@ impl Clone for DiscordGateway {
     fn clone(&self) -> Self {
         Self {
             config: Arc::clone(&self.config),
-            session_mapping: self.session_mapping.clone(),
-            opencode_port: self.opencode_port,
+            acp: Arc::clone(&self.acp),
+            store: Arc::clone(&self.store),
+            team_id: self.team_id.clone(),
+            primary_agent_actor_id: self.primary_agent_actor_id.clone(),
+            agent_owner_actor_ids: self.agent_owner_actor_ids.clone(),
             workspace_path: self.workspace_path.clone(),
             shutdown_tx: Arc::clone(&self.shutdown_tx),
             status: Arc::clone(&self.status),
             is_running: Arc::clone(&self.is_running),
-            permission_approver: self.permission_approver.clone(),
             pending_questions: Arc::clone(&self.pending_questions),
         }
     }

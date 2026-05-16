@@ -1,11 +1,9 @@
 use crate::i18n;
-use crate::session::SessionMapping;
-use crate::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
 use crate::wechat_config::{
     WeChatConfig, WeChatGatewayStatus, WeChatGatewayStatusResponse, WeChatQrLoginResponse,
     WeChatQrStatusResponse,
 };
-use crate::{ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
+use crate::{AcpHandle, ChannelStore};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -355,18 +353,15 @@ fn extract_text_from_message(msg: &ILinkMessage) -> String {
 #[derive(Clone)]
 pub struct WeChatGateway {
     config: Arc<RwLock<WeChatConfig>>,
-    session_mapping: SessionMapping,
-    opencode_port: u16,
-    #[allow(dead_code)]
+    pub acp: Arc<dyn AcpHandle>,
+    pub store: Arc<dyn ChannelStore>,
+    pub team_id: String,
+    pub primary_agent_actor_id: String,
+    pub agent_owner_actor_ids: Vec<String>,
     workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<WeChatGatewayStatusResponse>>,
     is_running: Arc<RwLock<bool>>,
-    #[allow(dead_code)]
-    processed_messages: Arc<RwLock<ProcessedMessageTracker>>,
-    #[allow(dead_code)]
-    permission_approver: super::PermissionAutoApprover,
-    session_queue: Arc<SessionQueue>,
     pending_questions: Arc<super::PendingQuestionStore>,
     /// Cache of from_user_id -> context_token for replies
     context_tokens: Arc<RwLock<HashMap<String, String>>>,
@@ -374,23 +369,24 @@ pub struct WeChatGateway {
 
 impl WeChatGateway {
     pub fn new(
-        opencode_port: u16,
-        session_mapping: SessionMapping,
+        acp: Arc<dyn AcpHandle>,
+        store: Arc<dyn ChannelStore>,
+        team_id: String,
+        primary_agent_actor_id: String,
+        agent_owner_actor_ids: Vec<String>,
         workspace_path: String,
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(WeChatConfig::default())),
-            session_mapping,
-            opencode_port,
+            acp,
+            store,
+            team_id,
+            primary_agent_actor_id,
+            agent_owner_actor_ids,
             workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(WeChatGatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
-            processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(
-                MAX_PROCESSED_MESSAGES,
-            ))),
-            permission_approver: super::PermissionAutoApprover::new(opencode_port),
-            session_queue: Arc::new(SessionQueue::new()),
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
             context_tokens: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -508,7 +504,6 @@ impl WeChatGateway {
         *self.is_running.write().await = false;
         self.set_status(WeChatGatewayStatus::Disconnected, None)
             .await;
-        self.session_queue.shutdown().await;
         Ok(())
     }
 
@@ -631,7 +626,7 @@ impl WeChatGateway {
                             let preview: String = text.chars().take(50).collect();
                             println!("[WeChat] Message from {}: {}...", sender_id, preview);
 
-                            // Forward to OpenCode session
+                            // Forward to amuxd ACP session
                             let gateway = self.clone();
                             let text_clone = text.clone();
                             let sender_clone = sender_id.clone();
@@ -670,12 +665,10 @@ impl WeChatGateway {
     }
 
     async fn handle_incoming_message(&self, sender_id: &str, text: &str) -> Result<(), String> {
-        let session_key = format!("wechat:dm:{}", sender_id);
         let locale = i18n::get_locale(&self.workspace_path);
-
         let trimmed = text.trim();
 
-        // Forward /answer to OpenCode pending question (must run before generic slash handler)
+        // Forward /answer to pending question (must run before generic slash handler)
         if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(trimmed) {
             if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
                 println!(
@@ -699,218 +692,105 @@ impl WeChatGateway {
             return Ok(());
         }
 
-        // Check for slash commands first
+        // Handle slash commands
         if !trimmed.is_empty() && trimmed.starts_with('/') {
-            let reply = self.handle_slash_command(&session_key, trimmed).await;
+            let reply = self.handle_slash_command(trimmed, locale).await;
             let _ = self.send_to_user(sender_id, &reply).await;
             return Ok(());
         }
 
-        // Build message for the session queue
-        let gateway = self.clone();
-        let text = text.to_string();
-        let sender_id = sender_id.to_string();
-
-        let process_fn = {
-            let gateway = gateway.clone();
-            let text = text.clone();
-            let sender_id = sender_id.clone();
-            Box::new(move || {
-                let gateway = gateway.clone();
-                let text = text.clone();
-                let sender_id = sender_id.clone();
-                Box::pin(async move { gateway.process_and_reply(&sender_id, &text).await })
-                    as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
-            })
-                as Box<
-                    dyn FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
-                        + Send,
-                >
+        // WeChat-iLink is DM-only — no group concept on personal WeChat, so no @-mention filter.
+        // Read account-level ilink identifier from config for binding/urn construction.
+        let ilink_account = self.config.read().await.account_id.clone();
+        let sender_display_name = if sender_id.is_empty() {
+            "WeChat user".to_string()
+        } else {
+            sender_id.to_string()
         };
 
-        let notify_fn = {
-            let gateway = gateway.clone();
-            let sender_id = sender_id.clone();
-            let locale_for_notify = locale;
-            Some(Box::new(move |reason: RejectReason| {
-                let gateway = gateway.clone();
-                let sender_id = sender_id.clone();
-                Box::pin(async move {
-                    let msg = match reason {
-                        RejectReason::Timeout => {
-                            i18n::t(i18n::MsgKey::QueueTimeout, locale_for_notify)
-                        }
-                        RejectReason::QueueFull => {
-                            i18n::t(i18n::MsgKey::QueueFull, locale_for_notify)
-                        }
-                        RejectReason::SessionClosed => {
-                            i18n::t(i18n::MsgKey::GatewayShuttingDown, locale_for_notify)
-                        }
-                    };
-                    let _ = gateway.send_to_user(&sender_id, &msg).await;
-                })
-                    as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
-            })
-                as Box<
-                    dyn FnOnce(
-                            RejectReason,
-                        )
-                            -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
-                        + Send,
-                >)
-        };
+        let binding = crate::binding::wechat_dm(&ilink_account, sender_id);
+        let urn = crate::binding::urn_wechat_user(&ilink_account, sender_id);
 
-        let queued = QueuedMessage {
-            enqueued_at: std::time::Instant::now(),
-            process_fn,
-            notify_fn,
-        };
+        let external_actor_id = self
+            .store
+            .ensure_external_actor(&self.team_id, "wechat", &urn, &sender_display_name)
+            .await
+            .map_err(|e| format!("ensure_external_actor: {e}"))?;
 
-        match self.session_queue.enqueue(&session_key, queued).await {
-            EnqueueResult::Processing => {}
-            EnqueueResult::Queued { position } => {
-                println!(
-                    "[WeChat] Message queued at position {} for {}",
-                    position, session_key
-                );
-            }
-            EnqueueResult::Full => {
-                eprintln!("[WeChat] Message queue full for {}", session_key);
-            }
+        let session_title = format!("WeChat DM: {}", sender_display_name);
+
+        let outcome = self
+            .store
+            .ensure_session(
+                &self.team_id,
+                &binding,
+                &session_title,
+                &self.primary_agent_actor_id,
+                &self.agent_owner_actor_ids,
+                &[external_actor_id.clone()],
+            )
+            .await
+            .map_err(|e| format!("ensure_session: {e}"))?;
+
+        if let Err(e) = self
+            .store
+            .add_participant(&outcome.session_id, &external_actor_id)
+            .await
+        {
+            eprintln!("[WeChat] add_participant failed: {}", e);
         }
+
+        if let Err(e) = self
+            .store
+            .record_message(&outcome.session_id, &external_actor_id, text, None)
+            .await
+        {
+            eprintln!("[WeChat] record_message (user) failed: {}", e);
+        }
+
+        // Drive a single ACP turn through amuxd.
+        let reply = self
+            .acp
+            .send_prompt(&outcome.acp_session_id, &sender_display_name, text)
+            .await
+            .map_err(|e| format!("acp.send_prompt: {e}"))?;
+
+        if let Err(e) = self
+            .store
+            .record_message(
+                &outcome.session_id,
+                &self.primary_agent_actor_id,
+                &reply.reply_text,
+                None,
+            )
+            .await
+        {
+            eprintln!("[WeChat] record_message (reply) failed: {}", e);
+        }
+
+        let reply_text = if reply.reply_text.trim().is_empty() {
+            i18n::t(i18n::MsgKey::ModelEmptyResponse, locale)
+        } else {
+            reply.reply_text.clone()
+        };
+        let _ = self.send_to_user(sender_id, &reply_text).await;
 
         Ok(())
     }
 
-    async fn handle_slash_command(&self, session_key: &str, content: &str) -> String {
-        let locale = i18n::get_locale(&self.workspace_path);
+    async fn handle_slash_command(&self, content: &str, locale: i18n::Locale) -> String {
         let parts: Vec<&str> = content.splitn(2, ' ').collect();
         let cmd = parts[0].to_lowercase();
-        let arg = parts.get(1).copied().unwrap_or("").trim();
 
         match cmd.as_str() {
             "/help" => i18n::t(i18n::MsgKey::HelpWechat, locale),
-            "/reset" => {
-                self.session_mapping.remove_session(session_key).await;
-                i18n::t(i18n::MsgKey::SessionReset, locale)
-            }
-            "/model" => {
-                super::handle_model_command(
-                    self.opencode_port,
-                    &self.session_mapping,
-                    session_key,
-                    arg,
-                    locale,
-                )
-                .await
-            }
-            "/sessions" => {
-                super::handle_sessions_command(
-                    self.opencode_port,
-                    &self.session_mapping,
-                    session_key,
-                    arg,
-                    locale,
-                )
-                .await
-            }
-            "/stop" => {
-                super::handle_stop_command(
-                    self.opencode_port,
-                    &self.session_mapping,
-                    session_key,
-                    locale,
-                )
-                .await
+            // /reset is a no-op in v2 — sessions are server-managed via amuxd, no client cache to clear.
+            "/reset" => i18n::t(i18n::MsgKey::SessionReset, locale),
+            // /model, /sessions, /stop depended on opencode HTTP. Not yet supported in v2.
+            "/model" | "/sessions" | "/stop" => {
+                "This command is not supported in v2 yet.".to_string()
             }
             _ => i18n::t(i18n::MsgKey::UnknownCommand(&cmd), locale),
-        }
-    }
-
-    async fn process_and_reply(&self, sender_id: &str, text: &str) {
-        let locale = i18n::get_locale(&self.workspace_path);
-        // Get or create session
-        let session_key = format!("wechat:dm:{}", sender_id);
-        let session_id = match self.session_mapping.get_session(&session_key).await {
-            Some(id) => id,
-            None => match super::create_opencode_session(self.opencode_port).await {
-                Ok(id) => {
-                    self.session_mapping
-                        .set_session(session_key.clone(), id.clone())
-                        .await;
-                    id
-                }
-                Err(e) => {
-                    eprintln!("[WeChat] Failed to create session: {}", e);
-                    let _ = self.send_to_user(sender_id, &format!("Error: {}", e)).await;
-                    return;
-                }
-            },
-        };
-
-        // Get model preference for this session key
-        let model = {
-            let model_str = self.session_mapping.get_model(&session_key).await;
-            model_str.and_then(|s| super::parse_model_preference(&s))
-        };
-
-        // Use unified gateway with SSE + permission auto-approval
-        let parts = vec![serde_json::json!({ "type": "text", "text": text })];
-        println!(
-            "[WeChat] Sending to session {} via unified gateway",
-            session_id
-        );
-
-        let pending_questions = Arc::clone(&self.pending_questions);
-        let sender_for_q = sender_id.to_string();
-        let gateway_for_q = self.clone();
-        let locale_for_q = i18n::get_locale(&self.workspace_path);
-        let question_ctx = super::QuestionContext {
-            forwarder: Box::new(move |fq: super::ForwardedQuestion| {
-                let gateway = gateway_for_q.clone();
-                let sid = sender_for_q.clone();
-                Box::pin(async move {
-                    let text = super::format_question_message(
-                        &fq.questions,
-                        &fq.question_id,
-                        locale_for_q,
-                    );
-                    gateway.send_to_user(&sid, &text).await?;
-                    Ok(uuid::Uuid::new_v4().to_string())
-                })
-            }),
-            store: pending_questions,
-        };
-
-        // Build sender identity for message prefix
-        let channel_sender = super::ChannelSender {
-            platform: "wechat".to_string(),
-            external_id: sender_id.to_string(),
-            display_name: sender_id.to_string(),
-        };
-
-        match super::send_message_async_with_approval(
-            self.opencode_port,
-            &session_id,
-            parts,
-            model,
-            Some(question_ctx),
-            Some(&channel_sender),
-        )
-        .await
-        {
-            Ok(response) => {
-                let reply = if response.trim().is_empty() {
-                    i18n::t(i18n::MsgKey::ModelEmptyResponse, locale)
-                } else {
-                    response
-                };
-                let _ = self.send_to_user(sender_id, &reply).await;
-            }
-            Err(e) => {
-                eprintln!("[WeChat] Unified gateway error: {}", e);
-                let _ = self.send_to_user(sender_id, &format!("Error: {}", e)).await;
-            }
         }
     }
 }

@@ -88,6 +88,7 @@ public struct TodoDockView: View {
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
+            .liquidGlass(in: RoundedRectangle(cornerRadius: 22), interactive: false)
             .padding(.horizontal, 14)
             .padding(.bottom, 8)
             .animation(.easeInOut(duration: 0.2), value: isCollapsed)

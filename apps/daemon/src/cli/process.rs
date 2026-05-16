@@ -1,7 +1,17 @@
 use crate::config::DaemonConfig;
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::os::unix::net::UnixStream;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+
+/// Send a single-line control command to a running amuxd via its Unix socket.
+/// The real handler (reading acknowledgement, etc.) is wired in G2.
+pub fn send_control(sock_path: &Path, cmd: &str) -> anyhow::Result<()> {
+    let mut s = UnixStream::connect(sock_path)?;
+    s.write_all(format!("{cmd}\n").as_bytes())?;
+    Ok(())
+}
 
 /// Write `std::process::id()` to `DaemonConfig::pid_path()`. Called from
 /// `start` so `status` and `stop` can find the running daemon.

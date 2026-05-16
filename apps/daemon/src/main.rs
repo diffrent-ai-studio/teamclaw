@@ -150,6 +150,10 @@ fn main() -> anyhow::Result<()> {
                 Ok::<(), anyhow::Error>(())
             })?;
         }
+        Commands::Channel(args) => {
+            let path = config::DaemonConfig::default_path();
+            cli::channel::run(args, &path)?;
+        }
         Commands::TestClient { config, action } => {
             tracing_subscriber::fmt()
                 .with_env_filter(

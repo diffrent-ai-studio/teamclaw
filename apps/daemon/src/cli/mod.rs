@@ -1,8 +1,9 @@
+pub mod channel;
 pub mod clear;
 pub mod process;
 pub mod test_client;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -55,6 +56,92 @@ pub enum Commands {
         config: Option<std::path::PathBuf>,
         #[command(subcommand)]
         action: TestClientAction,
+    },
+    /// Manage channel bindings (discord, wecom, feishu, kook, wechat, email).
+    Channel(ChannelArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ChannelArgs {
+    #[command(subcommand)]
+    pub action: ChannelAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ChannelAction {
+    /// List all channels and their enabled state.
+    List,
+    /// Bind a channel (per-platform credentials).
+    Bind(ChannelBindArgs),
+    /// Remove a channel binding.
+    Unbind { platform: String },
+    /// Verify channel credentials are configured.
+    Test { platform: String },
+    /// Signal a running amuxd to re-read channel config.
+    Reload,
+}
+
+#[derive(Args, Debug)]
+pub struct ChannelBindArgs {
+    #[command(subcommand)]
+    pub platform: ChannelBindPlatform,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ChannelBindPlatform {
+    /// Bind a Discord bot.
+    Discord {
+        #[arg(long)]
+        bot_token: String,
+        #[arg(long)]
+        default_username: Option<String>,
+    },
+    /// Bind a WeCom bot.
+    Wecom {
+        #[arg(long)]
+        bot_id: String,
+        #[arg(long)]
+        secret: String,
+        #[arg(long)]
+        encoding_aes_key: Option<String>,
+    },
+    /// Bind a Feishu app.
+    Feishu {
+        #[arg(long)]
+        app_id: String,
+        #[arg(long)]
+        app_secret: String,
+    },
+    /// Bind a Kook bot.
+    Kook {
+        #[arg(long)]
+        bot_token: String,
+    },
+    /// Bind a WeChat (iLink) account.
+    Wechat {
+        #[arg(long)]
+        ilink_account: String,
+        #[arg(long)]
+        ilink_token: String,
+    },
+    /// Bind an Email (IMAP/SMTP) channel.
+    Email {
+        #[arg(long)]
+        imap_host: String,
+        #[arg(long)]
+        imap_port: u16,
+        #[arg(long)]
+        imap_user: String,
+        #[arg(long)]
+        imap_pass: String,
+        #[arg(long)]
+        smtp_host: String,
+        #[arg(long)]
+        smtp_port: u16,
+        #[arg(long)]
+        smtp_user: String,
+        #[arg(long)]
+        smtp_pass: String,
     },
 }
 

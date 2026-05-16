@@ -1,5 +1,4 @@
 use crate::i18n;
-use crate::session::SessionMapping;
 use crate::wecom_config::{WeComConfig, WeComGatewayStatus, WeComGatewayStatusResponse};
 use base64::Engine as _;
 use futures_util::stream::SplitSink;
@@ -9,6 +8,8 @@ use serde::Deserialize;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::sync::{mpsc, oneshot, RwLock};
+
+use crate::{AcpHandle, ChannelStore};
 
 /// Global reference to the active WeComGateway for proactive message sending.
 static ACTIVE_GATEWAY: OnceLock<Arc<RwLock<Option<WeComGateway>>>> = OnceLock::new();
@@ -502,7 +503,6 @@ pub const WECOM_WS_ENDPOINT: &str = "wss://openws.work.weixin.qq.com";
 const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 #[allow(dead_code)]
 const HEARTBEAT_TIMEOUT_SECS: u64 = 6;
-use crate::session_queue::{EnqueueResult, QueuedMessage, RejectReason, SessionQueue};
 use crate::{ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
 
 /// Pending WebSocket response channels, keyed by req_id.
@@ -513,16 +513,16 @@ type PendingResponses =
 #[derive(Clone)]
 pub struct WeComGateway {
     config: Arc<RwLock<WeComConfig>>,
-    session_mapping: SessionMapping,
-    opencode_port: u16,
+    pub acp: Arc<dyn AcpHandle>,
+    pub store: Arc<dyn ChannelStore>,
+    pub team_id: String,
+    pub primary_agent_actor_id: String,
+    pub agent_owner_actor_ids: Vec<String>,
     workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<WeComGatewayStatusResponse>>,
     is_running: Arc<RwLock<bool>>,
     processed_messages: Arc<RwLock<ProcessedMessageTracker>>,
-    #[allow(dead_code)]
-    permission_approver: super::PermissionAutoApprover,
-    session_queue: Arc<SessionQueue>,
     pending_questions: Arc<super::PendingQuestionStore>,
     shared_ws_sink: Arc<RwLock<Option<WsSink>>>,
     card_metadata: Arc<RwLock<std::collections::HashMap<String, CardMetadata>>>,
@@ -588,14 +588,20 @@ enum WsExitReason {
 
 impl WeComGateway {
     pub fn new(
-        opencode_port: u16,
-        session_mapping: SessionMapping,
+        acp: Arc<dyn AcpHandle>,
+        store: Arc<dyn ChannelStore>,
+        team_id: String,
+        primary_agent_actor_id: String,
+        agent_owner_actor_ids: Vec<String>,
         workspace_path: String,
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(WeComConfig::default())),
-            session_mapping,
-            opencode_port,
+            acp,
+            store,
+            team_id,
+            primary_agent_actor_id,
+            agent_owner_actor_ids,
             workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(WeComGatewayStatusResponse::default())),
@@ -603,8 +609,6 @@ impl WeComGateway {
             processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(
                 MAX_PROCESSED_MESSAGES,
             ))),
-            permission_approver: super::PermissionAutoApprover::new(opencode_port),
-            session_queue: Arc::new(SessionQueue::new()),
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
             shared_ws_sink: Arc::new(RwLock::new(None)),
             card_metadata: Arc::new(RwLock::new(std::collections::HashMap::new())),
@@ -620,22 +624,8 @@ impl WeComGateway {
         &self.workspace_path
     }
 
-    pub fn opencode_port(&self) -> u16 {
-        self.opencode_port
-    }
-
     pub async fn get_status(&self) -> WeComGatewayStatusResponse {
-        let mut resp = self.status.read().await.clone();
-        // Populate active sessions from session mapping
-        let data = self.session_mapping.get_all_sessions().await;
-        resp.active_sessions = data
-            .sessions
-            .keys()
-            .filter(|k| k.starts_with("wecom:"))
-            .cloned()
-            .collect();
-        resp.active_sessions.sort();
-        resp
+        self.status.read().await.clone()
     }
 
     async fn set_status(&self, status: WeComGatewayStatus, error: Option<String>) {
@@ -678,7 +668,6 @@ impl WeComGateway {
         if let Some(tx) = shutdown_tx {
             let _ = tx.send(());
         }
-        self.session_queue.shutdown().await;
         *get_active_gateway_holder().write().await = None;
         *self.shared_ws_sink.write().await = None;
         *self.is_running.write().await = false;
@@ -1131,16 +1120,15 @@ impl WeComGateway {
             }
         }
 
-        if text_content.trim().is_empty() && image_url.is_none() {
+        // Drop image / file attachments inbound — the new ACP path is text-only.
+        // Outbound media replies are still supported via upload_and_send_media.
+        let _ = image_url;
+        let _ = media_aeskey;
+        let _ = filename_hint;
+
+        if text_content.trim().is_empty() {
             return;
         }
-
-        // Session key
-        let session_key = if msg.chattype == "single" {
-            format!("wecom:dm:{}", userid)
-        } else {
-            format!("wecom:{}", msg.chatid)
-        };
 
         // Auto-record ownerId on first DM if not yet set
         if msg.chattype == "single" && !userid.is_empty() {
@@ -1203,7 +1191,7 @@ impl WeComGateway {
         let trimmed = text_content.trim();
         if !trimmed.is_empty() && trimmed.starts_with('/') {
             if let Err(e) = self
-                .handle_slash_command(&session_key, trimmed, &msg, &req_id, &ws_sink)
+                .handle_slash_command(trimmed, &req_id, &ws_sink)
                 .await
             {
                 eprintln!("[WeCom] Slash command error: {}", e);
@@ -1211,105 +1199,139 @@ impl WeComGateway {
             return;
         }
 
-        // Process message through OpenCode (via per-session queue)
-        let gateway = self.clone();
-        let session_key_owned = session_key.clone();
-        let text_content_owned = text_content.clone();
-        let image_url_owned = image_url.clone();
-        let media_aeskey_owned = media_aeskey.clone();
-        let filename_hint_owned = filename_hint.clone();
-        let msg_owned = msg.clone();
-        let req_id_owned = req_id.clone();
-        let ws_sink_owned = Arc::clone(&ws_sink);
+        // Determine chat type and build binding URI per spec:
+        //   wecom://{corp_id}/{agent_id}/{single|external-single|group}/{userid|chat_id}
+        // WSS smart-bot only exposes bot_id; use it for both corp_id and agent_id slots.
+        let chat_type_str = msg.chattype.as_str();
+        let bot_id = {
+            let cfg = self.config.read().await;
+            cfg.bot_id.clone()
+        };
+        let chat_id = msg.chatid.clone();
 
-        // Clone again for notify_fn closure
-        let gateway2 = self.clone();
-        let req_id2 = req_id.clone();
-        let ws_sink2 = Arc::clone(&ws_sink);
+        // Group only flows when the bot is @-mentioned (per spec — only @bot exchanges persist).
+        // WeCom's group callback already strips/keeps the @mention prefix in text_content; presence
+        // of the message itself signals delivery to the bot, which only happens on @mention.
+        // We additionally guard non-text/non-bot-mention noise by requiring non-empty trimmed text.
+        if chat_type_str == "group" {
+            // The "@蕉你一手" prefix was stripped earlier. If text is now empty, ignore.
+            if text_content.trim().is_empty() {
+                return;
+            }
+        }
 
-        // Build question context for forwarding AI questions back to WeCom
-        // NOTE: The forwarder does NOT send to WeCom here — the SSE loop handles
-        // display on the existing stream (same stream_id, finish=false) to avoid
-        // prematurely closing the WeCom response. The forwarder only returns the
-        // question_id so the store/channel setup works correctly.
-        let pending_questions_clone = Arc::clone(&self.pending_questions);
-        let question_ctx = super::QuestionContext {
-            forwarder: Box::new(move |fq: super::ForwardedQuestion| {
-                let qid = fq.question_id.clone();
-                Box::pin(async move {
-                    println!("[WeCom] Question registered: {}", qid);
-                    Ok(qid)
-                })
-            }),
-            store: pending_questions_clone,
+        let binding = match chat_type_str {
+            "single" => crate::binding::wecom_dm(&bot_id, &bot_id, userid),
+            "external-single" => crate::binding::wecom_external_dm(&bot_id, &bot_id, userid),
+            "group" => crate::binding::wecom_group(&bot_id, &bot_id, &chat_id),
+            _ => {
+                println!("[WeCom] Unknown chattype: {}", chat_type_str);
+                return;
+            }
         };
 
-        let result = self
-            .session_queue
-            .enqueue(
-                &session_key,
-                QueuedMessage {
-                    enqueued_at: std::time::Instant::now(),
-                    process_fn: Box::new(move || {
-                        Box::pin(async move {
-                            let req_id_for_error = req_id_owned.clone();
-                            if let Err(e) = gateway
-                                .process_and_reply_with_parts(
-                                    &session_key_owned,
-                                    &text_content_owned,
-                                    image_url_owned.as_deref(),
-                                    media_aeskey_owned.as_deref(),
-                                    filename_hint_owned.as_deref(),
-                                    &msg_owned,
-                                    &req_id_owned,
-                                    &ws_sink_owned,
-                                    Some(&question_ctx),
-                                )
-                                .await
-                            {
-                                eprintln!("[WeCom] Process error: {}", e);
-                                let _ = gateway
-                                    .send_reply(
-                                        &req_id_for_error,
-                                        &format!("Error: {}", e),
-                                        &ws_sink_owned,
-                                    )
-                                    .await;
-                            }
-                        })
-                    }),
-                    notify_fn: Some(Box::new(move |reason| {
-                        Box::pin(async move {
-                            let locale = i18n::get_locale(&gateway2.workspace_path);
-                            let msg = match reason {
-                                RejectReason::Timeout => {
-                                    i18n::t(i18n::MsgKey::QueueTimeout, locale)
-                                }
-                                RejectReason::QueueFull => i18n::t(i18n::MsgKey::QueueFull, locale),
-                                RejectReason::SessionClosed => {
-                                    i18n::t(i18n::MsgKey::MessageCouldNotBeProcessed, locale)
-                                }
-                            };
-                            let _ = gateway2.send_reply(&req_id2, &msg, &ws_sink2).await;
-                        })
-                    })),
-                },
-            )
-            .await;
+        let source_id_urn = if chat_type_str == "external-single" {
+            crate::binding::urn_wecom_ext(&bot_id, userid)
+        } else {
+            crate::binding::urn_wecom_user(&bot_id, userid)
+        };
 
-        match result {
-            EnqueueResult::Queued { position } if position > 0 => {
+        let sender_display_name = userid.to_string();
+
+        let external_actor_id = match self
+            .store
+            .ensure_external_actor(&self.team_id, "wecom", &source_id_urn, &sender_display_name)
+            .await
+        {
+            Ok(id) => id,
+            Err(e) => {
                 let _ = self
-                    .send_reply(
-                        &req_id,
-                        &format!("Message queued (position: {}). Please wait...", position),
-                        &ws_sink,
-                    )
+                    .send_reply(&req_id, &format!("Error (actor): {}", e), &ws_sink)
                     .await;
+                return;
             }
-            EnqueueResult::Full => { /* notify_fn already handled */ }
-            _ => { /* Processing or Queued{0} — no feedback needed */ }
+        };
+
+        let session_title = match chat_type_str {
+            "single" => format!("WeCom DM: {}", sender_display_name),
+            "external-single" => format!("WeCom external: {}", sender_display_name),
+            "group" => format!("WeCom group: {}", chat_id),
+            _ => "WeCom".to_string(),
+        };
+
+        let outcome = match self
+            .store
+            .ensure_session(
+                &self.team_id,
+                &binding,
+                &session_title,
+                &self.primary_agent_actor_id,
+                &self.agent_owner_actor_ids,
+                &[external_actor_id.clone()],
+            )
+            .await
+        {
+            Ok(o) => o,
+            Err(e) => {
+                let _ = self
+                    .send_reply(&req_id, &format!("Error (session): {}", e), &ws_sink)
+                    .await;
+                return;
+            }
+        };
+
+        if let Err(e) = self
+            .store
+            .add_participant(&outcome.session_id, &external_actor_id)
+            .await
+        {
+            eprintln!("[WeCom] add_participant failed: {}", e);
         }
+
+        if let Err(e) = self
+            .store
+            .record_message(
+                &outcome.session_id,
+                &external_actor_id,
+                &text_content,
+                Some(&msg.msgid),
+            )
+            .await
+        {
+            eprintln!("[WeCom] record_message (user) failed: {}", e);
+        }
+
+        // Drive a single ACP turn through amuxd.
+        let reply = match self
+            .acp
+            .send_prompt(&outcome.acp_session_id, &sender_display_name, &text_content)
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = self
+                    .send_reply(&req_id, &format!("Error: {}", e), &ws_sink)
+                    .await;
+                return;
+            }
+        };
+
+        if let Err(e) = self
+            .store
+            .record_message(
+                &outcome.session_id,
+                &self.primary_agent_actor_id,
+                &reply.reply_text,
+                None,
+            )
+            .await
+        {
+            eprintln!("[WeCom] record_message (reply) failed: {}", e);
+        }
+
+        let _ = self
+            .send_reply(&req_id, &reply.reply_text, &ws_sink)
+            .await;
     }
 
     async fn mark_message_processed(&self, msg_id: &str) -> bool {
@@ -1319,51 +1341,22 @@ impl WeComGateway {
 
     async fn handle_slash_command(
         &self,
-        session_key: &str,
         content: &str,
-        _msg: &WeComMsgCallback,
         req_id: &str,
         ws_sink: &WsSink,
     ) -> Result<(), String> {
         let parts: Vec<&str> = content.splitn(2, ' ').collect();
         let cmd = parts[0].to_lowercase();
-        let arg = parts.get(1).copied().unwrap_or("").trim();
         let locale = i18n::get_locale(&self.workspace_path);
 
         let reply = match cmd.as_str() {
             "/help" => i18n::t(i18n::MsgKey::HelpWecom, locale),
-            "/reset" => {
-                self.session_mapping.remove_session(session_key).await;
-                i18n::t(i18n::MsgKey::SessionReset, locale)
-            }
-            "/model" => {
-                super::handle_model_command(
-                    self.opencode_port,
-                    &self.session_mapping,
-                    session_key,
-                    arg,
-                    locale,
-                )
-                .await
-            }
-            "/sessions" => {
-                super::handle_sessions_command(
-                    self.opencode_port,
-                    &self.session_mapping,
-                    session_key,
-                    arg,
-                    locale,
-                )
-                .await
-            }
-            "/stop" => {
-                super::handle_stop_command(
-                    self.opencode_port,
-                    &self.session_mapping,
-                    session_key,
-                    locale,
-                )
-                .await
+            // /reset in v2 is a no-op: there is no client-side session-id cache to clear.
+            "/reset" => i18n::t(i18n::MsgKey::SessionReset, locale),
+            // /model, /sessions, /stop relied on opencode HTTP and are not yet
+            // supported in v2 (model switching is configured via daemon.toml).
+            "/model" | "/sessions" | "/stop" => {
+                "Model switching not yet supported in amuxd; configure via daemon.toml.".to_string()
             }
             _ => i18n::t(i18n::MsgKey::UnknownCommand(&cmd), locale),
         };
@@ -1371,933 +1364,6 @@ impl WeComGateway {
         self.send_reply(req_id, &reply, ws_sink).await
     }
 
-    /// Download file from URL and return as data URL + detected MIME type.
-    /// If `aeskey` is provided, the downloaded data is AES-256-CBC decrypted first.
-    /// An optional filename hint is used to infer MIME when detection fails.
-    /// Returns (data_url, mime_type, raw_bytes)
-    async fn download_as_data_url(
-        &self,
-        url: &str,
-        aeskey: Option<&str>,
-        filename_hint: Option<&str>,
-    ) -> Result<(String, String, Vec<u8>), String> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-        let resp = client
-            .get(url)
-            .timeout(std::time::Duration::from_secs(30))
-            .send()
-            .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
-
-        if !resp.status().is_success() {
-            return Err(format!("HTTP {}", resp.status()));
-        }
-
-        // Try to extract filename from Content-Disposition header as a fallback
-        // when the caller has no filename_hint (e.g. WeCom file messages).
-        let cd_filename = resp
-            .headers()
-            .get("content-disposition")
-            .and_then(|v| v.to_str().ok())
-            .and_then(extract_filename_from_content_disposition);
-
-        let raw_bytes = resp
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read body: {}", e))?;
-
-        // Decrypt if aeskey is provided (WeCom encrypts images/files with per-message AES key)
-        let bytes: Vec<u8> = if let Some(key) = aeskey {
-            println!("[WeCom] Decrypting {} bytes with aeskey", raw_bytes.len());
-            decrypt_wecom_media(&raw_bytes, key)?
-        } else {
-            raw_bytes.to_vec()
-        };
-
-        // Use caller-provided filename_hint first, then Content-Disposition filename
-        let effective_hint = filename_hint.map(|s| s.to_string()).or(cd_filename);
-
-        // Resolve MIME: filename hint first (precise for OOXML), magic bytes second,
-        // application/octet-stream as last resort. Defaulting to image/png caused
-        // Excel/Office files to be silently saved as .png — see ext_from_filename.
-        let content_type = resolve_mime(&bytes, effective_hint.as_deref());
-
-        println!(
-            "[WeCom] Downloaded file: {} bytes (raw {}), mime={}, filename_hint={:?}, effective_hint={:?}",
-            bytes.len(),
-            raw_bytes.len(),
-            content_type,
-            filename_hint,
-            effective_hint
-        );
-
-        // Compress image if too large for AI model (limit ~258KB base64 → ~190KB raw)
-        const MAX_RAW_BYTES: usize = 190_000;
-        let (final_bytes, final_mime) =
-            if bytes.len() > MAX_RAW_BYTES && content_type.starts_with("image/") {
-                match compress_image(&bytes, MAX_RAW_BYTES) {
-                    Ok(compressed) => {
-                        println!(
-                            "[WeCom] Compressed image: {} -> {} bytes",
-                            bytes.len(),
-                            compressed.len()
-                        );
-                        (compressed, "image/jpeg".to_string())
-                    }
-                    Err(e) => {
-                        println!("[WeCom] Image compression failed, using original: {}", e);
-                        (bytes.clone(), content_type.clone())
-                    }
-                }
-            } else {
-                (bytes.clone(), content_type.clone())
-            };
-
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&final_bytes);
-        let data_url = format!("data:{};base64,{}", final_mime, b64);
-
-        Ok((data_url, final_mime, bytes))
-    }
-
-    async fn create_opencode_session(&self) -> Result<String, String> {
-        super::create_opencode_session(self.opencode_port).await
-    }
-
-    async fn process_and_reply_with_parts(
-        &self,
-        session_key: &str,
-        message: &str,
-        image_url: Option<&str>,
-        media_aeskey: Option<&str>,
-        filename_hint: Option<&str>,
-        original: &WeComMsgCallback,
-        req_id: &str,
-        ws_sink: &WsSink,
-        question_ctx: Option<&super::QuestionContext>,
-    ) -> Result<(), String> {
-        // Extract sender identity from WeCom message
-        let userid = original
-            .from
-            .as_ref()
-            .map(|f| f.userid.as_str())
-            .unwrap_or("unknown");
-        let channel_sender = super::ChannelSender {
-            platform: "wecom".to_string(),
-            external_id: userid.to_string(),
-            display_name: userid.to_string(),
-        };
-
-        // Get or create session
-        let model = self.session_mapping.get_model(session_key).await;
-        let model_tuple = model
-            .as_ref()
-            .and_then(|m| super::parse_model_preference(m));
-
-        let session_id = match self.session_mapping.get_session(session_key).await {
-            Some(id) => id,
-            None => {
-                let id = self.create_opencode_session().await?;
-                self.session_mapping
-                    .set_session(session_key.to_string(), id.clone())
-                    .await;
-                id
-            }
-        };
-
-        // Build message parts
-        let mut parts = Vec::new();
-        if !message.trim().is_empty() {
-            parts.push(serde_json::json!({
-                "type": "text",
-                "text": message,
-            }));
-        }
-        if let Some(url) = image_url {
-            // Download file from WeCom, decrypt if encrypted, and convert to data URL
-            match self
-                .download_as_data_url(url, media_aeskey, filename_hint)
-                .await
-            {
-                Ok((data_url, mime, raw_bytes)) => {
-                    // Save attachment to workspace so the UI can display it.
-                    // Prefer the original filename's extension (precise for OOXML —
-                    // an xlsx mime contains "...spreadsheetml.sheet" so naive
-                    // `mime.split('/').next_back()` would yield ".sheet"); fall
-                    // back to a mime->ext lookup, then "bin".
-                    let ext = filename_hint
-                        .and_then(ext_from_filename)
-                        .unwrap_or_else(|| mime_to_ext(&mime).to_string());
-                    let ts = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis();
-                    let img_filename = format!("wecom-{}.{}", ts, ext);
-                    let uploads_dir = format!("{}/.uploads", self.workspace_path);
-                    let _ = tokio::fs::create_dir_all(&uploads_dir).await;
-                    let img_path = format!("{}/{}", uploads_dir, img_filename);
-                    let attachment_ref = if tokio::fs::write(&img_path, &raw_bytes).await.is_ok() {
-                        format!("[Attachment: {}] (path: {})", img_filename, img_path)
-                    } else {
-                        String::new()
-                    };
-
-                    // Determine if this file type can be sent as a file part to
-                    // the AI model. To match desktop ChatPanel behavior, only
-                    // images are sent as file parts; all other types (pdf, xlsx,
-                    // docx, md, etc.) are referenced by path so the agent can
-                    // read them via tools.
-                    let is_image = mime.starts_with("image/");
-
-                    if is_image {
-                        // Image: send as file part (AI model handles directly)
-                        let text_content = if parts.is_empty() {
-                            if attachment_ref.is_empty() {
-                                "请描述这张图片".to_string()
-                            } else {
-                                format!("请描述这张图片\n\n{}", attachment_ref)
-                            }
-                        } else {
-                            let existing = parts.pop().unwrap();
-                            let existing_text =
-                                existing.get("text").and_then(|t| t.as_str()).unwrap_or("");
-                            if attachment_ref.is_empty() {
-                                existing_text.to_string()
-                            } else {
-                                format!("{}\n\n{}", existing_text, attachment_ref)
-                            }
-                        };
-                        parts.push(serde_json::json!({
-                            "type": "text",
-                            "text": text_content,
-                        }));
-                        parts.push(serde_json::json!({
-                            "type": "file",
-                            "url": data_url,
-                            "mime": mime,
-                        }));
-                    } else {
-                        // Non-image files (pdf, xlsx, docx, md, etc.): only save
-                        // to .uploads and tell the agent the file path via text.
-                        // The agent will use tools (bash/read) to process it.
-                        let text_content = if parts.is_empty() {
-                            if attachment_ref.is_empty() {
-                                format!(
-                                    "用户上传了文件 {} (类型: {})，请使用工具读取并处理。",
-                                    img_filename, mime
-                                )
-                            } else {
-                                format!(
-                                    "用户上传了文件，请使用工具读取并处理。\n\n{}",
-                                    attachment_ref
-                                )
-                            }
-                        } else {
-                            let existing = parts.pop().unwrap();
-                            let existing_text =
-                                existing.get("text").and_then(|t| t.as_str()).unwrap_or("");
-                            if attachment_ref.is_empty() {
-                                existing_text.to_string()
-                            } else {
-                                format!("{}\n\n{}", existing_text, attachment_ref)
-                            }
-                        };
-                        parts.push(serde_json::json!({
-                            "type": "text",
-                            "text": text_content,
-                        }));
-                    }
-                }
-                Err(e) => {
-                    println!("[WeCom] Failed to download file: {}", e);
-                    // If there's no text either, send error as text
-                    if parts.is_empty() {
-                        parts.push(serde_json::json!({
-                            "type": "text",
-                            "text": format!("[用户发送了文件，但下载失败: {}]", e),
-                        }));
-                    }
-                }
-            }
-        }
-
-        if parts.is_empty() {
-            return Err("No content to send".to_string());
-        }
-
-        // Inject sender identity prefix into the first text part
-        for part in parts.iter_mut() {
-            if part.get("type").and_then(|t| t.as_str()) == Some("text") {
-                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                    let prefixed = format!(
-                        "[{}/{}] {}",
-                        channel_sender.display_name, channel_sender.platform, text
-                    );
-                    part["text"] = serde_json::Value::String(prefixed);
-                }
-                break;
-            }
-        }
-
-        // Stream OpenCode response to WeCom (retry with new session if prompt_async fails)
-        match self
-            .stream_opencode_to_wecom(
-                &session_id,
-                parts.clone(),
-                model_tuple.clone(),
-                req_id,
-                ws_sink,
-                question_ctx,
-            )
-            .await
-        {
-            Ok(()) => Ok(()),
-            Err(e) if e.contains("prompt_async failed") => {
-                // Session might be stale (e.g. OpenCode restarted), create a new one and retry
-                println!(
-                    "[WeCom] Prompt failed, recreating session and retrying: {}",
-                    e
-                );
-                let new_id = self.create_opencode_session().await?;
-                self.session_mapping
-                    .set_session(session_key.to_string(), new_id.clone())
-                    .await;
-                self.stream_opencode_to_wecom(
-                    &new_id,
-                    parts,
-                    model_tuple,
-                    req_id,
-                    ws_sink,
-                    question_ctx,
-                )
-                .await
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    /// Stream OpenCode SSE events directly to WeCom as stream chunks
-    async fn stream_opencode_to_wecom(
-        &self,
-        session_id: &str,
-        parts: Vec<serde_json::Value>,
-        model: Option<(String, String)>,
-        req_id: &str,
-        ws_sink: &WsSink,
-        question_ctx: Option<&super::QuestionContext>,
-    ) -> Result<(), String> {
-        use futures_util::StreamExt as _;
-
-        let port = self.opencode_port;
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-        let mut stream_id = uuid::Uuid::new_v4().to_string();
-
-        // Start thinking animation IMMEDIATELY (before prompt_async / SSE setup)
-        // State: 0 = running, 1 = paused, 2 = stopped
-        let (thinking_ctl_tx, thinking_ctl_rx) = tokio::sync::watch::channel(0u8);
-        let mut thinking_active = true;
-
-        // Send first frame synchronously so it appears instantly
-        let _ = self
-            .send_stream_chunk(req_id, &stream_id, "thinking(0s).", false, ws_sink)
-            .await;
-
-        // Animated thinking: time in middle, 1-5 dots cycle at end
-        // Each cycle round adds an extra invisible char to keep content growing
-        // (WeCom only re-renders when content length increases)
-        {
-            let ws_sink_clone = Arc::clone(ws_sink);
-            let req_id = req_id.to_string();
-            let stream_id = stream_id.clone();
-            let mut ctl_rx = thinking_ctl_rx;
-            tokio::spawn(async move {
-                let start = tokio::time::Instant::now();
-                let mut tick = 1usize;
-                loop {
-                    tokio::select! {
-                        _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
-                        _ = ctl_rx.changed() => {
-                            let state = *ctl_rx.borrow();
-                            if state == 2 { break; } // stopped
-                            if state == 1 {
-                                // paused — wait until resumed or stopped
-                                loop {
-                                    if ctl_rx.changed().await.is_err() { return; }
-                                    let s = *ctl_rx.borrow();
-                                    if s == 0 { break; }   // resumed
-                                    if s == 2 { return; }   // stopped
-                                }
-                                continue;
-                            }
-                        }
-                    }
-                    // Don't send frames while paused
-                    if *ctl_rx.borrow() != 0 {
-                        continue;
-                    }
-
-                    let elapsed = start.elapsed().as_secs();
-                    let time = if elapsed >= 60 {
-                        format!("{}m{}s", elapsed / 60, elapsed % 60)
-                    } else {
-                        format!("{}s", elapsed)
-                    };
-                    // 1-5 dots cycle, plus one "\u{200b}" (zero-width space) per full cycle to grow length
-                    let dot_count = (tick % 5) + 1;
-                    let zws_count = tick / 5;
-                    let dots = ".".repeat(dot_count);
-                    let zws = "\u{200b}".repeat(zws_count);
-                    let frame = format!("thinking({}){}{}", time, dots, zws);
-                    let _ = Self::send_stream_chunk_static(
-                        &req_id,
-                        &stream_id,
-                        &frame,
-                        false,
-                        &ws_sink_clone,
-                    )
-                    .await;
-                    tick += 1;
-                }
-            });
-        }
-
-        // Step 1: Connect to SSE FIRST (before sending message) to avoid missing delta events
-        let sse_url = format!("http://127.0.0.1:{}/event", port);
-        let response = client
-            .get(&sse_url)
-            .header("Accept", "text/event-stream")
-            .timeout(std::time::Duration::from_secs(900))
-            .send()
-            .await
-            .map_err(|e| {
-                let _ = thinking_ctl_tx.send(2);
-                format!("Failed to connect to SSE: {}", e)
-            })?;
-
-        // Step 2: Now send message async (SSE is already listening)
-        let url = format!(
-            "http://127.0.0.1:{}/session/{}/prompt_async",
-            port, session_id
-        );
-        let mut body = serde_json::json!({ "parts": parts });
-        if let Some((provider_id, model_id)) = model {
-            body["model"] = serde_json::json!({
-                "providerID": provider_id,
-                "modelID": model_id
-            });
-        }
-
-        let send_timestamp_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-
-        let resp = client
-            .post(&url)
-            .json(&body)
-            .timeout(std::time::Duration::from_secs(10))
-            .send()
-            .await
-            .map_err(|e| {
-                let _ = thinking_ctl_tx.send(2);
-                format!("Failed to send async message: {}", e)
-            })?;
-
-        if !resp.status().is_success() {
-            let _ = thinking_ctl_tx.send(2);
-            let status = resp.status();
-            let body_text = resp.text().await.unwrap_or_default();
-            return Err(format!(
-                "OpenCode prompt_async failed: HTTP {} - {}",
-                status, body_text
-            ));
-        }
-
-        let mut stream = response.bytes_stream();
-        let mut buffer = String::new();
-        let start_time = tokio::time::Instant::now();
-
-        // Track accumulated text for streaming
-        let mut accumulated_text = String::new();
-        let mut accumulated_reasoning = String::new();
-        let mut last_send_len = 0usize;
-        let mut last_send_time = tokio::time::Instant::now();
-
-        // Track sessions for permission approval
-        let mut tracked_sessions = std::collections::HashSet::new();
-        tracked_sessions.insert(session_id.to_string());
-        let mut approved_permission_ids = std::collections::HashSet::new();
-        // Track whether we've seen activity for our message (delta or busy status)
-        // so we can detect abort (idle after activity) vs spurious idle events
-        let mut has_seen_activity = false;
-        // When true, a question is pending user reply — idle is expected, not an abort
-        let mut waiting_for_question = false;
-
-        println!(
-            "[Gateway-{}] Streaming AI response to WeCom",
-            &session_id[..session_id.len().min(8)]
-        );
-
-        while let Some(chunk) = stream.next().await {
-            if start_time.elapsed() > std::time::Duration::from_secs(900) {
-                // Stop animation and send whatever we have as final
-                if thinking_active {
-                    let _ = thinking_ctl_tx.send(2);
-                }
-                if !accumulated_text.is_empty() {
-                    let _ = self
-                        .send_stream_chunk(req_id, &stream_id, &accumulated_text, true, ws_sink)
-                        .await;
-                }
-                return Err("Timeout waiting for OpenCode response".to_string());
-            }
-
-            let chunk = chunk.map_err(|e| format!("Stream error: {}", e))?;
-            let text = String::from_utf8_lossy(&chunk);
-            buffer.push_str(&text);
-
-            while let Some(pos) = buffer.find("\n\n") {
-                let event_text = buffer[..pos].to_string();
-                buffer = buffer[pos + 2..].to_string();
-
-                if let Some(event) = super::parse_sse_event(&event_text) {
-                    let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
-
-                    let event_session_id = event
-                        .get("properties")
-                        .and_then(|p| {
-                            p.get("sessionID")
-                                .or_else(|| p.get("sessionId"))
-                                .or_else(|| p.get("info").and_then(|info| info.get("sessionID")))
-                                .or_else(|| p.get("part").and_then(|part| part.get("sessionID")))
-                        })
-                        .and_then(|s| s.as_str());
-
-                    match event_type {
-                        "session.created" => {
-                            let new_session_id = event
-                                .get("properties")
-                                .and_then(|p| {
-                                    p.get("sessionID")
-                                        .or_else(|| p.get("info").and_then(|i| i.get("id")))
-                                })
-                                .and_then(|id| id.as_str());
-                            let parent_id = event
-                                .get("properties")
-                                .and_then(|p| p.get("info").and_then(|i| i.get("parentID")))
-                                .and_then(|p| p.as_str());
-                            if parent_id == Some(session_id) {
-                                if let Some(child_id) = new_session_id {
-                                    tracked_sessions.insert(child_id.to_string());
-                                }
-                            }
-                        }
-
-                        "permission.asked" => {
-                            let perm_session_id = event
-                                .get("properties")
-                                .and_then(|p| p.get("sessionID"))
-                                .and_then(|s| s.as_str());
-                            let perm_id = event
-                                .get("properties")
-                                .and_then(|p| p.get("id"))
-                                .and_then(|id| id.as_str());
-
-                            if let (Some(sess_id), Some(perm_id_str)) = (perm_session_id, perm_id) {
-                                if tracked_sessions.contains(sess_id)
-                                    && !approved_permission_ids.contains(perm_id_str)
-                                {
-                                    let port_clone = port;
-                                    let perm_id_clone = perm_id_str.to_string();
-                                    tokio::spawn(async move {
-                                        let client = reqwest::Client::builder()
-                                            .timeout(std::time::Duration::from_secs(30))
-                                            .build()
-                                            .unwrap_or_else(|_| reqwest::Client::new());
-                                        let url = format!(
-                                            "http://127.0.0.1:{}/permission/{}/reply",
-                                            port_clone, perm_id_clone
-                                        );
-                                        let _ = client
-                                            .post(&url)
-                                            .json(&serde_json::json!({"reply":"always"}))
-                                            .send()
-                                            .await;
-                                    });
-                                    approved_permission_ids.insert(perm_id_str.to_string());
-                                }
-                            }
-                        }
-
-                        "question.asked" => {
-                            if let Some(ctx) = question_ctx {
-                                waiting_for_question = true;
-                                has_seen_activity = false;
-                                // Stop thinking animation permanently (it holds the old stream_id)
-                                if thinking_active {
-                                    let _ = thinking_ctl_tx.send(2); // 2 = stopped
-                                    thinking_active = false;
-                                }
-                                // Finish the current stream so WeCom closes it cleanly
-                                {
-                                    let finish_text = if accumulated_text.is_empty() {
-                                        accumulated_reasoning.clone()
-                                    } else {
-                                        accumulated_text.clone()
-                                    };
-                                    let _ = self
-                                        .send_stream_chunk(
-                                            req_id,
-                                            &stream_id,
-                                            if finish_text.is_empty() {
-                                                " "
-                                            } else {
-                                                &finish_text
-                                            },
-                                            true,
-                                            ws_sink,
-                                        )
-                                        .await;
-                                }
-
-                                let questions = super::parse_question_event(&event);
-                                let question_id = event
-                                    .get("properties")
-                                    .and_then(|p| p.get("id"))
-                                    .and_then(|id| id.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-
-                                // Send question as text with numbered options.
-                                // User replies with /answer <number> or quote-reply.
-                                {
-                                    let text = super::format_question_message(
-                                        &questions,
-                                        &question_id,
-                                        i18n::get_locale(&self.workspace_path),
-                                    );
-                                    let q_stream_id = uuid::Uuid::new_v4().to_string();
-                                    let _ = self
-                                        .send_stream_chunk(
-                                            req_id,
-                                            &q_stream_id,
-                                            &text,
-                                            true,
-                                            ws_sink,
-                                        )
-                                        .await;
-                                }
-
-                                println!(
-                                    "[WeCom] Question displayed as text: id={}, {} question(s)",
-                                    question_id,
-                                    questions.len()
-                                );
-
-                                // Prepare new stream for post-question response
-                                stream_id = uuid::Uuid::new_v4().to_string();
-                                accumulated_text.clear();
-                                accumulated_reasoning.clear();
-                                last_send_len = 0;
-
-                                println!("[WeCom] Question displayed: {}", question_id);
-
-                                // Set up reply channel
-                                let prefix = &session_id[..session_id.len().min(8)];
-                                super::handle_question_event(
-                                    ctx,
-                                    &event,
-                                    port,
-                                    prefix,
-                                    &tracked_sessions,
-                                )
-                                .await;
-                            }
-                            continue;
-                        }
-
-                        "question.answered" => {
-                            waiting_for_question = false;
-                            // Thinking animation was stopped on question.asked (old stream_id),
-                            // so no need to resume. Content will flow on the new stream_id.
-                            continue;
-                        }
-
-                        "message.part.delta" => {
-                            if event_session_id != Some(session_id) {
-                                continue;
-                            }
-                            // Extract delta text
-                            if let Some(delta) = event
-                                .get("properties")
-                                .and_then(|p| p.get("delta"))
-                                .and_then(|d| d.as_str())
-                            {
-                                let part_type = event
-                                    .get("properties")
-                                    .and_then(|p| p.get("type"))
-                                    .and_then(|t| t.as_str())
-                                    .unwrap_or("");
-                                // Track reasoning separately (used as fallback if no text output)
-                                if part_type == "reasoning" {
-                                    has_seen_activity = true;
-                                    accumulated_reasoning.push_str(delta);
-                                }
-
-                                // Stream both text and reasoning to WeCom in real-time.
-                                // Text takes priority; reasoning streams when no text yet.
-                                let is_text = part_type == "text_delta" || part_type == "text";
-                                let is_reasoning = part_type == "reasoning";
-
-                                if is_text {
-                                    has_seen_activity = true;
-                                    // If we were streaming reasoning, switch to text-only
-                                    if accumulated_text.is_empty()
-                                        && !accumulated_reasoning.is_empty()
-                                    {
-                                        // Start fresh stream for text content
-                                        stream_id = uuid::Uuid::new_v4().to_string();
-                                        last_send_len = 0;
-                                    }
-                                    accumulated_text.push_str(delta);
-                                }
-
-                                // Determine what to stream: text if available, otherwise reasoning
-                                let (stream_content, stream_len) = if !accumulated_text.is_empty() {
-                                    (&accumulated_text, accumulated_text.len())
-                                } else if is_reasoning {
-                                    (&accumulated_reasoning, accumulated_reasoning.len())
-                                } else {
-                                    continue;
-                                };
-
-                                if is_text || is_reasoning {
-                                    // On first content, stop thinking animation
-                                    if thinking_active && last_send_len == 0 {
-                                        thinking_active = false;
-                                        let _ = thinking_ctl_tx.send(2);
-                                        if let Err(e) = self
-                                            .send_stream_chunk(
-                                                req_id,
-                                                &stream_id,
-                                                stream_content,
-                                                false,
-                                                ws_sink,
-                                            )
-                                            .await
-                                        {
-                                            eprintln!("[WeCom] Failed to send first chunk: {}", e);
-                                        }
-                                        last_send_len = stream_len;
-                                        last_send_time = tokio::time::Instant::now();
-                                        continue;
-                                    }
-
-                                    // Send intermediate chunk every 2s or 500 chars
-                                    let since_last = last_send_time.elapsed();
-                                    let new_chars = stream_len - last_send_len;
-                                    if since_last > std::time::Duration::from_secs(2)
-                                        && new_chars > 10
-                                        || new_chars > 500
-                                    {
-                                        if let Err(e) = self
-                                            .send_stream_chunk(
-                                                req_id,
-                                                &stream_id,
-                                                stream_content,
-                                                false,
-                                                ws_sink,
-                                            )
-                                            .await
-                                        {
-                                            eprintln!("[WeCom] Failed to send stream chunk: {}", e);
-                                        }
-                                        last_send_len = stream_len;
-                                        last_send_time = tokio::time::Instant::now();
-                                    }
-                                }
-                            }
-                        }
-
-                        "message.updated" => {
-                            if event_session_id != Some(session_id) {
-                                continue;
-                            }
-                            if let Some(info) = event.get("properties").and_then(|p| p.get("info"))
-                            {
-                                let role = info.get("role").and_then(|r| r.as_str());
-                                let created_time = info
-                                    .get("time")
-                                    .and_then(|t| t.get("created"))
-                                    .and_then(|c| c.as_u64());
-                                let completed_time = info
-                                    .get("time")
-                                    .and_then(|t| t.get("completed"))
-                                    .and_then(|c| c.as_u64());
-                                let finish_reason = info.get("finish").and_then(|f| f.as_str());
-                                let msg_id =
-                                    info.get("id").and_then(|id| id.as_str()).unwrap_or("?");
-
-                                println!("[Gateway-{}] message.updated: role={:?}, created={:?}, completed={:?}, finish={:?}, msg={}, send_ts={}, waiting_q={}",
-                                    &session_id[..session_id.len().min(8)], role, created_time, completed_time, finish_reason, msg_id, send_timestamp_ms, waiting_for_question);
-
-                                // tool-calls: intermediate step, reset activity flag so
-                                // the subsequent idle doesn't prematurely end the stream
-                                if role == Some("assistant")
-                                    && completed_time.is_some()
-                                    && finish_reason == Some("tool-calls")
-                                {
-                                    has_seen_activity = false;
-                                }
-
-                                if role == Some("assistant")
-                                    && created_time.is_some_and(|t| t >= send_timestamp_ms)
-                                    && completed_time.is_some()
-                                    && finish_reason != Some("tool-calls")
-                                {
-                                    println!("[Gateway-{}] Message completed, sending final stream chunk", &session_id[..session_id.len().min(8)]);
-
-                                    // Stop thinking animation if still active
-                                    if thinking_active {
-                                        // No need to update thinking_active — this branch ends the stream processing
-                                        let _ = thinking_ctl_tx.send(2);
-                                    }
-
-                                    // If no streaming text, use reasoning or fetch full message
-                                    if accumulated_text.is_empty() {
-                                        // First try reasoning content (some models only produce thinking)
-                                        if !accumulated_reasoning.is_empty() {
-                                            accumulated_text = accumulated_reasoning.clone();
-                                        } else {
-                                            // Last resort: fetch the full message from API
-                                            let msg_id = info
-                                                .get("id")
-                                                .and_then(|id| id.as_str())
-                                                .unwrap_or("");
-                                            if let Ok(full_text) = super::fetch_message_content(
-                                                port, session_id, msg_id,
-                                            )
-                                            .await
-                                            {
-                                                accumulated_text = full_text;
-                                            }
-                                        }
-                                    }
-
-                                    // Send final chunk — use text if available, otherwise reasoning
-                                    let final_text = if !accumulated_text.is_empty() {
-                                        accumulated_text
-                                    } else if !accumulated_reasoning.is_empty() {
-                                        accumulated_reasoning
-                                    } else {
-                                        "(No response)".to_string()
-                                    };
-                                    let _ = self
-                                        .send_stream_chunk(
-                                            req_id,
-                                            &stream_id,
-                                            &final_text,
-                                            true,
-                                            ws_sink,
-                                        )
-                                        .await;
-
-                                    // After text stream, check for image parts and send them
-                                    let msg_id_str =
-                                        info.get("id").and_then(|id| id.as_str()).unwrap_or("");
-                                    let gateway = self.clone();
-                                    let req_id_owned = req_id.to_string();
-                                    let ws_sink_clone = ws_sink.clone();
-                                    let sid = session_id.to_string();
-                                    let mid = msg_id_str.to_string();
-                                    tokio::spawn(async move {
-                                        gateway
-                                            .send_image_parts_if_any(
-                                                port,
-                                                &sid,
-                                                &mid,
-                                                &req_id_owned,
-                                                &ws_sink_clone,
-                                            )
-                                            .await;
-                                    });
-
-                                    return Ok(());
-                                }
-                            }
-                        }
-
-                        "session.status" | "session.idle" => {
-                            if event_session_id != Some(session_id) {
-                                continue;
-                            }
-                            let status_type = event
-                                .get("properties")
-                                .and_then(|p| p.get("status"))
-                                .and_then(|s| s.get("type"))
-                                .and_then(|t| t.as_str());
-                            let is_busy = status_type == Some("busy");
-                            let is_idle =
-                                status_type == Some("idle") || event_type == "session.idle";
-
-                            println!("[Gateway-{}] session.status: type={:?}, busy={}, idle={}, has_activity={}, waiting_q={}",
-                                &session_id[..session_id.len().min(8)], status_type, is_busy, is_idle, has_seen_activity, waiting_for_question);
-
-                            if is_busy {
-                                has_seen_activity = true;
-                            }
-
-                            // Only treat idle as abort/completion if we've seen activity
-                            // and we're not waiting for a question reply (idle is expected then)
-                            if is_idle && has_seen_activity && !waiting_for_question {
-                                println!(
-                                    "[Gateway-{}] Session went idle (aborted?), finishing stream",
-                                    &session_id[..8]
-                                );
-
-                                if thinking_active {
-                                    let _ = thinking_ctl_tx.send(2);
-                                }
-
-                                let final_text = if accumulated_text.is_empty() {
-                                    "(已终止)".to_string()
-                                } else {
-                                    accumulated_text
-                                };
-                                return self
-                                    .send_stream_chunk(
-                                        req_id,
-                                        &stream_id,
-                                        &final_text,
-                                        true,
-                                        ws_sink,
-                                    )
-                                    .await;
-                            }
-                        }
-
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        // SSE ended unexpectedly — stop animation and send whatever we have
-        if thinking_active {
-            let _ = thinking_ctl_tx.send(2);
-        }
-        if !accumulated_text.is_empty() {
-            return self
-                .send_stream_chunk(req_id, &stream_id, &accumulated_text, true, ws_sink)
-                .await;
-        }
-        Err("SSE stream ended unexpectedly".to_string())
-    }
 
     /// Handle enter_chat event — send welcome message
     async fn handle_enter_chat(&self, req_id: &str, ws_sink: &WsSink) {
@@ -2855,97 +1921,6 @@ impl WeComGateway {
             .map_err(|e| format!("Failed to send {}: {}", media_type, e))
     }
 
-    /// After a message completes, fetch its parts and send any images to WeCom.
-    async fn send_image_parts_if_any(
-        &self,
-        port: u16,
-        session_id: &str,
-        message_id: &str,
-        req_id: &str,
-        ws_sink: &WsSink,
-    ) {
-        // Fetch full message from OpenCode API
-        let client = match reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-        {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        let url = format!("http://127.0.0.1:{}/session/{}/message", port, session_id);
-        let messages: Vec<serde_json::Value> = match client.get(&url).send().await {
-            Ok(resp) => match resp.json().await {
-                Ok(m) => m,
-                Err(_) => return,
-            },
-            Err(_) => return,
-        };
-
-        // Find the target message
-        let msg = match messages.iter().find(|m| {
-            m.get("info")
-                .and_then(|i| i.get("id"))
-                .and_then(|id| id.as_str())
-                == Some(message_id)
-        }) {
-            Some(m) => m,
-            None => return,
-        };
-
-        let parts = match msg.get("parts").and_then(|p| p.as_array()) {
-            Some(p) => p,
-            None => return,
-        };
-
-        for part in parts {
-            let part_type = part.get("type").and_then(|t| t.as_str()).unwrap_or("");
-            if part_type != "file" {
-                continue;
-            }
-
-            // Extract data URL from the file part
-            let content = match part.get("content").and_then(|c| c.as_str()) {
-                Some(c) if c.starts_with("data:image/") => c,
-                _ => continue,
-            };
-
-            // Parse data URL: data:image/png;base64,<data>
-            let base64_part = match content.split(",").nth(1) {
-                Some(b) => b,
-                None => continue,
-            };
-
-            let image_bytes = match base64::engine::general_purpose::STANDARD.decode(base64_part) {
-                Ok(b) => b,
-                Err(e) => {
-                    eprintln!("[WeCom] Failed to decode image base64: {}", e);
-                    continue;
-                }
-            };
-
-            // Determine filename from mime type
-            let filename = if content.starts_with("data:image/png") {
-                "image.png"
-            } else if content.starts_with("data:image/gif") {
-                "image.gif"
-            } else if content.starts_with("data:image/webp") {
-                "image.webp"
-            } else {
-                "image.jpg"
-            };
-
-            match self
-                .upload_and_send_media_reply(req_id, &image_bytes, filename, "image", ws_sink)
-                .await
-            {
-                Ok(()) => println!(
-                    "[WeCom] Image part sent successfully ({} bytes)",
-                    image_bytes.len()
-                ),
-                Err(e) => eprintln!("[WeCom] Failed to send image part: {}", e),
-            }
-        }
-    }
 }
 
 /// Send a proactive message to a WeCom conversation.
